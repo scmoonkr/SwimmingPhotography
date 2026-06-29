@@ -1,0 +1,14 @@
+{
+  "name": "swimming-photography",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "server": "npm run dev --workspace=server",
+    "client": "npm run dev --workspace=client",
+    "dev": "npm run server & npm run client"
+  }
+}
