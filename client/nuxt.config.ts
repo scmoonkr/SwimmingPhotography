@@ -1,5 +1,7 @@
 export default defineNuxtConfig({
-  devtools: { enabled: true },
+  // devtools 는 프로덕션 빌드에서 rolldown 네이티브 바이너리를 요구해 서버 빌드를 깨뜨림.
+  // 개발 때만 켜고 빌드에서는 끈다. (nuxt build 시 NODE_ENV=production)
+  devtools: { enabled: process.env.NODE_ENV !== 'production' },
 
   devServer: {
     port: 6641,
