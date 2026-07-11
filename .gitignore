@@ -2,6 +2,11 @@ node_modules/
 .env
 dist/
 
+# package-lock.json 은 커밋하지 않는다.
+# Windows(개발)에서 만든 lock 이 Linux(서버)에서 네이티브 바이너리 설치를 막는
+# npm optional-deps 버그(#4828)를 유발 → 각 환경에서 npm install 로 생성.
+package-lock.json
+
 # Nuxt 빌드 산출물
 .nuxt/
 .output/
