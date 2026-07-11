@@ -1,0 +1,40 @@
+export default defineNuxtConfig({
+  devtools: { enabled: true },
+
+  devServer: {
+    port: 6642,
+  },
+
+  css: ['~/assets/css/dashboard.css'],
+
+  app: {
+    head: {
+      htmlAttrs: { lang: 'ko' },
+      title: 'Swimming Photography · Dashboard',
+      meta: [
+        { charset: 'UTF-8' },
+        { name: 'viewport', content: 'width=device-width, initial-scale=1.0' },
+        { name: 'robots', content: 'noindex, nofollow' },
+      ],
+      link: [
+        { rel: 'icon', type: 'image/png', href: '/images/favicon.png' },
+        { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
+        { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: '' },
+        {
+          rel: 'stylesheet',
+          href: 'https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=Noto+Serif+KR:wght@700&display=swap',
+        },
+      ],
+    },
+  },
+
+  // 관리자 대시보드 → Express API(6640) 프록시
+  nitro: {
+    devProxy: {
+      '/api': {
+        target: 'http://127.0.0.1:6640',
+        changeOrigin: true,
+      },
+    },
+  },
+})

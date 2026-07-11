@@ -1,3 +1,14 @@
 node_modules/
 .env
 dist/
+
+# Nuxt 빌드 산출물
+.nuxt/
+.output/
+
+# 옛 정적본 백업 (사용 안 함, 6GB 원본 이미지 포함) — 커밋 제외
+client/ppppp/
+
+# 디자인 원본의 대용량 이미지 (원본 40~49MB 다수) — 코드/프로토타입만 커밋, 원본은 제외
+docs/html/images/temp/
+docs/html/images/*.bak

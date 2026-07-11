@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>검색 — Swimming Photography</title>
+<meta name="description" content="Swimming Photography by Medalbank. 우리나라 대한민국의 수영 이야기와 수영대회 이야기를 전합니다. 운영, 촬영, 취재, 작성, 배포까지 오직 수영인의 마음으로만 운영됩니다.">
+<link rel="canonical" href="https://swimmingphotography.com/">
+<meta name="robots" content="index, follow">
+<!-- Open Graph / 공유 미리보기 -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Swimming Photography">
+<meta property="og:title" content="Swimming Photography — 수영 전문 신문">
+<meta property="og:description" content="Swimming Photography by Medalbank. 우리나라 대한민국의 수영 이야기와 수영대회 이야기를 전합니다. 촬영, 취재, 작성, 배포까지 오직 수영인의 마음으로만 운영됩니다.">
+<meta property="og:url" content="https://swimmingphotography.com/">
+<meta property="og:locale" content="ko_KR">
+<meta property="og:image" content="https://swimmingphotography.com/og-cover.jpg">
+<!-- 구조화 데이터: 브랜드(Swimming Photography by Medalbank/스위밍포토그래피) ↔ 사이트 연결 + 검색박스 -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "NewsMediaOrganization",
+      "@id": "https://swimmingphotography.com/#organization",
+      "name": "Swimming Photography",
+      "alternateName": ["Swimming Photography by Medalbank", "스위밍포토그래피", "Swimming Photography", "Medalbank"],
+      "url": "https://swimmingphotography.com/",
+      "logo": "https://swimmingphotography.com/logo.png",
+      "email": "press@medalbank.com",
+      "sameAs": []
+    },
+    {
+      "@type": "WebSite",
+      "@id": "https://swimmingphotography.com/#website",
+      "name": "Swimming Photography",
+      "alternateName": ["Swimming Photography by Medalbank", "스위밍포토그래피"],
+      "url": "https://swimmingphotography.com/",
+      "inLanguage": "ko-KR",
+      "publisher": { "@id": "https://swimmingphotography.com/#organization" },
+      "potentialAction": {
+        "@type": "SearchAction",
+        "target": { "@type": "EntryPoint", "urlTemplate": "https://swimmingphotography.com/?s={search_term_string}" },
+        "query-input": "required name=search_term_string"
+      }
+    }
+  ]
+}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@500;700&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #1A1A1A;
+    --ink-mute: #6A6A68;
+    --ink-light: #9A9A97;
+    --line: #E4E4E1;
+    --line-soft: #F0F0EE;
+    --paper: #FFFFFF;
+    --paper-deep: #F6F5F3;
+    --orange: #FF5A00;               /* 형광 주황 — 강조색 */
+    --orange-deep: #C2410C;          /* 버닝 오렌지 — hover */
+    --orange-bg: #FFF3EA;            /* 옅은 주황 틴트 */
+    --grad-orange: linear-gradient(135deg, #FF7A2D 0%, #FF4D00 100%);
+    --sans: 'Noto Sans KR', -apple-system, BlinkMacSystemFont, sans-serif;
+    --serif: 'Noto Serif KR', Georgia, serif;
+    --mono: ui-monospace, 'SF Mono', Menlo, Consolas, 'Roboto Mono', monospace;  /* 기록(00:00.00) 전용 */
+    --maxw: 1200px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    font-family: var(--serif);
+    color: var(--ink);
+    background: var(--paper);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  [hidden] { display: none !important; }
+  a { color: inherit; text-decoration: none; }
+  img { display: block; max-width: 100%; }
+
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
+
+  /* ── 로고 ── */
+  .site-head { padding-top: var(--frame-gap); padding-bottom: 20px; } /* 좌우 패딩은 .wrap(24px) 유지 → 로고가 본문과 같은 좌측 라인 */
+  .logo {
+    font-family: var(--serif);
+    font-weight: 700;
+    font-size: 26px;
+    letter-spacing: 0.01em;
+    color: var(--ink);
+  }
+  .logo span { color: var(--orange); }
+  .tagline {
+    font-size: 13px;
+    color: var(--ink-mute);
+    margin-top: 6px;
+    letter-spacing: 0.01em;
+  }
+
+  /* ── 툴바: 필터(좌) + 보기전환(우) ── */
+  .toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;   /* 메뉴 텍스트를 헤더 바로 밑(breadcrumb과 동일선)에서 시작 */
+    gap: 16px;
+    flex-wrap: wrap;
+    padding: 0 0 14px;   /* top 0 → 콘텐츠 시작점 고정 */
+    margin-bottom: 4px;
+  }
+  .filters { display: flex; align-items: flex-start; gap: 6px; flex-wrap: wrap; }
+  .chip {
+    font-family: var(--serif);
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.6;                 /* breadcrumb과 동일 줄높이 → 시작선 일치 */
+    color: var(--ink-light);          /* 미선택: 흐리게 */
+    background: none;
+    padding: 0 6px;
+    cursor: pointer;
+    transition: color .15s;
+  }
+  .chip:hover { color: var(--ink); }                    /* hover: 진하게 */
+  .chip.active { color: var(--ink); font-weight: 700; } /* 선택: 진하게 + 굵게 */
+  .filters .chip:first-child { padding-left: 0; }       /* 첫 칩 좌측 패딩 제거 → 로고·콘텐츠와 좌측 정렬 */
+  .region-select {
+    font-family: var(--serif);
+    font-size: 13px;
+    color: var(--ink-light);
+    background-color: transparent;
+    padding: 0 18px 0 4px;
+    cursor: pointer;
+    -webkit-appearance: none; appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%236A6A68' stroke-width='1.4'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+  }
+  .view-toggle {
+    display: inline-flex;
+    flex: 0 0 auto;
+    font-family: var(--serif);
+    font-size: 13px;
+    line-height: 1.6;
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+  }
+  .view-toggle .vt-inner { display: inline-flex; will-change: transform; }
+  .view-toggle .vt-dim { color: var(--ink-light); font-weight: 500; }
+  .view-toggle .vt-sep { color: var(--ink-light); margin: 0 0.3em; }   /* 점 좌우 동일 간격 */
+  .view-toggle .vt-cur { color: var(--ink); font-weight: 700; }
+  .view-toggle:hover .vt-dim,
+  .view-toggle:hover .vt-sep { color: var(--ink-mute); }
+
+  /* ── 검색결과 제목 (메뉴 자리 대체) ── */
+  .result-title { font-family: var(--serif); font-size: 13px; font-weight: 500; line-height: 1.6; color: var(--ink-mute); margin: 0; }
+  .result-title strong { color: var(--ink); font-weight: 700; }
+  /* 결과 제목 + "다른 내용 찾아보기" 링크를 한 줄에 */
+  .result-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .research-link { font-family: var(--serif); font-size: 13px; font-weight: 500; line-height: 1.6; color: var(--ink-light); background: none; border: none; padding: 0; cursor: pointer; transition: color .15s; }
+  .research-link:hover { color: var(--ink); }
+  .research-link[hidden] { display: none; }
+
+  /* ── 검색 인풋폼 (메뉴 "검색" 클릭 시 노출) ── */
+  .search-panel { padding: 6px 0 16px; }
+  .search-input {
+    width: 100%; font-family: var(--serif); font-size: 22px; color: var(--ink);
+    background: none; border: none; border-bottom: 2px solid var(--ink);
+    padding: 10px 2px; line-height: 1.3;
+  }
+  .search-input::placeholder { color: var(--ink-light); font-size: 16px; }
+  .search-input:focus { outline: none; border-bottom-color: var(--orange); }
+
+  /* ── 콘텐츠 공통 ── */
+  .items { margin: 6px 0 8px; }
+  .row { color: var(--ink); }
+  .thumb {
+    background-color: var(--paper-deep);
+    background-size: cover;
+    background-position: center;
+    position: relative;
+    overflow: hidden;
+  }
+  /* 그리드 카드: 날짜를 사진 좌하단에 올림 (흰색 + 옅은 그림자로 어디서나 보이게) */
+  .thumb-date {
+    position: absolute; left: 9px; bottom: 8px;
+    font-family: var(--serif); font-size: 12px; color: #fff;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.5); letter-spacing: .01em;
+    pointer-events: none; display: none;
+  }
+
+  /* ── 그리드 뷰 ── */
+  body.view-grid .items {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    gap: 26px 20px;
+    padding-top: 22px;
+  }
+  body.view-grid .row { display: flex; flex-direction: column; gap: 9px; }
+  body.view-grid .thumb { display: block; aspect-ratio: 4 / 3; border-radius: 0; }
+  body.view-grid .row:hover .thumb { opacity: .9; }
+  .c-cat { color: var(--orange); font-weight: 700; margin-right: 0.4em; }   /* 카테고리 + 제목 — 띄어쓰기로 구분(바 없음) */
+  .c-bar { display: none; }
+  body.view-grid .c-title {
+    font-family: var(--serif); font-weight: 700; font-size: 16px;
+    line-height: 1.45; color: var(--ink);
+  }
+  body.view-grid .row:hover .c-title { color: var(--orange-deep); }
+  body.view-grid .c-date { display: none; }   /* 날짜는 사진 좌하단(.thumb-date)으로 이동 */
+  body.view-grid .thumb-date { display: block; }
+  body.view-grid .c-athlete,
+  body.view-grid .c-event,
+  body.view-grid .c-record { display: none; }
+
+  /* ── 그리드 더보기 카드 (빈 사진 + 가운데 버튼, 그리드 모드 전용) ── */
+  .load-card { display: none; }
+  body.view-grid .load-card { display: block; align-self: start; }   /* start: 같은 행의 키 큰 카드에 끌려 늘어나지 않게 → 버튼이 항상 4/3 유지 */
+  .load-card .load-btn {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
+    width: 100%; aspect-ratio: 4 / 3;
+    font-family: var(--serif); font-size: 14px; font-weight: 600;
+    color: var(--ink-light); background: var(--paper-deep);
+    border: none; cursor: pointer;
+    text-align: center; padding: 10px; line-height: 1.4;
+    transition: background .15s, color .15s, border-color .15s;
+  }
+  .load-card .load-btn:hover { background: var(--orange); color: var(--paper); }
+  .load-card .lb-sub { font-size: 12px; font-weight: 400; color: var(--ink-light); }   /* 둘째 줄: n개의 기사가 있습니다 */
+  .load-card .load-btn:hover .lb-sub { color: var(--paper); }
+
+  /* ── 리스트 뷰 ── */
+  body.view-list .row {
+    display: grid;
+    grid-template-columns: 122px 1fr 80px 185px 98px;  /* 날짜 / 제목 / 선수 / 종목 / 기록 — 기록 우측정렬로 맨 오른쪽 */
+    column-gap: var(--frame-gap);   /* 컬럼 간격 = --frame-gap. 제목(1fr)만 유연하게 늘어남 */
+    align-items: center;   /* 각 줄 내용을 세로 가운데 정렬 */
+  }
+  body.view-list .items { padding-top: 0; }
+  body.view-list .row {
+    padding: 14px 0;
+    border-bottom: 1px solid var(--line-soft);   /* 게시글 사이 흐린 구분선 */
+    
+  }
+  body.view-list .row:hover { background: rgba(0,0,0,0.018); }   /* 훨씬 흐릿한 hover 배경 */
+  body.view-list .thumb { display: none; }
+  body.view-list .c-date { font-size: 12.5px; color: var(--ink-light); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  body.view-list .c-title { font-family: var(--serif); font-weight: 500; font-size: 15.5px; line-height: 1.4; color: var(--ink); }
+  body.view-list .row:hover .c-title { color: var(--orange-deep); }
+  body.view-list .c-athlete,
+  body.view-list .c-event,
+  body.view-list .c-record { font-size: 13px; color: var(--ink-mute); }
+  body.view-list .c-record { font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--ink); text-align: right; }  /* 기록 — 모노스페이스 + 우측정렬 */
+  .c-meta { display: none; }   /* 모바일 리스트에서만 노출 (제목 아래 메타 줄) */
+  /* 컬럼 순서: 날짜 / 제목 / 선수 / 종목 / 기록 (기록 우측정렬 → 맨 오른쪽) */
+  body.view-list .c-date    { order: 1; }
+  body.view-list .c-title   { order: 2; }
+  body.view-list .c-athlete { order: 3; }
+  body.view-list .c-event   { order: 4; }
+  body.view-list .c-record  { order: 5; }
+  body.view-list .row:last-of-type { border-bottom: none; }   /* 마지막 기사 줄 아래 보더 없음 */
+  /* 월별 그룹 헤더 (리스트 모드 전용) */
+  .month-group { display: none; }
+  body.view-list .month-group {
+    display: block;
+    font-family: var(--serif);
+    font-size: 12.5px; font-weight: 400; letter-spacing: normal;   /* 날짜와 동일한 폰트·사이즈 → 라인 정렬 */
+    color: var(--ink-mute);                                        /* 색상만 날짜(--ink-light)와 구분 */
+    padding: 26px 0 10px;
+  }
+  /* 그리드 뷰: 월 헤더도 표시 (전체 폭 단독 행) */
+  body.view-grid .month-group {
+    display: block; grid-column: 1 / -1;
+    font-family: var(--serif); font-size: 13px; font-weight: 400; color: var(--ink-mute);
+    padding: 34px 0 14px;
+  }
+  body.view-grid .month-group:first-child { padding-top: 0; }
+
+  .empty {
+    display: flex; align-items: center; justify-content: center;
+    width: 100%; max-width: 100%; aspect-ratio: 16 / 9;
+    margin: 24px 0; padding: 24px;
+    background: var(--paper-deep);
+    color: var(--ink-light); font-size: 14px; text-align: center; line-height: 1.6;
+  }
+
+  /* ── 푸터 (필요적 게재사항) — 스타일은 assets/footer.js 가 자체 주입 ── */
+
+  /* ── 반응형 ── */
+  @media (max-width: 640px) {
+    .wrap { padding: 0 18px; }
+    .site-head { padding-top: var(--frame-gap); padding-bottom: 16px; }
+    .logo { font-size: 23px; }
+    .toolbar { gap: 12px; }
+    .view-toggle { margin-left: auto; }
+
+    body.view-grid .items { grid-template-columns: 1fr 1fr; gap: 20px 14px; }
+
+    /* 리스트뷰: 날짜+제목만, 한 줄씩 정렬 */
+    body.view-list .row {
+      display: block;
+      padding: 13px 0;
+    }
+    body.view-list .c-date { display: none; }   /* 날짜는 메타 줄로 이동 */
+    body.view-list .month-group { font-size: 11.5px; }
+    body.view-list .c-title { display: block; font-size: 16px; margin-bottom: 4px; }
+    body.view-list .c-meta { display: block; font-size: 12px; color: var(--ink-light); font-variant-numeric: tabular-nums; line-height: 1.5; }
+    body.view-list .c-athlete,
+    body.view-list .c-event,
+    body.view-list .c-record { display: none; }
+  }
+
+  /* ── 메뉴 버튼: UA 기본 보더 제거 ── */
+  .chip, .view-btn, .region-select { border: none; }
+  /* ── 로고 hover: 색 반전 (검정 ↔ 오렌지) ── */
+  .logo, .logo span { transition: color .15s; }
+  .logo:hover { color: var(--orange); }
+  .logo:hover span { color: var(--ink); }
+</style>
+<script src="assets/i18n.js"></script>
+</head>
+<body class="view-grid">
+
+  <!-- 공용 헤더 (assets/header.js 단일 소스로 모든 페이지가 재사용) -->
+  <header id="site-header"></header>
+  <script src="assets/header.js"></script>
+
+  <div class="wrap">
+
+    <!-- 툴바: 필터(좌) + 보기 전환(우) -->
+    <div class="toolbar">
+      <div class="result-head">
+        <h1 class="result-title" id="resultTitle"></h1>
+        <button class="research-link" type="button" data-search-toggle data-en="Search for something else">다른 내용 찾아보기</button>
+      </div>
+      <button class="view-toggle" type="button" aria-label="그리드/리스트 보기 전환" data-view-toggle>
+        <span class="vt-inner"><span class="vt-dim"></span><span class="vt-sep" aria-hidden="true">·</span><span class="vt-cur"></span></span>
+      </button>
+    </div>
+
+    <!-- 다른 내용 찾아보기 클릭 시 노출되는 검색창 (blur 시 닫힘) -->
+    <div class="search-panel" id="searchPanel" hidden>
+      <input type="search" class="search-input" id="searchInput"
+             placeholder="검색어를 입력한 후 엔터를 눌러주세요." data-en-ph="Type your search, then press Enter." aria-label="검색">
+    </div>
+
+    <!-- 콘텐츠 -->
+    <div class="items" id="items">
+    </div>
+
+    <p class="empty" hidden data-en="No articles match your search.">찾으시는 내용에 해당하는 기사가 없습니다.</p>
+
+  </div>
+
+  <footer id="site-footer"></footer>
+  <script src="assets/footer.js"></script>
+
+<script>
+(async () => {
+  'use strict';
+  const body = document.body;
+  const empty = document.querySelector('.empty');
+  const itemsEl = document.getElementById('items');
+  const titleEl = document.getElementById('resultTitle');
+
+  const EN = () => !!(window.MB && window.MB.isEN());   // 영어 모드 여부
+  const MONTHS_EN = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const ymOf = a => (a.date || '').slice(0, 7);
+  // 월 헤딩: KO "2026년 5월" / EN "May 2026"
+  const labelOf = ym => { const q = ym.split('-'); return EN() ? MONTHS_EN[(+q[1]) - 1] + ' ' + q[0] : q[0] + '년 ' + (+q[1]) + '월'; };
+  // 날짜: KO "2026년 5월 22일" / EN "22-05-2026" (dd-mm-yyyy, 뉴질랜드식)
+  const fmtDate = iso => { const m = (iso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/); if (!m) return iso || ''; return EN() ? m[3] + '-' + m[2] + '-' + m[1] : m[1] + '년 ' + (+m[2]) + '월 ' + (+m[3]) + '일'; };
+  // 기록: KO 원문 유지, EN은 "1:33.33"
+  const fmtRecord = r => {
+    if (!r) return '';
+    if (!EN()) return r;
+    const mm = String(r).match(/(?:(\d+)\s*분)?\s*(\d+)\s*초\s*(\d+)/);
+    if (!mm) return r;
+    const sec = ('0' + mm[2]).slice(-2), hun = (mm[3] + '00').slice(0, 2);
+    return mm[1] ? mm[1] + ':' + sec + '.' + hun : (+mm[2]) + '.' + hun;
+  };
+  // 콘텐츠 필드: EN 모드면 <field>ENG 사용(없으면 원문 폴백)
+  const pick = (a, f) => { const v = EN() ? a[f + 'ENG'] : a[f]; return (v == null || v === '') ? (a[f] || '') : v; };
+  const esc = s => (s == null ? '' : String(s)).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  // ── 데이터 로드 ──
+  let ARTICLES = [];
+  try { const res = await fetch('data/articles.json', { cache: 'no-cache' }); if (res.ok) ARTICLES = await res.json(); } catch (e) {}
+  ARTICLES.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));  // 최신순
+
+  // ── 행 DOM (메인과 동일: 모바일 메타줄 포함) ──
+  function rowEl(a) {
+    const el = document.createElement('a');
+    el.className = 'row';
+    el.href = a.href || 'article.html';
+    el.dataset.cat = a.cat || '';
+    el.dataset.region = a.region || '';
+    el.dataset.competition = a.competition || '';
+    el.dataset.athlete = a.athlete || '';
+    el.dataset.event = a.event || '';
+    const meta = [fmtDate(a.date), fmtRecord(a.record), pick(a, 'event'), pick(a, 'athlete')].filter(Boolean).map(esc).join(' | ');
+    el.innerHTML =
+      '<span class="thumb" aria-hidden="true"' + (a.thumb ? ' style="background-image:url(\'' + a.thumb + '\')"' : '') + '><span class="thumb-date">' + esc(fmtDate(a.date)) + '</span></span>' +
+      '<span class="c-title"><span class="c-cat">' + esc(pick(a, 'cat')) + '</span><span class="c-bar"> | </span>' + esc(pick(a, 'title')) + '</span>' +
+      '<span class="c-meta">' + meta + '</span>' +
+      '<span class="c-date">' + esc(fmtDate(a.date)) + '</span>' +
+      '<span class="c-athlete">' + esc(pick(a, 'athlete')) + '</span>' +
+      '<span class="c-event">' + esc(pick(a, 'event')) + '</span>' +
+      '<span class="c-record">' + esc(fmtRecord(a.record)) + '</span>';
+    return el;
+  }
+
+  // ── 쿼리 파싱: q > cat > city > competition > event > athlete ──
+  const sp = new URLSearchParams(location.search);
+  let field = null, term = '';
+  for (const f of ['q', 'cat', 'city', 'competition', 'event', 'athlete']) {
+    if (sp.has(f)) { field = f; term = (sp.get(f) || '').trim(); break; }
+  }
+  function matches(a) {
+    if (!field || !term) return true;
+    if (field === 'cat')         return a.cat === term;
+    if (field === 'city')        return a.region === term;
+    if (field === 'competition') return a.competition === term;
+    if (field === 'event')       return a.event === term;
+    if (field === 'athlete')     return a.athlete === term;
+    const hay = [a.cat, a.region, a.competition, a.athlete, a.event, a.title].join(' ').toLowerCase();
+    return hay.includes(term.toLowerCase());
+  }
+  const results = ARTICLES.filter(matches);
+
+  // 구조화 검색어의 영어 라벨 = 매칭된 첫 기사의 ENG 필드에서 (q 자유검색은 입력값 그대로)
+  const FIELD_ENG = { cat: 'catENG', city: 'regionENG', competition: 'competitionENG', event: 'eventENG', athlete: 'athleteENG' };
+  function termLabel() {
+    if (!EN()) return term;
+    const k = FIELD_ENG[field];
+    return (k && results[0] && results[0][k]) ? results[0][k] : term;
+  }
+
+  // ── 렌더 (월 헤더 + 행 + 결과 타이틀, 최신순) — 언어 전환 시 재실행 ──
+  function render() {
+    itemsEl.innerHTML = '';
+    let curYm = null;
+    for (const a of results) {
+      const ym = ymOf(a);
+      if (ym && ym !== curYm) {
+        curYm = ym;
+        const hd = document.createElement('div');
+        hd.className = 'month-group';
+        hd.textContent = labelOf(ym);
+        itemsEl.appendChild(hd);
+      }
+      itemsEl.appendChild(rowEl(a));
+    }
+    empty.hidden = results.length > 0;
+
+    if (!titleEl) return;
+    if (field === 'competition' && term) {
+      // 대회: 지역 | 대회명 | 날짜
+      const region = EN() ? ((results[0] && results[0].regionENG) || '') : ((results[0] && results[0].region) || '');
+      const dates = results.map(a => a.date).filter(Boolean).sort();
+      let dateLabel = '';
+      if (dates.length) {
+        const mn = dates[0], mx = dates[dates.length - 1];
+        dateLabel = (mn.slice(0, 7) === mx.slice(0, 7)) ? labelOf(mx.slice(0, 7))
+                  : labelOf(mn.slice(0, 7)) + ' ~ ' + labelOf(mx.slice(0, 7));
+      }
+      const parts = [region ? esc(region) : null, '<strong>' + esc(termLabel()) + '</strong>', dateLabel ? esc(dateLabel) : null].filter(Boolean);
+      titleEl.innerHTML = parts.join(' | ');
+    } else if (!term) {
+      titleEl.textContent = EN() ? 'All articles.' : '전체 게시글입니다.';
+    } else {
+      titleEl.innerHTML = EN()
+        ? esc(results.length.toLocaleString()) + ' article' + (results.length === 1 ? '' : 's') + ' found for &lsquo;<strong>' + esc(termLabel()) + '</strong>&rsquo;.'
+        : '‘<strong>' + esc(term) + '</strong>’(으)로 검색된 기사 총 ' + results.length.toLocaleString() + '건.';
+    }
+  }
+  render();
+
+  // ── 다른 내용 찾아보기 (검색창 토글) ──
+  const searchLink = document.querySelector('[data-search-toggle]');
+  const searchPanel = document.getElementById('searchPanel');
+  const searchInput = document.getElementById('searchInput');
+  if (searchLink && searchPanel && searchInput) {
+    searchLink.addEventListener('click', () => { searchLink.hidden = true; searchPanel.hidden = false; searchInput.focus(); });
+    searchInput.addEventListener('blur', () => { searchPanel.hidden = true; searchLink.hidden = false; searchInput.value = ''; });
+    searchInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { const q = searchInput.value.trim(); if (q) location.href = 'search.html?q=' + encodeURIComponent(q); }
+    });
+  }
+
+  // ── 그리드 / 리스트 단일 토글 (선택된 뷰가 오른쪽, 반대편은 흐리게, 어디를 눌러도 전환) ──
+  const viewToggle = document.querySelector('[data-view-toggle]');
+  const vtInner = viewToggle && viewToggle.querySelector('.vt-inner');
+  const vtDim = viewToggle && viewToggle.querySelector('.vt-dim');
+  const vtCur = viewToggle && viewToggle.querySelector('.vt-cur');
+  const VLABEL = { grid: '그리드', list: '리스트' };
+  const VLABEL_EN = { grid: 'Grid', list: 'List' };
+  const curView = () => body.classList.contains('view-list') ? 'list' : 'grid';
+  const vtReduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let vtAnim = null;
+  function springSwap() {   // 오른쪽에서 슬라이드 인 + 탄성 오버슈트(띠요오옹)로 자리잡기
+    if (!vtInner || vtReduceMotion) return;
+    if (vtAnim) vtAnim.cancel();
+    vtAnim = vtInner.animate([
+      { transform: 'translateX(20px)', opacity: 0.15 },
+      { transform: 'translateX(0px)',  opacity: 1, offset: 0.45 },
+      { transform: 'translateX(-7px)', offset: 0.62 },
+      { transform: 'translateX(4px)',  offset: 0.77 },
+      { transform: 'translateX(-2px)', offset: 0.89 },
+      { transform: 'translateX(0)' }
+    ], { duration: 720, easing: 'ease-out' });
+  }
+  function exitSwap() {   // mouse-out: 진입의 역순(반대 방향)으로 부드럽게 복귀 — 튕김 없음
+    if (!vtInner || vtReduceMotion) return;
+    if (vtAnim) vtAnim.cancel();
+    vtAnim = vtInner.animate([
+      { transform: 'translateX(9px)', opacity: 0.5 },
+      { transform: 'translateX(0)',   opacity: 1 }
+    ], { duration: 560, easing: 'ease-out' });   // 진입과 같은 방향에서 살짝 더 천천히 원위치
+  }
+  function renderToggle(v) {   // 라벨만 v 기준으로 표시 (선택 v = 오른쪽·진하게)
+    const labels = EN() ? VLABEL_EN : VLABEL;
+    const other = v === 'grid' ? 'list' : 'grid';
+    if (vtDim) vtDim.textContent = labels[other];
+    if (vtCur) vtCur.textContent = labels[v];
+  }
+  function setView(v) {
+    body.classList.remove('view-grid', 'view-list');
+    body.classList.add('view-' + v);
+    renderToggle(v);
+    try { localStorage.setItem('mb_view', v); } catch (e) {}
+  }
+  let initView = curView();
+  try { const saved = localStorage.getItem('mb_view'); if (saved === 'grid' || saved === 'list') initView = saved; } catch (e) {}
+  setView(initView);   // 초기 로드엔 애니메이션 없음
+  if (viewToggle) {
+    // hover: 클릭 후 모습 미리보기 · out: 원복 · click: 실제 전환 — 모두 스프링 스왑
+    viewToggle.addEventListener('mouseenter', () => { renderToggle(curView() === 'grid' ? 'list' : 'grid'); springSwap(); });
+    viewToggle.addEventListener('mouseleave', () => { renderToggle(curView()); exitSwap(); });   // out: 진입의 역순으로 부드럽게 복귀
+    viewToggle.addEventListener('click', () => { setView(curView() === 'grid' ? 'list' : 'grid'); springSwap(); });
+  }
+
+  // ── 언어 전환(mb:lang): 뷰 토글 라벨 + 결과 목록·타이틀 재렌더 ──
+  document.addEventListener('mb:lang', () => { renderToggle(curView()); render(); });
+})();
+</script>
+
+</body>
+</html>

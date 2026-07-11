@@ -1,0 +1,15 @@
+# Nuxt
+.nuxt
+.output
+.data
+.nitro
+.cache
+dist
+
+# deps
+node_modules
+
+# misc
+.env
+.DS_Store
+*.log

@@ -1,0 +1,169 @@
+/* 사이트 전역 스타일 — docs/html 프로토타입의 디자인 시스템을 Nuxt로 이식.
+ * 팔레트/타이포/리셋은 index.html :root + assets/page.css 를 단일 소스로 통합.
+ * 헤더/푸터 컴포넌트, 각 페이지가 이 토큰(--ink, --orange 등)을 공유한다. */
+
+:root {
+  /* 잉크(글자) */
+  --ink: #1A1A1A;
+  --ink-soft: #2E2E2E;
+  --ink-mute: #6A6A68;
+  --ink-light: #9A9A97;
+  /* 선 */
+  --line: #E4E4E1;
+  --line-soft: #F0F0EE;
+  /* 종이(배경) */
+  --paper: #FFFFFF;
+  --paper-deep: #F6F5F3;
+  --paper-card: #FCFBF9;
+  /* 강조 — 형광 주황 */
+  --orange: #FF5A00;          /* 강조색 */
+  --orange-deep: #C2410C;     /* hover */
+  --orange-bg: #FFF3EA;       /* 옅은 주황 틴트 */
+  --grad-orange: linear-gradient(135deg, #FF7A2D 0%, #FF4D00 100%);
+  /* 의미색 */
+  --good: #1F5F3F;
+  --good-bg: #F2F7F4;
+  --bad: #A23A2A;
+  --bad-bg: #FBF2F0;
+  /* 서체 */
+  --sans: 'Noto Sans KR', -apple-system, BlinkMacSystemFont, sans-serif;
+  --serif: 'Noto Serif KR', Georgia, serif;
+  --mono: ui-monospace, 'SF Mono', Menlo, Consolas, 'Roboto Mono', monospace;  /* 기록(00:00.00) 전용 */
+  /* 치수 */
+  --maxw: 1200px;
+  --frame-gap: 38px;   /* 헤더 상·하 패딩 = 레이아웃 간격의 단일 소스 (브레이크포인트마다 함께 변동) */
+}
+
+/* ── 리셋 / 기본 ── */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+/* 스크롤바 항상 표시 → 페이지 간 뷰포트 폭 고정(콘텐츠 좌우 흔들림 방지) */
+html { -webkit-text-size-adjust: 100%; overflow-y: scroll; scrollbar-gutter: stable; }
+body {
+  font-family: var(--serif);
+  color: var(--ink);
+  background: var(--paper);
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+[hidden] { display: none !important; }
+a { color: inherit; text-decoration: none; }
+img { display: block; max-width: 100%; }
+
+/* ── 공용 컨테이너 ── */
+.wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
+
+/* ── 본문 컬럼(.doc) — 소개/규약/제보 등 본문형 페이지 공용 ── */
+.doc { max-width: 760px; margin: 0; }
+.doc .eyebrow {
+  font-family: var(--sans); font-size: 11px; font-weight: 700;
+  letter-spacing: 0.3em; text-transform: uppercase; color: var(--ink-light);
+  margin-bottom: 14px;
+}
+.doc h1 {
+  font-family: var(--serif); font-weight: 700; font-size: 34px;
+  line-height: 1.25; letter-spacing: -0.01em; color: var(--ink); margin-bottom: 14px;
+}
+.doc .lead { font-size: 17px; color: var(--ink-soft); line-height: 1.85; margin-bottom: 8px; max-width: 680px; }
+.doc h2 {
+  font-family: var(--sans); font-size: 12px; font-weight: 700;
+  letter-spacing: 0.28em; text-transform: uppercase; color: var(--ink-mute);
+  margin: 64px 0 6px; padding-bottom: 12px; border-bottom: 1px solid var(--line);
+}
+.doc h3 { font-family: var(--serif); font-weight: 700; font-size: 24px; line-height: 1.3; color: var(--ink); margin: 30px 0 8px; letter-spacing: -0.005em; }
+.doc h3 .num { color: var(--orange); font-weight: 700; margin-right: 6px; }
+.doc h4 { font-family: var(--sans); font-weight: 700; font-size: 16px; color: var(--ink); margin: 26px 0 6px; letter-spacing: -0.005em; }
+.doc h5 { font-family: var(--serif); font-weight: 700; font-size: 22px; line-height: 1.3; color: var(--ink); margin: 0 0 6px; }
+.doc p { font-size: 15.5px; line-height: 1.85; color: var(--ink-soft); margin: 0 0 14px; }
+.doc ul, .doc ol { margin: 8px 0 18px; padding-left: 22px; }
+.doc li { font-size: 15.5px; line-height: 1.8; color: var(--ink-soft); margin-bottom: 6px; }
+.doc strong { color: var(--ink); font-weight: 700; }
+.doc .muted { color: var(--ink-mute); }
+
+/* 표 */
+.doc table { width: 100%; border-collapse: collapse; margin: 18px 0 24px; font-size: 14.5px; }
+.doc th, .doc td { text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--line); vertical-align: top; line-height: 1.6; }
+.doc thead th { font-family: var(--sans); font-size: 12px; font-weight: 700; letter-spacing: 0.04em; color: var(--ink-mute); border-bottom: 1.5px solid var(--ink); }
+.doc tbody td:first-child { color: var(--ink); font-weight: 500; white-space: nowrap; }
+
+/* 규약 콘텐츠 컴포넌트 */
+.doc ul.clauses { list-style: none; padding: 0; margin: 8px 0 20px; }
+.doc ul.clauses li { position: relative; padding: 8px 0 8px 28px; border-bottom: 1px dotted var(--line); line-height: 1.7; }
+.doc ul.clauses li:last-child { border-bottom: none; }
+.doc ul.clauses li::before { content: "—"; position: absolute; left: 0; color: var(--ink-mute); font-weight: 600; }
+.doc ul.clauses li.major::before { content: "§"; color: var(--orange); }
+
+.doc blockquote.callout {
+  margin: 28px 0; padding: 22px 26px 22px 30px;
+  background: var(--orange-bg); border-left: 5px solid var(--orange);
+  font-size: 16px; line-height: 1.85; color: var(--ink-soft);
+}
+.doc blockquote.callout .src { display: block; margin-top: 8px; font-size: 12px; color: var(--ink-mute); font-style: normal; font-family: var(--sans); }
+.doc blockquote.example { margin: 16px 0; padding: 14px 20px; border-left: 3px solid var(--line); color: var(--ink-soft); font-size: 15px; line-height: 1.8; }
+.doc blockquote.example .label { display: inline-block; font-family: var(--sans); font-size: 11px; letter-spacing: 0.18em; color: var(--ink-light); text-transform: uppercase; margin-bottom: 6px; }
+
+.doc .gb { display: grid; grid-template-columns: 1fr 1fr; margin: 24px 0; border: 1px solid var(--line); font-size: 15px; }
+.doc .gb > div { padding: 18px 20px; line-height: 1.65; }
+.doc .gb .good { background: var(--good-bg); border-right: 1px solid var(--line); }
+.doc .gb .bad { background: var(--bad-bg); }
+.doc .gb .head { font-family: var(--sans); font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; font-weight: 700; margin-bottom: 8px; }
+.doc .gb .good .head { color: var(--good); }
+.doc .gb .bad .head { color: var(--bad); }
+.doc .gb p { margin: 0 0 8px; font-size: 15px; }
+.doc .gb p:last-child { margin-bottom: 0; }
+
+.doc dl.def { margin: 16px 0 20px; border-top: 1px solid var(--line); }
+.doc dl.def > div { display: grid; grid-template-columns: 200px 1fr; padding: 12px 0; border-bottom: 1px dotted var(--line); gap: 16px; }
+.doc dl.def dt { font-family: var(--sans); font-weight: 700; font-size: 13.5px; color: var(--ink); }
+.doc dl.def dd { margin: 0; color: var(--ink-soft); line-height: 1.65; font-size: 15px; }
+
+.doc article.sample { margin: 28px 0; padding: 30px 32px; background: var(--paper-card); border: 1px solid var(--line); }
+.doc article.sample .sample-label { font-family: var(--sans); font-size: 11px; letter-spacing: 0.3em; text-transform: uppercase; color: var(--ink-mute); margin-bottom: 16px; }
+.doc article.sample h5 { font-size: 24px; }
+.doc article.sample .subhead { font-size: 15px; color: var(--ink-mute); margin: 0 0 20px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+.doc article.sample p { margin: 0 0 12px; font-size: 15.5px; line-height: 1.85; }
+.doc article.sample .caption { margin: 18px 0 12px; padding: 10px 16px; border-left: 3px solid var(--line); color: var(--ink-mute); font-size: 13.5px; font-style: italic; }
+.doc article.sample .byline { margin-top: 16px; padding-top: 14px; border-top: 1px dotted var(--line); text-align: right; font-size: 13px; color: var(--ink-mute); font-style: italic; }
+
+.doc .preface { background: var(--paper-card); border: 1px solid var(--line); padding: 32px 36px; margin-bottom: 48px; }
+.doc .preface h3 { margin-top: 0; font-size: 22px; }
+.doc .preface p { font-size: 16px; }
+.doc .preface p:last-child { margin-bottom: 0; }
+.doc .preface .creed { margin-top: 24px; padding: 18px 24px; background: var(--orange-bg); border-left: 5px solid var(--orange); font-style: italic; color: var(--ink-soft); }
+.doc .creed { font-style: italic; }
+
+.doc dl.changelog { margin-top: 56px; padding-top: 24px; border-top: 1px solid var(--line); font-family: var(--sans); font-size: 13px; color: var(--ink-mute); }
+.doc dl.changelog dt { font-weight: 700; color: var(--ink); margin-top: 8px; }
+.doc dl.changelog dd { margin: 4px 0 0; line-height: 1.7; }
+
+/* 선언문 / 큰 인용 */
+.creed-block { margin: 40px 0; padding: 32px 36px; background: var(--paper-card); border: 1px solid var(--line); }
+.creed-block p { font-family: var(--serif); font-style: italic; font-size: 17px; line-height: 1.9; color: var(--ink-soft); margin: 0 0 10px; }
+.creed-block p:last-child { margin-bottom: 0; color: var(--ink); }
+
+/* 제보 CTA / 폼 */
+.cta {
+  display: inline-block; font-family: var(--sans); font-weight: 700; font-size: 14px;
+  letter-spacing: 0.02em; color: var(--paper); background: var(--orange);
+  padding: 13px 28px; border-radius: 2px; transition: background .15s; margin: 6px 0;
+}
+.cta:hover { background: var(--orange-deep); }
+.cta.ghost { color: var(--ink); background: none; border: 1px solid var(--line); }
+.cta.ghost:hover { background: var(--paper-deep); }
+.note { font-family: var(--sans); font-size: 13px; color: var(--ink-mute); background: var(--paper-deep); padding: 14px 18px; border-radius: 2px; margin: 18px 0; line-height: 1.7; }
+
+/* 광고 슬롯 (본문 최하단 섹션) — 모바일에서만 '광고' 헤딩 노출 */
+.ad-section { margin-top: 64px; }
+.ad-heading { display: none; font-family: var(--sans); font-size: 13px; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; color: var(--ink); margin-bottom: 14px; }
+.ad-slot { aspect-ratio: 16 / 9; border: 1px solid var(--line); background: var(--paper-deep); display: flex; align-items: center; justify-content: center; color: var(--ink-light); font-family: var(--sans); font-size: 11px; letter-spacing: .18em; text-transform: uppercase; }
+
+@media (max-width: 640px) {
+  :root { --frame-gap: 28px; }
+  .wrap { padding: 0 18px; }
+  .ad-heading { display: block; }
+  .doc h1 { font-size: 27px; }
+  .doc .gb { grid-template-columns: 1fr; }
+  .doc .gb .good { border-right: none; border-bottom: 1px solid var(--line); }
+  .doc dl.def > div { grid-template-columns: 1fr; gap: 4px; }
+  .doc article.sample { padding: 22px 20px; }
+}

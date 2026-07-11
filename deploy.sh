@@ -34,7 +34,6 @@ if pm2 list | grep -q "photography-nuxt"; then
 else
   PORT=6641 pm2 start "$PROJECT_DIR/client/.output/server/index.mjs" \
     --name photography-nuxt \
-    --cwd "$PROJECT_DIR/client" \
     --env production
 fi
 

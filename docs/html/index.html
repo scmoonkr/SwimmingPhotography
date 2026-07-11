@@ -1,0 +1,1063 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Swimming Photography</title>
+<meta name="description" content="Swimming Photography by Medalbank. 우리나라 대한민국의 수영 이야기와 수영대회 이야기를 전합니다. 운영, 촬영, 취재, 작성, 배포까지 오직 수영인의 마음으로만 운영됩니다.">
+<link rel="canonical" href="https://swimmingphotography.com/">
+<meta name="robots" content="index, follow">
+<!-- Open Graph / 공유 미리보기 -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Swimming Photography">
+<meta property="og:title" content="Swimming Photography — 수영 전문 신문">
+<meta property="og:description" content="Swimming Photography by Medalbank. 우리나라 대한민국의 수영 이야기와 수영대회 이야기를 전합니다. 촬영, 취재, 작성, 배포까지 오직 수영인의 마음으로만 운영됩니다.">
+<meta property="og:url" content="https://swimmingphotography.com/">
+<meta property="og:locale" content="ko_KR">
+<meta property="og:image" content="https://swimmingphotography.com/og-cover.jpg">
+<!-- 구조화 데이터: 브랜드(Swimming Photography by Medalbank/스위밍포토그래피) ↔ 사이트 연결 + 검색박스 -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "NewsMediaOrganization",
+      "@id": "https://swimmingphotography.com/#organization",
+      "name": "Swimming Photography",
+      "alternateName": ["Swimming Photography by Medalbank", "스위밍포토그래피", "Swimming Photography", "Medalbank"],
+      "url": "https://swimmingphotography.com/",
+      "logo": "https://swimmingphotography.com/logo.png",
+      "email": "press@medalbank.com",
+      "sameAs": []
+    },
+    {
+      "@type": "WebSite",
+      "@id": "https://swimmingphotography.com/#website",
+      "name": "Swimming Photography",
+      "alternateName": ["Swimming Photography by Medalbank", "스위밍포토그래피"],
+      "url": "https://swimmingphotography.com/",
+      "inLanguage": "ko-KR",
+      "publisher": { "@id": "https://swimmingphotography.com/#organization" },
+      "potentialAction": {
+        "@type": "SearchAction",
+        "target": { "@type": "EntryPoint", "urlTemplate": "https://swimmingphotography.com/?s={search_term_string}" },
+        "query-input": "required name=search_term_string"
+      }
+    }
+  ]
+}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@500;700&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #1A1A1A;
+    --ink-mute: #6A6A68;
+    --ink-light: #9A9A97;
+    --line: #E4E4E1;
+    --line-soft: #F0F0EE;
+    --paper: #FFFFFF;
+    --paper-deep: #F6F5F3;
+    --orange: #FF5A00;               /* 형광 주황 — 강조색 */
+    --orange-deep: #C2410C;          /* 버닝 오렌지 — hover */
+    --orange-bg: #FFF3EA;            /* 옅은 주황 틴트 */
+    --grad-orange: linear-gradient(135deg, #FF7A2D 0%, #FF4D00 100%);
+    --sans: 'Noto Sans KR', -apple-system, BlinkMacSystemFont, sans-serif;
+    --serif: 'Noto Serif KR', Georgia, serif;
+    --mono: ui-monospace, 'SF Mono', Menlo, Consolas, 'Roboto Mono', monospace;  /* 기록(00:00.00) 전용 */
+    --maxw: 1200px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    font-family: var(--serif);
+    color: var(--ink);
+    background: var(--paper);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  [hidden] { display: none !important; }
+  a { color: inherit; text-decoration: none; }
+  img { display: block; max-width: 100%; }
+
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
+
+  /* ── 로고 ── */
+  .site-head { padding-top: var(--frame-gap); padding-bottom: 20px; } /* 좌우 패딩은 .wrap(24px) 유지 → 로고가 본문과 같은 좌측 라인 */
+  .logo {
+    font-family: var(--serif);
+    font-weight: 700;
+    font-size: 26px;
+    letter-spacing: 0.01em;
+    color: var(--ink);
+  }
+  .logo span { color: var(--orange); }
+  .tagline {
+    font-size: 13px;
+    color: var(--ink-mute);
+    margin-top: 6px;
+    letter-spacing: 0.01em;
+  }
+
+  /* ── 툴바: 필터(좌) + 보기전환(우) ── */
+  .toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;   /* 메뉴 텍스트를 헤더 바로 밑(breadcrumb과 동일선)에서 시작 */
+    gap: 16px;
+    flex-wrap: wrap;
+    padding: 0;   /* 콘텐츠와의 간격은 featured/items 의 frame-gap 으로 통일 */
+    margin-bottom: 0;
+  }
+  .filters { display: flex; align-items: flex-start; gap: 6px; flex-wrap: wrap; }
+  .chip {
+    font-family: var(--serif);
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.6;                 /* breadcrumb과 동일 줄높이 → 시작선 일치 */
+    color: var(--ink-light);          /* 미선택: 흐리게 */
+    background: none;
+    padding: 0 6px;
+    cursor: pointer;
+    transition: color .15s;
+  }
+  .chip:hover { color: var(--ink); }                    /* hover: 진하게 */
+  .chip.active { color: var(--ink); font-weight: 700; } /* 선택: 진하게 + 굵게 */
+  .filters .chip:first-child { padding-left: 0; }       /* 첫 칩 좌측 패딩 제거 → 로고·콘텐츠와 좌측 정렬 */
+  .region-select {
+    font-family: var(--serif);
+    font-size: 13px;
+    color: var(--ink-light);
+    background-color: transparent;
+    padding: 0 18px 0 4px;
+    cursor: pointer;
+    -webkit-appearance: none; appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%236A6A68' stroke-width='1.4'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+  }
+  .view-toggle {
+    display: inline-flex;
+    flex: 0 0 auto;
+    font-family: var(--serif);
+    font-size: 13px;
+    line-height: 1.6;
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+  }
+  .view-toggle .vt-inner { display: inline-flex; will-change: transform; }
+  .view-toggle .vt-dim { color: var(--ink-light); font-weight: 500; }
+  .view-toggle .vt-sep { color: var(--ink-light); margin: 0 0.3em; }   /* 점 좌우 동일 간격 */
+  .view-toggle .vt-cur { color: var(--ink); font-weight: 700; }
+  .view-toggle:hover .vt-dim,
+  .view-toggle:hover .vt-sep { color: var(--ink-mute); }
+
+  /* ── 검색 인풋폼 (메뉴 "검색" 클릭 시 노출) ── */
+  .search-panel { padding: 0; }   /* 상단 간격은 .search-heading(=month-group)이 대신 */
+  /* 검색 그룹 헤딩 — .month-group(리스트)과 완전히 동일한 스타일 */
+  .search-heading {
+    font-family: var(--serif);
+    font-size: 12.5px; font-weight: 400; letter-spacing: normal;
+    color: var(--ink-mute);
+    padding: 26px 0 10px;
+  }
+  .search-input {
+    width: 100%; font-family: var(--serif); font-size: 22px; color: var(--ink);
+    background: var(--paper-deep); border: none; border-radius: 2px;   /* 흐린 흑백톤 배경 → 사각형 박스 */
+    padding: 18px 20px; line-height: 1.3;
+  }
+  .search-input::placeholder { color: var(--ink-light); font-size: 16px; }
+  .search-input:focus { outline: none; box-shadow: inset 0 -2px 0 var(--orange); }
+
+  /* ── featured (그리드 뷰 전용 · 상단 · 3장 · 3초 로테이션) — 큰 1 + 작은 2(2층) ──
+     아래 5컬럼 그리드와 동일한 5컬럼 grid: 큰 사진=1~3컬럼, 작은 2장=4~5컬럼 · 간격 20px(그리드와 동일)
+     큰 사진 비율 3:2로 높이 결정 → 작은 2장은 그 높이에 맞춰 늘어남(비율 강제) */
+  .featured { display: none; }
+  body.view-grid .featured { display: grid; grid-template-columns: repeat(5, 1fr); grid-template-rows: 1fr 1fr; gap: 20px; margin: var(--frame-gap) 0 0; }
+  .feat-big { grid-column: 1 / 4; grid-row: 1 / 3; aspect-ratio: 3 / 2; }
+  .feat-side { grid-column: 4 / 6; grid-row: 1 / 3; display: flex; flex-direction: column; gap: 20px; }
+  .feat-side .feat-item { flex: 1; min-height: 0; }
+  .feat-item { position: relative; display: block; overflow: hidden; color: var(--paper); }
+  /* 2-레이어 크로스페이드: 두 장이 겹쳐 있고 .on 만 보임. 전환(1s)은 교체 시 JS가 인라인으로 부여,
+     기본은 transition 없음 → hover는 그리드 썸네일처럼 즉시 dim */
+  .feat-item img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; opacity: 0; }
+  .feat-item img.on { opacity: 1; }
+  .feat-item:hover img.on { opacity: .9; }   /* 일반 그리드(.row:hover .thumb)와 동일한 즉시 dim */
+  .feat-cap { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; padding: 40px 22px 16px; background: linear-gradient(rgba(0,0,0,0), rgba(0,0,0,0.62)); }
+  .feat-cap .fc-cat { font-family: var(--serif); font-size: 13px; font-weight: 700; color: var(--orange); }
+  .feat-cap .fc-date { font-family: var(--serif); font-size: 13px; color: #fff; mix-blend-mode: difference; margin-left: 0.5em; }   /* 날짜 — 배경 반전(difference)으로 항상 잘 보이게 */
+  .feat-cap .fc-title { display: block; font-family: var(--serif); font-size: 21px; font-weight: 700; line-height: 1.3; letter-spacing: -0.01em; margin-top: 6px; }
+  .feat-big .feat-cap { padding: 56px 28px 24px; }
+  .feat-big .fc-title { font-size: 30px; }
+
+  /* ── 콘텐츠 공통 ── */
+  .items { margin: 6px 0 8px; }
+  .row { color: var(--ink); }
+  .thumb {
+    background-color: var(--paper-deep);
+    background-size: cover;
+    background-position: center;
+    position: relative;
+    overflow: hidden;
+  }
+  /* 그리드 카드: 날짜를 사진 좌하단에 올림 (흰색 + 옅은 그림자로 어디서나 보이게) */
+  .thumb-date {
+    position: absolute; left: 9px; bottom: 8px;
+    font-family: var(--serif); font-size: 12px; color: #fff;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.5); letter-spacing: .01em;
+    pointer-events: none; display: none;
+  }
+
+  /* ── 그리드 뷰 ── */
+  body.view-grid .items {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    gap: 20px;           /* 위아래·양옆 간격 동일 */
+    margin-top: 0;       /* .items 기본 margin-top(6px) 제거 → featured와의 간격을 padding-top으로만 통제 */
+    padding-top: 20px;   /* featured ↔ 일반그리드 간격 = 그리드 썸네일 간격(20px)과 동일 */
+  }
+  body.view-grid .row { display: flex; flex-direction: column; gap: 9px; }
+  body.view-grid .thumb { display: block; aspect-ratio: 4 / 3; border-radius: 0; }
+  /* 인스타 링크 프로모: 검정 박스 + 로고(폭 꽉차게·비율 유지·세로 가운데) */
+  body.view-grid .promo-thumb { background: #000; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+  body.view-grid .promo-thumb img { display: block; width: 100%; height: auto; }
+  body.view-grid .row:hover .thumb { opacity: .9; }
+  .c-cat { color: var(--orange); font-weight: 700; margin-right: 0.4em; }   /* 카테고리 + 제목 — 띄어쓰기로 구분(바 없음) */
+  .c-bar { display: none; }
+  body.view-grid .c-title {
+    font-family: var(--serif); font-weight: 700; font-size: 16px;
+    line-height: 1.45; color: var(--ink);
+  }
+  body.view-grid .row:hover .c-title { color: var(--orange-deep); }
+  body.view-grid .c-date { display: none; }   /* 날짜는 사진 좌하단(.thumb-date)으로 이동 */
+  body.view-grid .thumb-date { display: block; }
+  body.view-grid .c-athlete,
+  body.view-grid .c-event,
+  body.view-grid .c-record { display: none; }
+
+  /* ── 그리드 더보기 카드 (빈 사진 + 가운데 버튼, 그리드 모드 전용) ── */
+  .load-card { display: none; }
+  body.view-grid .load-card { display: block; align-self: start; }   /* start: 같은 행의 키 큰 카드에 끌려 늘어나지 않게 → 버튼이 항상 4/3 유지 */
+  .load-card .load-btn {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
+    width: 100%; aspect-ratio: 4 / 3;
+    font-family: var(--serif); font-size: 14px; font-weight: 600;
+    color: var(--ink-light); background: var(--paper-deep);
+    border: none; cursor: pointer;
+    text-align: center; padding: 10px; line-height: 1.4;
+    transition: background .15s, color .15s, border-color .15s;
+  }
+  .load-card .load-btn:hover { background: var(--orange); color: var(--paper); }
+  .load-card .lb-sub { font-size: 12px; font-weight: 400; color: var(--ink-light); }   /* 둘째 줄: n개의 기사가 있습니다 */
+  .load-card .load-btn:hover .lb-sub { color: var(--paper); }
+  /* 그리드 끝 CTA: 검정 "대회별 기사 살펴보기" (은은한 shine sweep + 가끔 불규칙 딸랑 흔들림) */
+  .load-card .comp-cta {
+    position: relative; overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+    width: 100%; aspect-ratio: 4 / 3;
+    background: #141414; color: #fff; border: none; cursor: pointer;
+    font-family: var(--serif); font-size: 14.5px; font-weight: 700; letter-spacing: .02em;
+    padding: 10px; text-align: center; transform-origin: 50% 0;
+    animation: cta-jingle 4.2s ease-in-out infinite;
+  }
+  .load-card .comp-cta::after {   /* 은은한 빛 sweep */
+    content: ''; position: absolute; top: 0; bottom: 0; width: 45%; pointer-events: none;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.14), transparent);
+    transform: translateX(-200%); animation: cta-shine 4.2s ease-in-out infinite;
+  }
+  .load-card .comp-cta:hover { background: #000; animation-play-state: paused; }
+  @keyframes cta-jingle {   /* 대부분 가만, 가끔 불규칙하게 딸랑 */
+    0%, 80%, 100% { transform: rotate(0) translateY(0); }
+    83% { transform: rotate(-1.5deg); }
+    86% { transform: rotate(1.3deg); }
+    89% { transform: rotate(-0.9deg); }
+    92% { transform: rotate(0.6deg); }
+    95% { transform: rotate(-0.3deg); }
+  }
+  @keyframes cta-shine { 0%, 68% { transform: translateX(-200%); } 100% { transform: translateX(330%); } }
+  @media (prefers-reduced-motion: reduce) {
+    .load-card .comp-cta { animation: none; }
+    .load-card .comp-cta::after { display: none; }
+  }
+  /* 리스트 뷰: 더보기 카드를 전체 폭 가로 버튼으로 */
+  body.view-list .load-card { display: block; align-self: auto; padding: 16px 0 0; }
+  body.view-list .load-card .load-btn {
+    flex-direction: row; gap: 10px; width: 100%; aspect-ratio: auto;
+    padding: 14px 16px; font-size: 13px;
+  }
+
+  /* ── 월 펼쳐보기 링크 · 대회별 토글 (텍스트 목록) ── */
+  .month-link, .comp-toggle {
+    display: block; width: 100%; text-align: left; box-sizing: border-box;
+    font-family: var(--serif); font-size: 12.5px; color: var(--ink-light);   /* .month-group 헤더와 동일 사이즈 */
+    background: none; border: none; border-bottom: 1px solid var(--line-soft);   /* 기사 행과 동일하게 아래 구분선 */
+    padding: 14px 0; cursor: pointer; letter-spacing: normal; line-height: 1.5;   /* 기사 행과 동일 패딩 */
+  }
+  .month-link .ml-label { color: var(--ink-mute); font-weight: 400; }   /* .month-group 헤더와 완전히 동일 (mute / 400 / 12.5px) */
+  .month-link:hover, .month-link:hover .ml-label { color: var(--orange); }
+  .comp-toggle { font-weight: 700; color: var(--ink); }
+  .comp-toggle:hover { color: var(--orange); }
+  /* 대회 행: 기사 리스트(.row)와 동일 포맷 사용. 제목 칼럼 안 수영장명만 흐릿하게 */
+  .comp-row .cr-venue { color: var(--ink-light); font-weight: 400; margin-left: .45em; }
+  /* 그리드 뷰에서는 전체 폭 차지 (한 행 단독) */
+  body.view-grid .month-link, body.view-grid .comp-toggle { grid-column: 1 / -1; }
+
+  /* ── 리스트 뷰 ── */
+  body.view-list .row {
+    display: grid;
+    grid-template-columns: 122px 1fr 80px 185px 98px;  /* 날짜 / 제목 / 선수 / 종목 / 기록 — 기록 우측정렬로 맨 오른쪽 */
+    column-gap: var(--frame-gap);   /* 컬럼 간격 = --frame-gap. 제목(1fr)만 유연하게 늘어남 */
+    align-items: center;   /* 각 줄 내용을 세로 가운데 정렬 */
+  }
+  body.view-list .items { padding-top: 0; margin-top: 0; }   /* 첫 월 헤딩을 그리드 첫 사진과 동일 높이(frame-gap)로 */
+  body.view-list .row {
+    padding: 14px 0;
+    border-bottom: 1px solid var(--line-soft);   /* 게시글 사이 흐린 구분선 */
+    transition: background-color 0.8s ease;   /* 배경은 완전 화이트에서 아주 서서히 */
+  }
+  /* 배경은 스프링이 완전히 끝난 뒤(대기 0.5s + 스프링 1.6s = 2.1s) 발현 시작 → 아주 은은하게 서서히 */
+  body.view-list .row:hover { background: rgba(0,0,0,0.012); transition-delay: 2.1s; }
+  body.view-list .thumb { display: none; }
+  body.view-list .promo-row { display: none; }   /* 인스타 링크 프로모는 그리드 뷰에서만 */
+  body.view-list .c-date { font-size: 12.5px; color: var(--ink-light); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  body.view-list .c-title { font-family: var(--serif); font-weight: 500; font-size: 15.5px; line-height: 1.4; color: var(--ink); }
+  body.view-list .row:hover .c-title { color: var(--orange-deep); }
+  body.view-list .c-athlete,
+  body.view-list .c-event,
+  body.view-list .c-record { font-size: 13px; color: var(--ink-mute); }
+  body.view-list .c-record { font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--ink); text-align: right; }  /* 기록 — 모노스페이스 + 우측정렬: [00분 00초 00] 자리수 고정, 1분 미만이어도 초·소수점 자리 정렬 */
+  .c-meta { display: none; }   /* 모바일 리스트에서만 노출 (제목 아래 메타 줄) */
+  /* 더보기로 추가되는 카드 순차 등장 (살짝 떠오르며 fade-in) */
+  .row.reveal { opacity: 0; transform: translateY(8px); }
+  .row.reveal.in { opacity: 1; transform: none; transition: opacity .38s ease, transform .38s ease; }
+  @media (prefers-reduced-motion: reduce) {
+    /* 동작 줄이기: 위로 떠오르는 '움직임'만 제거하고, 순차 페이드 캐스케이드는 유지 */
+    .row.reveal { transform: none; }
+    .row.reveal.in { transform: none; transition: opacity .38s ease; }
+  }
+  /* ── 더보기 로딩 스켈레톤 (그리드 전용, shimmer) ── */
+  .sk-card { display: none; }
+  body.view-grid .sk-card { display: flex; flex-direction: column; gap: 9px; align-self: start; }
+  .sk-card .sk-thumb, .sk-card .sk-line { position: relative; overflow: hidden; background: var(--paper-deep); }
+  .sk-card .sk-thumb { aspect-ratio: 4 / 3; }
+  .sk-card .sk-line { height: 13px; width: 70%; border-radius: 2px; }
+  .sk-card .sk-thumb::after, .sk-card .sk-line::after {
+    content: ''; position: absolute; inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.6), transparent);
+    transform: translateX(-100%); animation: sk-shimmer 1.15s ease-in-out infinite;
+  }
+  @keyframes sk-shimmer { to { transform: translateX(100%); } }
+  @media (prefers-reduced-motion: reduce) { .sk-card .sk-thumb::after, .sk-card .sk-line::after { animation: none; } }
+  /* 컬럼 순서: 날짜 / 제목 / 선수 / 종목 / 기록 (기록 우측정렬 → 맨 오른쪽) */
+  body.view-list .c-date    { order: 1; }
+  body.view-list .c-title   { order: 2; }
+  body.view-list .c-athlete { order: 3; }
+  body.view-list .c-event   { order: 4; }
+  body.view-list .c-record  { order: 5; }
+  body.view-list #items > :last-child { border-bottom: none; }   /* 목록 맨 끝 요소만 보더 없음 (행·월링크·대회별 무엇이든) */
+  /* 기사 묶음의 마지막 행(다음이 헤더/월링크/대회별 등 다른 종류)은 보더 없이 → 그룹 끝 */
+  body.view-list .row:has(+ :not(.row)) { border-bottom: none; }
+  /* 월링크·대회별 그룹은 기사 묶음과 한 칸 떨어뜨림 (월링크 사이 간격은 그대로) */
+  body.view-list .row + .month-link, body.view-list .row + .comp-toggle { margin-top: 14px; }
+  /* 월별 그룹 헤더 (리스트 모드 전용) */
+  .month-group { display: none; }
+  body.view-list .month-group {
+    display: block;
+    font-family: var(--serif);
+    font-size: 12.5px; font-weight: 400; letter-spacing: normal;   /* 날짜와 동일한 폰트·사이즈 → 라인 정렬 */
+    color: var(--ink-mute);                                        /* 색상만 날짜(--ink-light)와 구분 */
+    padding: 26px 0 10px;
+  }
+  body.view-list .month-group:first-child { padding-top: var(--frame-gap); }   /* 첫 월 헤딩 = 그리드 첫 사진 시작 높이(frame-gap) */
+  /* 그리드 뷰: 월 그룹핑 없음 (균일 그리드) — month-group 미생성, 혹시 모를 잔여 숨김 */
+  body.view-grid .month-group { display: none; }
+
+  .empty {
+    text-align: center;
+    color: var(--ink-light);
+    font-size: 14px;
+    padding: 48px 0;
+  }
+
+  /* ── 푸터 (필요적 게재사항) — 스타일은 assets/footer.js 가 자체 주입 ── */
+
+  /* ── 반응형 ── */
+  @media (max-width: 640px) {
+    .wrap { padding: 0 18px; }
+    .site-head { padding-top: var(--frame-gap); padding-bottom: 16px; }
+    .logo { font-size: 23px; }
+    .toolbar { gap: 12px; }
+    .view-toggle { margin-left: auto; }
+
+    body.view-grid .items { grid-template-columns: 1fr 1fr; gap: 20px 14px; }
+    /* featured: 모바일은 세로 1열 스택, 각 사진 16:9 */
+    body.view-grid .featured { grid-template-columns: 1fr; grid-template-rows: auto; gap: 20px; }
+    .feat-big { grid-column: 1; grid-row: auto; aspect-ratio: 16 / 9; }
+    .feat-side { grid-column: 1; grid-row: auto; }
+    .feat-side .feat-item { flex: none; aspect-ratio: 16 / 9; }
+    .feat-cap { padding: 40px 18px 16px; }
+    .feat-cap .fc-title, .feat-big .fc-title { font-size: 18px; }
+    .feat-big .feat-cap { padding: 40px 18px 16px; }
+
+    /* 리스트뷰: 날짜+제목만, 한 줄씩 정렬 */
+    body.view-list .row {
+      display: block;
+      padding: 13px 0;
+    }
+    body.view-list .c-date { display: none; }   /* 날짜는 메타 줄로 이동 */
+    body.view-list .month-group { font-size: 11.5px; }
+    .month-link, .comp-toggle, .comp-row { font-size: 11.5px; }   /* 모바일도 month-group과 동일 사이즈 */
+    body.view-list .c-title { display: block; font-size: 16px; margin-bottom: 4px; }
+    body.view-list .c-meta { display: block; font-size: 12px; color: var(--ink-light); font-variant-numeric: tabular-nums; line-height: 1.5; }
+    body.view-list .c-athlete,
+    body.view-list .c-event,
+    body.view-list .c-record { display: none; }
+    /* 대회 행: 모바일에선 제목줄에 [지역] 대회명만, 수영장은 아래 메타줄(날짜 | 수영장)로 */
+    body.view-list .comp-row .cr-venue { display: none; }
+  }
+
+  /* ── 메뉴 버튼: UA 기본 보더 제거 ── */
+  .chip, .view-btn, .region-select { border: none; }
+  /* ── 로고 hover: 색 반전 (검정 ↔ 오렌지) ── */
+  .logo, .logo span { transition: color .15s; }
+  .logo:hover { color: var(--orange); }
+  .logo:hover span { color: var(--ink); }
+</style>
+<script src="assets/i18n.js"></script>
+</head>
+<body class="view-grid">
+
+  <!-- 공용 헤더 (assets/header.js 단일 소스로 모든 페이지가 재사용) -->
+  <header id="site-header"></header>
+  <script src="assets/header.js"></script>
+
+  <div class="wrap">
+
+    <!-- 툴바: 필터(좌) + 보기 전환(우) -->
+    <div class="toolbar">
+      <div class="filters" role="group" aria-label="분야 필터">
+        <button class="chip active" data-filter="경기" data-en="Meets">경기</button>
+        <button class="chip" data-filter="현장" data-en="On Site">현장</button>
+        <button class="chip" data-filter="인물" data-en="Athlete">인물</button>
+        <button class="chip chip-search" type="button" data-search-toggle data-en="Search">검색</button>
+      </div>
+      <button class="view-toggle" type="button" aria-label="그리드/리스트 보기 전환" data-view-toggle>
+        <span class="vt-inner"><span class="vt-dim"></span><span class="vt-sep" aria-hidden="true">·</span><span class="vt-cur"></span></span>
+      </button>
+    </div>
+
+    <!-- 검색 인풋폼 (메뉴 "검색" 클릭 시 노출, 새로고침하면 원래대로) -->
+    <div class="search-panel" id="searchPanel" hidden>
+      <div class="search-heading" data-en="Search by city, meet, event, athlete, or title">도시, 대회, 종목, 선수, 제목 검색</div>
+      <input type="search" class="search-input" id="searchInput"
+             placeholder="검색어를 입력한 후 엔터 또는 확인버튼을 눌러주세요." aria-label="검색">
+    </div>
+
+    <!-- featured (그리드 뷰 전용 · 상단 · 최대 3장 · 추후 백엔드에서 기사별 지정) -->
+    <div class="featured" id="featured">
+      <a class="feat-item feat-big" href="article.html"><img alt=""><img alt=""><span class="feat-cap"><span class="fc-cat"></span><span class="fc-date"></span><span class="fc-title"></span></span></a>
+      <div class="feat-side">
+        <a class="feat-item" href="article.html"><img alt=""><img alt=""><span class="feat-cap"><span class="fc-cat"></span><span class="fc-date"></span><span class="fc-title"></span></span></a>
+        <a class="feat-item" href="article.html"><img alt=""><img alt=""><span class="feat-cap"><span class="fc-cat"></span><span class="fc-date"></span><span class="fc-title"></span></span></a>
+      </div>
+    </div>
+
+    <!-- 콘텐츠 -->
+    <div class="items" id="items">
+    </div>
+
+    <p class="empty" hidden data-en="No matching articles.">해당하는 기사가 없습니다.</p>
+
+  </div>
+
+  <footer id="site-footer"></footer>
+  <script src="assets/footer.js"></script>
+
+<script>
+(async () => {
+  'use strict';
+  const body = document.body;
+  const itemsEl = document.getElementById('items');
+  const empty = document.querySelector('.empty');
+  const chips = [...document.querySelectorAll('.chip:not(.chip-search)')];
+
+  let curCat = '경기';
+
+  // ── 데이터 로드 ──
+  let ARTICLES = [];
+  try {
+    const res = await fetch('data/articles.json', { cache: 'no-cache' });
+    if (res.ok) ARTICLES = await res.json();
+  } catch (e) {}
+  ARTICLES.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));  // 최신순
+
+  // ── 헬퍼 ──
+  const EN = () => !!(window.MB && window.MB.isEN());   // 영어 모드 여부
+  const MONTHS_EN = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const ymOf = a => (a.date || '').slice(0, 7);
+  const idxOfYm = ym => { const q = ym.split('-'); return (+q[0]) * 12 + (+q[1] - 1); };
+  // 월 헤딩: KO "2026년 5월" / EN "May 2026"
+  const labelOf = ym => { const q = ym.split('-'); return EN() ? MONTHS_EN[(+q[1]) - 1] + ' ' + q[0] : q[0] + '년 ' + (+q[1]) + '월'; };
+  // 날짜: KO "2026년 5월 22일" / EN "22-05-2026" (dd-mm-yyyy, 뉴질랜드식)
+  const fmtDate = iso => { const m = (iso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/); if (!m) return iso || ''; return EN() ? m[3] + '-' + m[2] + '-' + m[1] : m[1] + '년 ' + (+m[2]) + '월 ' + (+m[3]) + '일'; };
+  // 기록: KO 원문("1분 33초 33") 유지, EN은 "1:33.33"
+  const fmtRecord = r => {
+    if (!r) return '';
+    if (!EN()) return r;
+    const mm = String(r).match(/(?:(\d+)\s*분)?\s*(\d+)\s*초\s*(\d+)/);
+    if (!mm) return r;
+    const sec = ('0' + mm[2]).slice(-2), hun = (mm[3] + '00').slice(0, 2);
+    return mm[1] ? mm[1] + ':' + sec + '.' + hun : (+mm[2]) + '.' + hun;
+  };
+  // 콘텐츠 필드: EN 모드면 <field>ENG 사용(없으면 원문 폴백)
+  const pick = (a, f) => { const v = EN() ? a[f + 'ENG'] : a[f]; return (v == null || v === '') ? (a[f] || '') : v; };
+  const esc = s => (s == null ? '' : String(s)).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  // 달력 기준: 당월 인덱스 / 지난해 1월 인덱스
+  const now = new Date();
+  const curIdx = now.getFullYear() * 12 + now.getMonth();
+  const lastYearJanIdx = (now.getFullYear() - 1) * 12;
+
+  // ── 필터된 목록 / 월 목록 ──
+  const filtered = () => ARTICLES.filter(a => curCat === 'all' || a.cat === curCat);
+  function monthsOf(list) {
+    const out = []; let prev = null;
+    for (const a of list) { const ym = ymOf(a); if (ym && ym !== prev) { out.push(ym); prev = ym; } }
+    return out;
+  }
+
+  // ── 행 DOM ──
+  function rowEl(a) {
+    const el = document.createElement('a');
+    el.className = 'row';
+    el.href = a.href || 'article.html';
+    el.dataset.cat = a.cat || '';
+    el.dataset.region = a.region || '';
+    el.dataset.competition = a.competition || '';
+    el.dataset.athlete = a.athlete || '';
+    el.dataset.event = a.event || '';
+    // 모바일 리스트 전용 메타 줄: 날짜 | 기록 | 종목 | 선수명 (빈 값 제외)
+    const meta = [fmtDate(a.date), fmtRecord(a.record), pick(a, 'event'), pick(a, 'athlete')].filter(Boolean).map(esc).join(' | ');
+    el.innerHTML =
+      '<span class="thumb" aria-hidden="true"' + (a.thumb ? ' style="background-image:url(\'' + a.thumb + '\')"' : '') + '><span class="thumb-date">' + esc(fmtDate(a.date)) + '</span></span>' +
+      '<span class="c-title"><span class="c-cat">' + esc(pick(a, 'cat')) + '</span><span class="c-bar"> | </span>' + esc(pick(a, 'title')) + '</span>' +
+      '<span class="c-meta">' + meta + '</span>' +
+      '<span class="c-date">' + esc(fmtDate(a.date)) + '</span>' +
+      '<span class="c-athlete">' + esc(pick(a, 'athlete')) + '</span>' +
+      '<span class="c-event">' + esc(pick(a, 'event')) + '</span>' +
+      '<span class="c-record">' + esc(fmtRecord(a.record)) + '</span>';
+    let hoverTimer;
+    el.addEventListener('mouseenter', () => {
+      if (!body.classList.contains('view-list')) return;
+      hoverTimer = setTimeout(() => springRow(el), 500);   // 섬세한 기다림 후 반응 → 스치듯 지나가면 발동 안 함(경박함 방지)
+    });
+    el.addEventListener('mouseleave', () => {
+      clearTimeout(hoverTimer);   // 아직 반응 전이면 취소
+      const an = rowAnims.get(el); if (an) an.cancel();
+    });
+    return el;
+  }
+
+  // ── 리스트 행 hover 스프링 (그리드-리스트 토글과 동일 감성) ──
+  const rowAnims = new WeakMap();
+  const rowReduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+  function springRow(el) {
+    if (rowReduceMotion.matches) return;
+    const prev = rowAnims.get(el); if (prev) prev.cancel();
+    // 순간 점프 없이: 아주 느리게 바깥으로 나갔다가(ease-in-out) 천천히 제자리로 돌아오고, 끝에서만 살짝 통통통
+    const anim = el.animate([
+      { transform: 'translateX(0)',    offset: 0,    easing: 'ease-in-out' },
+      { transform: 'translateX(18px)', offset: 0.42, easing: 'ease-in-out' },   // 엄청 느리게 바깥으로
+      { transform: 'translateX(0)',    offset: 0.70, easing: 'ease-out' },      // 천천히 제자리로 돌아옴
+      { transform: 'translateX(-4px)', offset: 0.80 },   // 통
+      { transform: 'translateX(2px)',  offset: 0.88 },   // 통
+      { transform: 'translateX(-1px)', offset: 0.95 },   // 통
+      { transform: 'translateX(0)',    offset: 1 }
+    ], { duration: 1600, easing: 'linear' });   // 전체 linear → offset이 곧 실제 시간. 대부분(0.7) 느린 이동, 끝 0.3만 통통통
+    rowAnims.set(el, anim);
+  }
+
+  // ── 인스타그램 링크 프로모 카드 (기사 목록 맨 앞 · 날짜 없음 · 새 탭) ──
+  function promoRow() {
+    const el = document.createElement('a');
+    el.className = 'row promo-row';
+    el.href = 'https://instagram.com/medalbankaquatics';
+    el.target = '_blank';
+    el.rel = 'noopener';
+    const en = EN();
+    el.innerHTML =
+      '<span class="thumb promo-thumb" aria-hidden="true"><img src="images/logo_medalbankaquatics_black.png" alt="메달뱅크 아쿠아틱스"></span>' +
+      '<span class="c-title"><span class="c-cat">' + (en ? 'Notice' : '안내') + '</span><span class="c-bar"> | </span>' + (en ? 'Where more swimming stories gather' : '또 다른 수영 이야기가 모여있는 곳') + '</span>' +
+      '<span class="c-meta"></span>' +
+      '<span class="c-date"></span>' +
+      '<span class="c-athlete"></span>' +
+      '<span class="c-event"></span>' +
+      '<span class="c-record"></span>';
+    return el;
+  }
+
+  // ── 순차 등장(stagger): 카드당 STAGGER 간격으로 살짝 떠오르며 fade-in ──
+  const STAGGER = 45, MAX_STEPS = 18;
+  function stagger(els) {
+    if (!els.length) return;
+    els.forEach((el, i) => {
+      el.classList.add('reveal');
+      el.style.transitionDelay = (Math.min(i, MAX_STEPS) * STAGGER) + 'ms';
+    });
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      els.forEach(el => el.classList.add('in'));
+    }));
+    const total = Math.min(els.length, MAX_STEPS) * STAGGER + 600;
+    setTimeout(() => els.forEach(el => {
+      el.classList.remove('reveal', 'in');
+      el.style.transitionDelay = '';
+    }), total);
+  }
+
+  // ── 한 달치(헤더 + 행) fragment 생성. collectRows 배열에 행 모음 ──
+  function monthFragment(ym, list, collectRows) {
+    const frag = document.createDocumentFragment();
+    const h = document.createElement('div');
+    h.className = 'month-group';
+    h.textContent = labelOf(ym);
+    frag.appendChild(h);
+    for (const a of list) {
+      if (ymOf(a) !== ym) continue;
+      const el = rowEl(a);
+      frag.appendChild(el);
+      if (collectRows) collectRows.push(el);
+    }
+    return frag;
+  }
+
+  // ── 대회 정보(전체 기사 기준): 최신 대회 먼저, 지역·날짜 라벨 ──
+  function competitionsInfo() {
+    const map = new Map();
+    for (const a of ARTICLES) {
+      if (!a.competition) continue;
+      let c = map.get(a.competition);
+      if (!c) { c = { name: a.competition, nameENG: a.competitionENG || a.competition, region: a.region || '', regionENG: a.regionENG || a.region || '', venue: a.venue || '잠실실내수영장', venueENG: a.venueENG || a.venue || 'Jamsil Indoor Swimming Pool', min: a.date, max: a.date, count: 0 }; map.set(a.competition, c); }
+      c.count++;
+      if (a.venue && !c.venue) { c.venue = a.venue; c.venueENG = a.venueENG || a.venue; }
+      if (a.date < c.min) c.min = a.date;
+      if (a.date > c.max) c.max = a.date;
+    }
+    const arr = [...map.values()];
+    arr.sort((a, b) => (a.max < b.max ? 1 : a.max > b.max ? -1 : 0));
+    return arr;
+  }
+
+  // ── setTimeout 기반 부드러운 스크롤 (rAF는 백그라운드/헤드리스에서 멈춰서 직접 구현) ──
+  function smoothScrollTo(el, duration) {
+    const startY = window.scrollY;
+    const targetY = startY + el.getBoundingClientRect().top;
+    const dist = targetY - startY;
+    if (!dist) return;
+    const t0 = performance.now();
+    (function step() {
+      const p = Math.min(1, (performance.now() - t0) / duration);
+      const e = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;   // easeInOut
+      window.scrollTo(0, startY + dist * e);
+      if (p < 1) setTimeout(step, 16);
+    })();
+  }
+
+  // ── 한 행의 셀 텍스트를 읽는 순서(날짜→[지역/카테고리]→제목/대회명→수영장→선수→종목→기록)대로 수집 ──
+  function collectRowTargets(row, out) {
+    const push = (node, isText) => {
+      const full = isText ? node.nodeValue : node.textContent;
+      if (!full) return;
+      out.push({ set: s => { if (isText) node.nodeValue = s; else node.textContent = s; }, full, start: 0, row });
+    };
+    const date = row.querySelector('.c-date'); if (date) push(date, false);
+    const title = row.querySelector('.c-title');
+    if (title) {
+      const cat = title.querySelector('.c-cat'); if (cat) push(cat, false);
+      for (const n of title.childNodes) { if (n.nodeType === 3 && n.nodeValue.trim()) push(n, true); }
+      const venue = title.querySelector('.cr-venue'); if (venue) push(venue, false);
+    }
+    const ath = row.querySelector('.c-athlete'); if (ath) push(ath, false);
+    const ev = row.querySelector('.c-event'); if (ev) push(ev, false);
+    const rec = row.querySelector('.c-record'); if (rec) push(rec, false);
+  }
+
+  // ── 타이핑하듯 "글자 단위"로 노출 (사람이 치듯 따다다닥). 속도: 느리게 시작 → 빨라짐 → 끝에 감속 ──
+  // opts.follow: 지금 타이핑 중인 행을 화면에 계속 보이게 스크롤이 따라 내려감 / opts.onDone: 완료 시 1회
+  function typewriterReveal(rows, opts) {
+    opts = opts || {};
+    const targets = [];
+    rows.forEach(row => collectRowTargets(row, targets));
+    let total = 0;
+    targets.forEach(t => { t.start = total; total += t.full.length; t.set(''); });   // 즉시 비움(레이아웃·높이 유지)
+    if (!total) { if (opts.onDone) opts.onDone(); return; }
+    const T = Math.max(650, Math.min(2800, total * 2.8));   // 글자 수에 따라 0.65~2.8s
+    const times = new Float64Array(total);
+    let sumW = 0; const Ws = new Float64Array(total);
+    for (let i = 0; i < total; i++) { const w = 0.22 + 0.78 * (1 - Math.sin(Math.PI * (i + 0.5) / total)); Ws[i] = w; sumW += w; }
+    let acc = 0;
+    for (let i = 0; i < total; i++) { acc += Ws[i] * T / sumW; times[i] = acc; }
+    const t0 = performance.now();
+    let done = 0, curRow = null;
+    function apply(n) {
+      for (const t of targets) {
+        const shown = Math.max(0, Math.min(t.full.length, n - t.start));
+        t.set(t.full.slice(0, shown));
+        if (shown > 0) curRow = t.row;                 // 마지막으로 글자가 찍힌 행 = 지금 쓰는 위치
+        if (shown < t.full.length) break;              // 이후 타깃은 아직 비어있음
+      }
+    }
+    function follow() {                                 // 쓰는 위치를 화면 55%쯤에 유지하며 '끝까지' 따라 내려감
+      if (!curRow) return;
+      const delta = curRow.getBoundingClientRect().top - window.innerHeight * 0.55;
+      if (delta > 0) window.scrollBy(0, Math.round(delta));
+    }
+    // rAF는 백그라운드/헤드리스에서 멈추므로 setTimeout 틱으로 (경과시간은 performance.now로 계산)
+    function tick() {
+      const el = performance.now() - t0;
+      while (done < total && times[done] <= el) done++;
+      apply(done);
+      if (opts.follow) follow();
+      if (done < total) setTimeout(tick, 16); else { apply(total); if (opts.onDone) opts.onDone(); }
+    }
+    tick();
+  }
+
+  // ── 월 펼쳐보기 링크 클릭: 클릭한 달 + 그 위(더 최신)의 달들을 '위에서 아래로 이어서' 타이핑, 스크롤이 따라 내려감 ──
+  function expandMonth(linkEl, ym, list) {
+    const links = [...itemsEl.querySelectorAll('.month-link')];
+    const idx = links.indexOf(linkEl);
+    const toExpand = idx >= 0 ? links.slice(0, idx + 1) : [linkEl];   // 위(최신)부터 클릭한 달까지, 순서대로
+    const allRows = [];
+    let clickedHeader = null;
+    toExpand.forEach(link => {
+      const lym = link.dataset.ym;
+      const rows = [];
+      const frag = monthFragment(lym, list, rows);
+      const header = frag.firstChild;
+      itemsEl.insertBefore(frag, link);
+      link.remove();
+      allRows.push(...rows);            // 위 달부터 아래 달까지 DOM 순서 그대로
+      if (lym === ym) clickedHeader = header;   // 클릭한 달 헤더 = 최종 정착 위치
+    });
+    // 위 달부터 이어서 타이핑하며 끝까지 따라 내려감 → 완성 후 클릭한 달 헤더를 상단으로 되돌아 스크롤
+    typewriterReveal(allRows, { follow: true, onDone: clickedHeader ? () => smoothScrollTo(clickedHeader, 650) : null });
+  }
+
+  // ── 대회별 기사 살펴보기 클릭: 기사 리스트(.row)와 동일 포맷으로 대회 행 펼침 ──
+  // 컬럼 매핑: 날짜=대회 날짜 / 제목=[지역]+대회명+(흐린)수영장 / 선수·종목=빈칸 / 기록 자리=기사 수
+  function expandComps(toggleEl) {
+    const rows = [];
+    const frag = document.createDocumentFragment();
+    const en = EN();
+    const head = document.createElement('div');
+    head.className = 'month-group';
+    head.textContent = en ? 'All Meets' : '전체 대회 목록';
+    frag.appendChild(head);
+    competitionsInfo().forEach(c => {
+      const a = document.createElement('a');
+      a.className = 'row comp-row';
+      a.href = 'search.html?competition=' + encodeURIComponent(c.name);
+      const cnt = en ? '33333 articles' : '33333건';   /* 기사 수: 더미 임의수 33333 (실데이터면 c.count + '건'/' articles') — 데스크탑 기록칼럼·모바일 메타 공용 */
+      const region = en ? c.regionENG : c.region;
+      const name = en ? c.nameENG : c.name;
+      const venue = en ? c.venueENG : c.venue;
+      a.innerHTML =
+        '<span class="thumb" aria-hidden="true"></span>' +
+        '<span class="c-title"><span class="c-cat">' + esc(region) + '</span><span class="c-bar"> | </span>' +
+          esc(name) + (venue ? '<span class="cr-venue">' + esc(venue) + '</span>' : '') + '</span>' +
+        '<span class="c-meta">' + [fmtDate(c.max), venue, cnt].filter(Boolean).map(esc).join(' | ') + '</span>' +
+        '<span class="c-date">' + esc(fmtDate(c.max)) + '</span>' +
+        '<span class="c-athlete"></span>' +
+        '<span class="c-event"></span>' +
+        '<span class="c-record">' + esc(cnt) + '</span>';
+      frag.appendChild(a);
+      rows.push(a);
+    });
+    itemsEl.insertBefore(frag, toggleEl);
+    toggleEl.remove();
+    // 위→아래로 이어서 타이핑하며 끝까지 따라 내려감 → 완성 후 '전체 대회 목록' 헤딩을 상단으로 되돌아 스크롤
+    typewriterReveal(rows, { follow: true, onDone: () => smoothScrollTo(head, 650) });
+  }
+
+  // ── 리스트 렌더: 당월·전월 펼침 → 월 펼쳐보기 링크(지난해 1월까지) → 대회별 ──
+  function renderList() {
+    const list = filtered();
+    const months = monthsOf(list);
+    itemsEl.innerHTML = '';
+    empty.hidden = months.length > 0;
+    if (!months.length) return;
+
+    // 기본 펼침: 당월·전월(달력). 둘 다 비면 가장 최근 달 1개 폴백.
+    let expanded = months.filter(ym => idxOfYm(ym) >= curIdx - 1);
+    if (!expanded.length) expanded = [months[0]];
+    const expandedSet = new Set(expanded);
+    expanded.forEach(ym => itemsEl.appendChild(monthFragment(ym, list, null)));
+
+    // 월 펼쳐보기 링크: 펼친 달보다 오래됨 && 지난해 1월 이상
+    months.filter(ym => !expandedSet.has(ym) && idxOfYm(ym) >= lastYearJanIdx).forEach(ym => {
+      const link = document.createElement('button');
+      link.type = 'button';
+      link.className = 'month-link';
+      link.dataset.ym = ym;
+      link.innerHTML = EN()
+        ? 'Show <span class="ml-label">' + esc(labelOf(ym)) + '</span>'
+        : '<span class="ml-label">' + esc(labelOf(ym)) + '</span> 기사 펼쳐보기';
+      link.addEventListener('click', () => expandMonth(link, ym, list));
+      itemsEl.appendChild(link);
+    });
+
+    // 대회별 기사 살펴보기 (대회가 하나라도 있으면)
+    if (competitionsInfo().length) {
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'comp-toggle';
+      toggle.textContent = EN() ? 'Browse by meet' : '대회별 기사 살펴보기';
+      toggle.addEventListener('click', () => expandComps(toggle));
+      itemsEl.appendChild(toggle);
+    }
+  }
+
+  // ── 그리드 렌더: 월 그룹 없이 균일 그리드 + "더보기" 카드(달 단위 순차) ──
+  let gridMonths = 2, gridLoadCard = null;
+  const GRID_CAP = 1000;   // 그리드에서 이 정도 쌓이면 더 안 불러오고 대회별로 유도
+  // 그리드 끝 검정 CTA 클릭: 리스트 뷰로 전환 → 맨 아래(대회별) 펼치고 그리로 스크롤
+  function goToCompList() {
+    setView('list');
+    render();
+    window.scrollTo(0, 0);
+    const toggle = itemsEl.querySelector('.comp-toggle');
+    if (toggle) toggle.click();   // 대회별 펼침(타이핑) + 완료 후 스크롤은 expandComps가 처리
+  }
+  function fillGridLoad(list, months, visN) {
+    if (!gridLoadCard) return;
+    const shownSet = new Set(months.slice(0, visN));
+    const shownCount = list.filter(a => shownSet.has(ymOf(a))).length;
+    const capReached = shownCount >= GRID_CAP;
+    const noMore = visN >= months.length;
+    gridLoadCard.hidden = false;
+    if (noMore || capReached) {
+      // 그리드 끝: 검정 "대회별 기사 살펴보기" CTA (대회가 있을 때만)
+      if (competitionsInfo().length) {
+        gridLoadCard.innerHTML = '<button type="button" class="comp-cta">' + (EN() ? 'Browse by meet' : '대회별 기사 살펴보기') + '</button>';
+        gridLoadCard.querySelector('.comp-cta').addEventListener('click', goToCompList);
+      } else { gridLoadCard.hidden = true; gridLoadCard.innerHTML = ''; }
+    } else {
+      const nextYm = months[visN];
+      const n = list.filter(a => ymOf(a) === nextYm).length;
+      const en = EN();
+      gridLoadCard.innerHTML =
+        '<button type="button" class="load-btn">' +
+          '<span class="lb-main">' + (en ? 'Load ' + esc(labelOf(nextYm)) : esc(labelOf(nextYm)) + ' 기사 불러오기') + '</span>' +
+          '<span class="lb-sub">' + (en ? n + (n === 1 ? ' article' : ' articles') : n + '개의 기사가 있습니다.') + '</span>' +
+        '</button>';
+      gridLoadCard.querySelector('.load-btn').addEventListener('click', onGridLoadMore);
+    }
+  }
+  // 로딩 스켈레톤 카드 (그리드)
+  function makeSkeleton() {
+    const d = document.createElement('div');
+    d.className = 'sk-card';
+    d.innerHTML = '<span class="sk-thumb"></span><span class="sk-line"></span>';
+    return d;
+  }
+  // 더보기: 스켈레톤(로딩 척) → 잠시 후 하나씩 진짜 카드로 교체. 타이밍 자체가 stagger라 환경 무관하게 보임
+  const SK_START = 500, SK_STEP = 60, SK_CAP = 22;   // 로딩 0.5s 후 카드당 60ms 간격
+  function onGridLoadMore() {
+    const list = filtered();
+    const months = monthsOf(list);
+    const visN = Math.min(Math.max(gridMonths, 2), months.length);
+    if (visN >= months.length) return;
+    gridMonths = visN + 1;
+    const ym = months[visN];
+    const arts = list.filter(a => ymOf(a) === ym);
+    // 1) 스켈레톤 즉시 삽입(로딩 느낌)
+    const sks = arts.map(() => { const s = makeSkeleton(); itemsEl.insertBefore(s, gridLoadCard); return s; });
+    fillGridLoad(list, months, visN + 1);
+    // 2) 로딩 후 하나씩 진짜 카드로 교체 (각 카드는 떠오르며 fade-in)
+    arts.forEach((a, i) => {
+      setTimeout(() => {
+        if (!sks[i] || !sks[i].parentNode) return;
+        const el = rowEl(a);
+        el.classList.add('reveal');
+        itemsEl.insertBefore(el, sks[i]);
+        sks[i].remove();
+        requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('in')));
+        setTimeout(() => { el.classList.remove('reveal', 'in'); }, 480);
+      }, SK_START + Math.min(i, SK_CAP) * SK_STEP);
+    });
+  }
+  function renderGrid() {
+    const list = filtered();
+    const months = monthsOf(list);
+    const visN = Math.min(Math.max(gridMonths, 2), months.length);
+    itemsEl.innerHTML = '';
+    empty.hidden = months.length > 0;
+    const visSet = new Set(months.slice(0, visN));
+    itemsEl.appendChild(promoRow());   // 인스타 링크 프로모 (첫 기사 앞)
+    for (const a of list) { if (visSet.has(ymOf(a))) itemsEl.appendChild(rowEl(a)); }
+    gridLoadCard = document.createElement('div');
+    gridLoadCard.className = 'load-card';
+    itemsEl.appendChild(gridLoadCard);
+    fillGridLoad(list, months, visN);
+  }
+
+  // ── 뷰 분기: 리스트=펼쳐보기 모델 / 그리드=균일 그리드 + 더보기 ──
+  function render() {
+    if (body.classList.contains('view-list')) renderList(); else renderGrid();
+  }
+
+  // ── 필터 컨트롤 ──
+  function resetAndRender() { gridMonths = 2; render(); }
+  chips.forEach(chip => chip.addEventListener('click', () => {
+    chips.forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    curCat = chip.dataset.filter;
+    resetAndRender();
+  }));
+
+  // ── 검색 (기존 동작 유지) ──
+  const searchChip = document.querySelector('[data-search-toggle]');
+  const searchPanel = document.getElementById('searchPanel');
+  const searchInput = document.getElementById('searchInput');
+  const SEARCH_PH_EN = 'Type your search, then press Enter.';
+  const SEARCH_PH_KO = '검색어를 입력한 후 엔터 또는 확인버튼을 눌러주세요.';
+  function updateSearchPlaceholder() { if (searchInput) searchInput.placeholder = EN() ? SEARCH_PH_EN : SEARCH_PH_KO; }
+  updateSearchPlaceholder();
+  if (searchChip && searchPanel && searchInput) {
+    const openSearch = () => { searchChip.hidden = true; searchPanel.hidden = false; searchInput.focus(); };
+    const closeSearch = () => { searchPanel.hidden = true; searchChip.hidden = false; searchInput.value = ''; };
+    searchChip.addEventListener('click', openSearch);
+    searchInput.addEventListener('blur', closeSearch);
+    searchInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { const q = searchInput.value.trim(); if (q) location.href = 'search.html?q=' + encodeURIComponent(q); }
+    });
+  }
+
+  // ── 그리드 / 리스트 단일 토글 (선택된 뷰가 오른쪽, 반대편은 흐리게, 어디를 눌러도 전환) ──
+  const viewToggle = document.querySelector('[data-view-toggle]');
+  const vtInner = viewToggle && viewToggle.querySelector('.vt-inner');
+  const vtDim = viewToggle && viewToggle.querySelector('.vt-dim');
+  const vtCur = viewToggle && viewToggle.querySelector('.vt-cur');
+  const VLABEL = { grid: '그리드', list: '리스트' };
+  const VLABEL_EN = { grid: 'Grid', list: 'List' };
+  const curView = () => body.classList.contains('view-list') ? 'list' : 'grid';
+  const vtReduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let vtAnim = null;
+  function springSwap() {   // 오른쪽에서 슬라이드 인 + 탄성 오버슈트(띠요오옹)로 자리잡기
+    if (!vtInner || vtReduceMotion) return;
+    if (vtAnim) vtAnim.cancel();
+    vtAnim = vtInner.animate([
+      { transform: 'translateX(20px)', opacity: 0.15 },
+      { transform: 'translateX(0px)',  opacity: 1, offset: 0.45 },
+      { transform: 'translateX(-7px)', offset: 0.62 },
+      { transform: 'translateX(4px)',  offset: 0.77 },
+      { transform: 'translateX(-2px)', offset: 0.89 },
+      { transform: 'translateX(0)' }
+    ], { duration: 720, easing: 'ease-out' });
+  }
+  function exitSwap() {   // mouse-out: 진입의 역순(반대 방향)으로 부드럽게 복귀 — 튕김 없음
+    if (!vtInner || vtReduceMotion) return;
+    if (vtAnim) vtAnim.cancel();
+    vtAnim = vtInner.animate([
+      { transform: 'translateX(9px)', opacity: 0.5 },
+      { transform: 'translateX(0)',   opacity: 1 }
+    ], { duration: 560, easing: 'ease-out' });   // 진입과 같은 방향에서 살짝 더 천천히 원위치
+  }
+  function renderToggle(v) {   // 라벨만 v 기준으로 표시 (선택 v = 오른쪽·진하게)
+    const labels = EN() ? VLABEL_EN : VLABEL;
+    const other = v === 'grid' ? 'list' : 'grid';
+    if (vtDim) vtDim.textContent = labels[other];
+    if (vtCur) vtCur.textContent = labels[v];
+  }
+  function setView(v) {
+    body.classList.remove('view-grid', 'view-list');
+    body.classList.add('view-' + v);
+    renderToggle(v);
+    try { localStorage.setItem('mb_view', v); } catch (e) {}
+  }
+  let initView = curView();
+  try { const saved = localStorage.getItem('mb_view'); if (saved === 'grid' || saved === 'list') initView = saved; } catch (e) {}
+  setView(initView);   // 초기 로드엔 애니메이션 없음
+  if (viewToggle) {
+    // hover: 클릭 후 모습 미리보기 · out: 원복 · click: 실제 전환 — 모두 스프링 스왑
+    viewToggle.addEventListener('mouseenter', () => { renderToggle(curView() === 'grid' ? 'list' : 'grid'); springSwap(); });
+    viewToggle.addEventListener('mouseleave', () => { renderToggle(curView()); exitSwap(); });   // out: 진입의 역순으로 부드럽게 복귀
+    viewToggle.addEventListener('click', () => { setView(curView() === 'grid' ? 'list' : 'grid'); render(); springSwap(); });
+  }
+
+  // ── URL ?cat= 로 진입 시 해당 카테고리 칩 활성화(사이드바 '분야 바로가기' 링크 → 탑메뉴와 통일) ──
+  try {
+    const p = new URLSearchParams(location.search).get('cat');
+    if (p) {
+      const target = chips.find(c => c.dataset.filter === p);
+      if (target) { chips.forEach(c => c.classList.remove('active')); target.classList.add('active'); curCat = p; }
+    }
+  } catch (e) {}
+
+  // ── 언어 전환(mb:lang): 뷰 토글 라벨·검색 placeholder 갱신 + 목록 재렌더 ──
+  document.addEventListener('mb:lang', () => {
+    renderToggle(curView());
+    updateSearchPlaceholder();
+    render();
+  });
+
+  render();   // 초기 렌더
+})();
+</script>
+
+<!-- featured 로테이션: 4장이 5초마다 자리 이동(각자 차례로 큰 사진) -->
+<script>
+(() => {
+  'use strict';
+  const feat = document.getElementById('featured');
+  if (!feat) return;
+  const EN = () => !!(window.MB && window.MB.isEN());
+  // featured 3장(최근순): 가장 최근 = 큰 사진, 그다음 = 작은 위층, 그다음 = 작은 아래층
+  const FEAT = [
+    { img: 'images/temp/featured/20260426_092705_048A0886.jpg', cat: '경기', catEN: 'Meets', date: '2026년 5월 22일', dateEN: '22-05-2026', title: '홍길동, 자유형 100m 한국신기록 수립', titleEN: 'HONG, Gildong Sets Korean Record in 100m Freestyle' },
+    { img: 'images/temp/featured/20260426_120619_048A4162.jpg', cat: '경기', catEN: 'Meets', date: '2026년 5월 22일', dateEN: '22-05-2026', title: '남자 계영 400m 결승, 0.33초 차 은메달', titleEN: "Men's 400m Freestyle Relay Final: Silver by 0.33s" },
+    { img: 'images/temp/featured/20260426_103020_7R505742.jpg', cat: '경기', catEN: 'Meets', date: '2026년 5월 21일', dateEN: '21-05-2026', title: '홍길동, 자유형 50m도 한국신기록', titleEN: 'HONG, Gildong Adds a Korean Record in 50m Freestyle' },
+  ];
+  const slots = [feat.querySelector('.feat-big'), ...feat.querySelectorAll('.feat-side .feat-item')];
+  // 슬롯마다 이미지 2장을 번갈아 켜며(.on) 크로스페이드 — 들어오는 사진이 위에서 페이드인,
+  // 나가는 사진은 완전히 가려진 뒤 꺼서 빈 화면/흰 배경 비침 없이 매끄럽게 교차
+  function paint(el, d) {
+    if (!el) return;
+    const imgs = el.querySelectorAll('img');
+    const cur = el.querySelector('img.on');
+    const next = (cur === imgs[0]) ? imgs[1] : imgs[0];
+    const show = () => {
+      next.style.transition = 'opacity 1s ease';   // 교체 전환만 1s, hover는 기본(즉시) 유지
+      next.style.zIndex = '1';
+      next.classList.add('on');
+      if (cur && cur !== next) { cur.style.transition = 'opacity 1s ease'; cur.style.zIndex = '0'; }
+      setTimeout(() => {
+        if (cur && cur !== next) cur.classList.remove('on');
+        next.style.transition = '';
+        if (cur) cur.style.transition = '';
+      }, 1000);
+    };
+    if (next.getAttribute('src') === d.img && next.complete) show();
+    else { next.onload = show; if (next.getAttribute('src') !== d.img) next.src = d.img; }
+    const en = EN();
+    el.querySelector('.fc-cat').textContent = en ? d.catEN : d.cat;
+    el.querySelector('.fc-date').textContent = en ? d.dateEN : d.date;
+    el.querySelector('.fc-title').textContent = en ? d.titleEN : d.title;
+  }
+  let off = 0;
+  function render() { slots.forEach((el, k) => paint(el, FEAT[(off + k) % FEAT.length])); }
+  render();
+  // 60초마다 다음 사진으로 매끄럽게 크로스페이드 (자주 바뀌지 않음)
+  setInterval(() => { off = (off + 1) % FEAT.length; render(); }, 60000);
+  // 언어 전환 시 캡션만 즉시 갱신 (크로스페이드 없이)
+  document.addEventListener('mb:lang', render);
+})();
+</script>
+
+</body>
+</html>
