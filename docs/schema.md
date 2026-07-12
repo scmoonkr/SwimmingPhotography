@@ -3,7 +3,7 @@ DB name: SwimmingPhotography
 {
   _id,
   slug,
-  type, // athlete_story | meet_report | team_story | photo_news | record_news
+  type, // athlete_story | meet_report | team_story | photo_news | record_news | breaking_news
   status, // draft | published | hidden | archived
 
   langDefault: "ko",

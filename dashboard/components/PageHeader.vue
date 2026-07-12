@@ -1,5 +1,6 @@
 <script setup lang="ts">
 defineProps<{ title: string; en?: string; subtitle?: string; addLabel?: string }>()
+const emit = defineEmits<{ (e: 'add'): void }>()
 </script>
 
 <template>
@@ -10,11 +11,7 @@ defineProps<{ title: string; en?: string; subtitle?: string; addLabel?: string }
       <p v-if="subtitle" class="ph-sub">{{ subtitle }}</p>
     </div>
     <div class="ph-actions">
-      <button class="btn btn-ghost" type="button">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/><path d="M21 15v4a2 2 0 0 1-2 2h-4M3 9V5a2 2 0 0 1 2-2h4"/></svg>
-        내보내기
-      </button>
-      <button class="btn btn-primary" type="button">
+      <button class="btn btn-primary" type="button" @click="emit('add')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
         {{ addLabel || '추가' }}
       </button>

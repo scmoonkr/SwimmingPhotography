@@ -149,6 +149,7 @@ table.data thead th.num, table.data td.num { text-align: right; }
 table.data tbody td { padding: 12px 16px; border-bottom: 1px solid var(--line-soft); color: var(--ink-soft); vertical-align: middle; white-space: nowrap; }
 table.data tbody tr:last-child td { border-bottom: none; }
 table.data tbody tr:hover { background: var(--paper-deep); }
+table.data tbody tr.clickable { cursor: pointer; }
 table.data td.strong { color: var(--ink); font-weight: 700; }
 table.data td.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--ink); }
 table.data td.muted { color: var(--ink-light); }

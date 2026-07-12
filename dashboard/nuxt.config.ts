@@ -9,6 +9,14 @@ export default defineNuxtConfig({
 
   css: ['~/assets/css/dashboard.css'],
 
+  // API 서버(Express 6640) 주소 — NUXT_PUBLIC_API_BASE 로 오버라이드(프로덕션).
+  // 개발: http://localhost:6640, 프로덕션: https://api.swimmingphotography.com 등
+  runtimeConfig: {
+    public: {
+      apiBase: 'http://localhost:6640',
+    },
+  },
+
   app: {
     head: {
       htmlAttrs: { lang: 'ko' },
@@ -30,13 +38,4 @@ export default defineNuxtConfig({
     },
   },
 
-  // 관리자 대시보드 → Express API(6640) 프록시
-  nitro: {
-    devProxy: {
-      '/api': {
-        target: 'http://127.0.0.1:6640',
-        changeOrigin: true,
-      },
-    },
-  },
 })

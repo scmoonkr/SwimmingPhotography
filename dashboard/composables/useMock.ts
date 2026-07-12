@@ -8,6 +8,8 @@ export interface Column {
   label: string
   cls?: 'strong' | 'mono' | 'muted' | 'num'
   type?: 'badge' | 'thumb'
+  // 중첩 데이터(article 스키마 등)에서 표시값을 뽑는 접근자. 없으면 row[key] 사용.
+  get?: (row: any) => any
 }
 export interface Entity {
   title: string
@@ -15,6 +17,16 @@ export interface Entity {
   subtitle: string
   columns: Column[]
   rows: Record<string, any>[]
+}
+
+// 드로어 편집 필드 — get/set 으로 임의 스키마(중첩 포함) 매핑
+export interface Field {
+  key: string
+  label: string
+  type?: 'text' | 'textarea' | 'select'
+  options?: string[]
+  get: (row: any) => any
+  set: (row: any, value: any) => void
 }
 
 // 상태 라벨 → 뱃지 색 매핑 (DataTable 에서 사용)
@@ -28,24 +40,189 @@ export const badgeVariant = (v: string): string => {
   return map[v] || 'b-mute'
 }
 
+// title 로부터 slug 생성 (한글·영문·숫자 유지, 나머지는 하이픈)
+export const slugify = (s: string) =>
+  (s || '').trim().toLowerCase().replace(/\s+/g, '-').replace(/[^\w가-힣-]/g, '').replace(/-+/g, '-').replace(/^-|-$/g, '') || 'article'
+
+const mkReporter = (name = '편집부') => ({
+  name,
+  nameEng: name === '편집부' ? 'Editorial Team' : name,
+  email: 'press@medalbank.com',
+})
+
+// docs/schema.md 의 articles 스키마에 맞춘 속보 객체 생성
+const mkArticle = (o: {
+  title: string; reporter?: string; categories: string[]; tags: string[]
+  lead: string; paragraphs: string[]; publishedAt: string; updatedAt: string
+}) => ({
+  slug: slugify(o.title),
+  type: 'breaking_news',
+  status: 'published',
+  langDefault: 'ko',
+  sourceType: 'manual',
+  reporter: mkReporter(o.reporter),
+  searchTags: o.tags,
+  searchCategories: o.categories,
+  translations: {
+    ko: {
+      title: o.title,
+      subtitle: '',
+      excerpt: o.lead.slice(0, 60),
+      content: {
+        lead: o.lead,
+        blocks: o.paragraphs.map((text) => ({ type: 'paragraph', text })),
+      },
+      categories: o.categories,
+      tags: o.tags,
+      seoTitle: o.title,
+      seoDescription: o.lead.slice(0, 80),
+    },
+  },
+  publishedAt: o.publishedAt,
+  updatedAt: o.updatedAt,
+})
+
+// 시도 목록 (필터·셀렉트 공용)
+export const SIDO_LIST = ['서울', '부산', '대구', '인천', '광주', '대전', '울산', '세종', '경기', '강원', '충북', '충남', '전북', '전남', '경북', '경남', '제주']
+
+// 속보 분류 목록 (value=searchCategories 슬러그, label=표시)
+export const BN_CATEGORIES = [
+  { v: 'meet', l: '경기' },
+  { v: 'record', l: '기록' },
+  { v: 'athlete', l: '인물' },
+  { v: 'venue', l: '현장·시설' },
+  { v: 'notice', l: '안내' },
+  { v: 'column', l: '칼럼' },
+]
+
+// 신규 등록용 빈 경기장(venues) 객체
+export const blankVenue = () => ({
+  pool: '',
+  sido: '',
+  lanes: null,
+  length: '50m',
+  address: '',
+})
+
+// 신규 등록용 빈 대회(Breaststroke.competitions) 객체
+export const blankCompetition = () => ({
+  competitionName: '',
+  datetime: '',
+  pool: '',
+  sido: '',
+  course: 'LCM',
+  isMasters: false,
+  stem: '',
+  measured: '자동계측',
+})
+
+// 신규 등록용 빈 기사(article) 객체 — type 으로 속보/기사 구분
+export const blankArticle = (type = 'breaking_news') => ({
+  slug: '',
+  type,
+  status: 'published',
+  langDefault: 'ko',
+  sourceType: 'manual',
+  reporter: mkReporter('편집부'),
+  searchTags: [] as string[],
+  searchCategories: [] as string[],
+  translations: {
+    ko: {
+      title: '', subtitle: '', excerpt: '',
+      content: { lead: '', blocks: [] as any[] },
+      categories: [] as string[], tags: [] as string[],
+      seoTitle: '', seoDescription: '',
+    },
+  },
+  publishedAt: '',
+  updatedAt: '',
+})
+
 const DATA: Record<string, Entity> = {
-  competitions: {
-    title: '대회', en: 'Competitions', subtitle: '수영대회 일정과 개최 정보를 관리합니다.',
+  breakingNews: {
+    title: '속보', en: 'Breaking News', subtitle: '긴급 소식·속보를 게시하고 관리합니다.',
     columns: [
-      { key: 'name', label: '대회명', cls: 'strong' },
-      { key: 'date', label: '일자' },
-      { key: 'venue', label: '경기장' },
-      { key: 'city', label: '도시', cls: 'muted' },
-      { key: 'events', label: '종목수', cls: 'num' },
-      { key: 'status', label: '상태', type: 'badge' },
+      { key: 'title', label: '헤드라인', cls: 'strong', get: (r) => r.translations?.ko?.title || '' },
+      { key: 'categories', label: '분류', get: (r) => (r.searchCategories || []).join(', ') },
+      { key: 'reporter', label: '출처', cls: 'muted', get: (r) => r.reporter?.name || '' },
+      { key: 'tags', label: '태그', get: (r) => (r.searchTags || []).join(', ') },
+      { key: 'publishedAt', label: '게시', cls: 'mono', get: (r) => r.publishedAt || '' },
     ],
     rows: [
-      { name: '2026 전국수영대회', date: '2026-04-26', venue: '문학박태환수영장', city: '인천', events: 48, status: '진행중' },
-      { name: '제98회 전국체육대회 수영', date: '2026-05-18', venue: '김천실내수영장', city: '김천', events: 42, status: '예정' },
-      { name: '2026 동아수영대회', date: '2026-06-02', venue: '올림픽수영장', city: '서울', events: 40, status: '예정' },
-      { name: '2026 청소년 대표선발전', date: '2026-03-14', venue: '남부대수영장', city: '광주', events: 36, status: '종료' },
-      { name: '2026 마스터즈 오픈', date: '2026-02-22', venue: '울산문수수영장', city: '울산', events: 28, status: '종료' },
-      { name: '2026 봄철 기록회', date: '2026-04-05', venue: '부산사직수영장', city: '부산', events: 30, status: '취소' },
+      mkArticle({
+        title: '홍길동, 자유형 100m 한국신기록 수립', reporter: '편집부',
+        categories: ['record', 'athlete'], tags: ['자유형', 'freestyle', '100m', '한국신기록', 'PB'],
+        lead: '잠실 실내수영장서 1분 33초 33… 종전 기록 0.33초 단축.',
+        paragraphs: [
+          '홍길동 선수가 2026 전국수영대회 남자 자유형 100m 결승에서 1분 33초 33으로 한국신기록을 수립했다. 종전 기록을 0.33초 앞당긴 기록이다.',
+          '홍 선수는 이번 대회 남자 자유형 50m에 이어 100m에서도 한국신기록을 경신해, 한 대회에서 두 개의 신기록을 작성했다.',
+        ],
+        publishedAt: '2026-05-22 09:12', updatedAt: '2026-05-22 09:30',
+      }),
+      mkArticle({
+        title: '남자 계영 400m 결승, 0.33초 차 은메달', reporter: '편집부',
+        categories: ['meet'], tags: ['계영', 'relay', '400m', '은메달'],
+        lead: '마지막 영자의 역영으로 0.33초 차 은메달.',
+        paragraphs: ['남자 계영 400m 결승에서 대표팀이 0.33초 차이로 은메달을 획득했다. 마지막 영자의 역영이 돋보였다.'],
+        publishedAt: '2026-05-22 11:48', updatedAt: '2026-05-22 11:48',
+      }),
+      mkArticle({
+        title: '이서연, 접영 100m 대회신기록 경신', reporter: '편집부',
+        categories: ['record', 'athlete'], tags: ['접영', 'butterfly', '100m', '대회신기록'],
+        lead: '58초 91, 대회신기록으로 금메달.',
+        paragraphs: ['이서연 선수가 접영 100m에서 58초 91로 대회신기록을 경신하며 금메달을 차지했다.'],
+        publishedAt: '2026-05-22 10:05', updatedAt: '2026-05-22 10:05',
+      }),
+      mkArticle({
+        title: '잠실 실내수영장, 리모델링 마치고 재개장', reporter: '제보',
+        categories: ['venue'], tags: ['잠실', 'venue', '재개장'],
+        lead: '3개월 리모델링 마치고 재개장.',
+        paragraphs: ['잠실 실내수영장이 3개월간의 리모델링을 마치고 재개장했다. 전광판과 레인 로프가 전면 교체됐다.'],
+        publishedAt: '2026-05-20 08:30', updatedAt: '2026-05-20 08:30',
+      }),
+      mkArticle({
+        title: '박도현, 평영 100m 결승 진출', reporter: '편집부',
+        categories: ['meet', 'athlete'], tags: ['평영', 'breaststroke', '100m'],
+        lead: '준결승 조 1위로 결승 진출.',
+        paragraphs: ['박도현 선수가 평영 100m 준결승에서 조 1위로 결승에 진출했다. 결승은 내일 오후 진행된다.'],
+        publishedAt: '2026-05-21 12:20', updatedAt: '2026-05-21 12:20',
+      }),
+      mkArticle({
+        title: '2026 전국수영대회 2일차 일정 변경 안내', reporter: '조직위',
+        categories: ['notice'], tags: ['안내', 'schedule'],
+        lead: '2일차 오전 경기 30분 순연.',
+        paragraphs: ['기상 상황에 따라 2일차 오전 경기 일정이 30분씩 순연됩니다. 자세한 사항은 조직위 공지를 확인하세요.'],
+        publishedAt: '2026-05-19 07:50', updatedAt: '2026-05-19 07:50',
+      }),
+    ],
+  },
+
+  article: {
+    title: '기사', en: 'Articles', subtitle: '기사를 작성하고 관리합니다.',
+    columns: [
+      { key: 'title', label: '제목', cls: 'strong', get: (r) => r.translations?.ko?.title || '' },
+      { key: 'categories', label: '분류', get: (r) => (r.searchCategories || []).join(', ') },
+      { key: 'reporter', label: '출처', cls: 'muted', get: (r) => r.reporter?.name || '' },
+      { key: 'tags', label: '태그', get: (r) => (r.searchTags || []).join(', ') },
+      { key: 'publishedAt', label: '게시', cls: 'mono', get: (r) => r.publishedAt || '' },
+    ],
+    rows: [], // 실제 데이터는 API(/api/articles?type=article)에서 로드
+  },
+
+  competitions: {
+    title: '대회', en: 'Competitions', subtitle: '수영대회 일정과 개최 정보를 관리합니다. (SwimmingPhotography DB)',
+    columns: [
+      { key: 'competitionName', label: '대회명', cls: 'strong' },
+      { key: 'datetime', label: '일자', cls: 'mono' },
+      { key: 'pool', label: '경기장' },
+      { key: 'sido', label: '지역', cls: 'muted' },
+      { key: 'course', label: 'Course' },
+      { key: 'isMasters', label: '구분', get: (r) => (r.isMasters ? '마스터즈' : '일반') },
+    ],
+    // 실제 데이터는 API(/api/competitions)에서 로드. 아래는 nav 카운트/폴백용 샘플.
+    rows: [
+      { competitionName: '제11회 서울특별시연맹회장배 수영대회', datetime: '2026-06-28', pool: '서울체육고등학교 수영장', sido: '서울', course: 'LCM', isMasters: true },
+      { competitionName: '2026 제6회 포항시장배 마스터즈 수영대회', datetime: '2026-06-21', pool: '포항 다원복합센터 수영장', sido: '경남', course: 'LCM', isMasters: true },
     ],
   },
 
@@ -89,21 +266,18 @@ const DATA: Record<string, Entity> = {
   },
 
   venues: {
-    title: '경기장', en: 'Venues', subtitle: '개최 수영장의 규격과 위치를 관리합니다.',
+    title: '경기장', en: 'Venues', subtitle: '개최 수영장의 규격과 위치를 관리합니다. (SwimmingPhotography DB)',
     columns: [
-      { key: 'name', label: '경기장', cls: 'strong' },
-      { key: 'city', label: '도시' },
+      { key: 'pool', label: '수영장명', cls: 'strong' },
+      { key: 'sido', label: '시도', cls: 'muted' },
       { key: 'lanes', label: '레인', cls: 'num' },
-      { key: 'length', label: '길이' },
-      { key: 'type', label: '유형', cls: 'muted' },
+      { key: 'length', label: '규격' },
+      { key: 'address', label: '위치' },
     ],
+    // 실제 데이터는 API(/api/venues)에서 로드. 아래는 nav 카운트/폴백용 샘플.
     rows: [
-      { name: '문학박태환수영장', city: '인천', lanes: 10, length: '50m', type: '실내' },
-      { name: '김천실내수영장', city: '김천', lanes: 8, length: '50m', type: '실내' },
-      { name: '올림픽수영장', city: '서울', lanes: 10, length: '50m', type: '실내' },
-      { name: '남부대수영장', city: '광주', lanes: 10, length: '50m', type: '실내' },
-      { name: '울산문수수영장', city: '울산', lanes: 8, length: '50m', type: '실내' },
-      { name: '부산사직수영장', city: '부산', lanes: 9, length: '50m', type: '실내' },
+      { pool: '문학박태환수영장', sido: '인천', lanes: 10, length: '50m', address: '인천 미추홀구' },
+      { pool: '올림픽수영장', sido: '서울', lanes: 10, length: '50m', address: '서울 송파구' },
     ],
   },
 
