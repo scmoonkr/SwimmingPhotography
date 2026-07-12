@@ -9,11 +9,20 @@ export default defineNuxtConfig({
 
   css: ['~/assets/css/dashboard.css'],
 
-  // API 서버(Express 6640) 주소 — NUXT_PUBLIC_API_BASE 로 오버라이드(프로덕션).
-  // 개발: http://localhost:6640, 프로덕션: https://api.swimmingphotography.com 등
+  // apiBase 를 비우면 상대경로 '/api/...' 로 호출 → 아래 nitro routeRules 가
+  // 같은 오리진에서 받아 서버측에서 Express(127.0.0.1:6640)로 프록시한다.
+  // (브라우저는 대시보드와 동일 오리진만 호출 → localhost 문제·CORS 없음)
+  // 원격 API 를 직접 부르려면 NUXT_PUBLIC_API_BASE 로 전체 URL 지정.
   runtimeConfig: {
     public: {
-      apiBase: 'http://localhost:6640',
+      apiBase: '',
+    },
+  },
+
+  // /api/** 요청을 로컬 Express API 로 프록시 (dev·프로덕션 공통)
+  nitro: {
+    routeRules: {
+      '/api/**': { proxy: 'http://127.0.0.1:6640/api/**' },
     },
   },
 
