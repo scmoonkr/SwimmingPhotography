@@ -3,6 +3,7 @@
 import { Router } from 'express'
 import { ObjectId } from 'mongodb'
 import { SP } from '../db.js'
+import { broadcast } from '../sse.js'
 
 const router = Router()
 const coll = async () => (await SP()).collection('articles')
@@ -51,7 +52,16 @@ router.post('/', async (req, res) => {
     const doc = { ...req.body, createdAt: now, updatedAt: now }
     delete doc._id
     const r = await (await coll()).insertOne(doc)
-    res.status(201).json({ ...doc, _id: r.insertedId })
+    const saved = { ...doc, _id: r.insertedId }
+    // 속보면 접속 중인 모든 클라이언트에 실시간 push
+    if (saved.type === 'breaking_news' && saved.status === 'published') {
+      broadcast('breaking', {
+        _id: String(saved._id),
+        title: saved.translations?.ko?.title || '',
+        publishedAt: saved.publishedAt || '',
+      })
+    }
+    res.status(201).json(saved)
   } catch (e) {
     res.status(500).json({ error: e.message })
   }

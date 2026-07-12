@@ -35,12 +35,10 @@ export default defineNuxtConfig({
     },
   },
 
+  // /api/** 를 로컬 Express(6640)로 프록시 (dev·프로덕션 공통). SSE 스트림 포함.
   nitro: {
-    devProxy: {
-      '/api': {
-        target: 'http://127.0.0.1:6640',
-        changeOrigin: true,
-      },
+    routeRules: {
+      '/api/**': { proxy: 'http://127.0.0.1:6640/api/**' },
     },
   },
 })

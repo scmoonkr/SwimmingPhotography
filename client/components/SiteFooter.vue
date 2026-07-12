@@ -1,7 +1,6 @@
 <script setup lang="ts">
-// 공용 푸터 — docs/html/assets/footer.js 를 Vue 컴포넌트로 이식.
-// 발행 로고 · 하위 메뉴 · 취재원칙 · 필요적 게재사항 · 연락처 모달 · 하단 안내 마퀴.
-import { ref } from 'vue'
+// 공용 푸터 — 하단 티커는 속보(있으면)/안내(없으면)를 표시하고 SSE로 실시간 갱신.
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 const { t, isEN } = useLang()
 const modalOpen = ref(false)
@@ -10,6 +9,37 @@ const NOTICE = () => t(
   '본 웹사이트는 현재 테스트 과정 중에 있으며 실제로 운영중이지 않습니다.',
   'This website is currently in testing and is not yet in official operation.',
 )
+
+// ── 속보 티커 ──
+const breaking = ref<{ _id: string; title: string; publishedAt?: string }[]>([])
+const hasBreaking = computed(() => breaking.value.length > 0)
+const marqueeLabel = computed(() => (hasBreaking.value ? t('속보', 'BREAKING') : t('안내', 'NOTICE')))
+// 흐를 항목: 속보 있으면 제목들, 없으면 안내 문구 1개
+const marqueeItems = computed(() => (hasBreaking.value ? breaking.value.map((b) => b.title).filter(Boolean) : [NOTICE()]))
+
+let es: EventSource | null = null
+onMounted(async () => {
+  // 1) 현재 속보 로드
+  try {
+    const list = await $fetch<any[]>('/api/articles', {
+      params: { type: 'breaking_news', status: 'published', limit: 10 },
+    })
+    breaking.value = (list || []).map((a) => ({
+      _id: String(a._id), title: a.translations?.ko?.title || '', publishedAt: a.publishedAt,
+    })).filter((b) => b.title)
+  } catch {}
+  // 2) 실시간 구독 (새 속보 등록 시 즉시 반영)
+  try {
+    es = new EventSource('/api/stream')
+    es.addEventListener('breaking', (ev) => {
+      try {
+        const d = JSON.parse((ev as MessageEvent).data)
+        if (d?.title) breaking.value = [d, ...breaking.value.filter((b) => b._id !== d._id)].slice(0, 20)
+      } catch {}
+    })
+  } catch {}
+})
+onBeforeUnmount(() => es?.close())
 </script>
 
 <template>
@@ -43,15 +73,18 @@ const NOTICE = () => t(
     </div>
   </footer>
 
-  <!-- 하단 고정 안내 마퀴 (임시 — 나중에 삭제 예정) -->
-  <div class="foot-marquee">
+  <!-- 하단 고정 티커: 속보(있으면) / 안내(없으면) -->
+  <div class="foot-marquee" :class="{ 'is-breaking': hasBreaking }">
     <div class="foot-marquee-inner">
-      <span class="foot-marquee-label">{{ t('안내', 'NOTICE') }}</span>
+      <span class="foot-marquee-label">{{ marqueeLabel }}</span>
       <div class="foot-marquee-viewport">
-        <div class="foot-marquee-track">
-          <template v-for="n in 6" :key="n">
-            <span class="foot-marquee-item" :aria-hidden="n > 3 ? 'true' : undefined">{{ NOTICE() }}</span>
-            <span class="foot-marquee-sep" :aria-hidden="n > 3 ? 'true' : undefined">◆</span>
+        <!-- 끊김 없는 루프를 위해 항목 목록을 2번 렌더 -->
+        <div class="foot-marquee-track" :key="marqueeItems.join('|')">
+          <template v-for="copy in 2" :key="copy">
+            <template v-for="(item, i) in marqueeItems" :key="copy + '-' + i">
+              <span class="foot-marquee-item" :aria-hidden="copy === 2 ? 'true' : undefined">{{ item }}</span>
+              <span class="foot-marquee-sep" :aria-hidden="copy === 2 ? 'true' : undefined">◆</span>
+            </template>
           </template>
         </div>
       </div>
@@ -134,6 +167,11 @@ const NOTICE = () => t(
 .foot-marquee-item { font-family: var(--serif); font-size: 13px; color: rgba(255,255,255,.9); white-space: nowrap; }
 .foot-marquee-sep { flex: 0 0 auto; color: var(--orange); font-size: 8px; margin: 0 20px; }
 @keyframes foot-marquee-scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+
+/* 속보 모드 강조 */
+.foot-marquee.is-breaking { background: #1a0d07; }
+.foot-marquee.is-breaking .foot-marquee-label { color: #fff; background: var(--orange); padding: 3px 9px; border-radius: 3px; border-right: none; margin-right: 16px; }
+.foot-marquee.is-breaking .foot-marquee-item { color: #fff; font-weight: 500; }
 @media (prefers-reduced-motion: reduce) { .foot-marquee-track { animation: none; } }
 @media (max-width: 720px) {
   .foot-marquee-inner { padding: 0 14px; height: 34px; }
