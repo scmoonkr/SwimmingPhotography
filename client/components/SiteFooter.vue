@@ -47,7 +47,7 @@ onBeforeUnmount(() => es?.close())
     <div class="wrap">
       <div class="foot-logo">
         <NuxtLink to="/" aria-label="홈으로">
-          <img src="/images/logo_swimmingphotography.png" alt="수영사진 Swimming Photography" height="50">
+          <img :src="'/images/logo_swimmingphotography.png'" alt="수영사진 Swimming Photography" height="50">
         </NuxtLink>
       </div>
 

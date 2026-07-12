@@ -171,7 +171,7 @@ const featTitle = (f: any) => (isEN.value ? f.titleEN : f.title)
     <div class="items" id="items">
       <!-- 인스타 프로모 (그리드 전용) -->
       <a class="row promo-row" href="https://instagram.com/medalbankaquatics" target="_blank" rel="noopener">
-        <span class="thumb promo-thumb" aria-hidden="true"><img src="/images/logo_medalbankaquatics_black.png" alt="메달뱅크 아쿠아틱스"></span>
+        <span class="thumb promo-thumb" aria-hidden="true"><img :src="'/images/logo_medalbankaquatics_black.png'" alt="메달뱅크 아쿠아틱스"></span>
         <span class="c-title"><span class="c-cat">{{ t('안내', 'Notice') }}</span><span class="c-bar"> | </span>{{ t('또 다른 수영 이야기가 모여있는 곳', 'Where more swimming stories gather') }}</span>
         <span class="c-meta" /><span class="c-date" /><span class="c-athlete" /><span class="c-event" /><span class="c-record" />
       </a>
