@@ -258,7 +258,7 @@ watch([bkItems, view, isEN], () => nextTick().then(syncBBHeight))
       <template v-for="g in groups" :key="g.ym">
         <div class="month-group">{{ g.label }}</div>
         <NuxtLink
-          v-for="(a, i) in g.rows" :key="g.ym + i" class="row" :to="'/article/' + a.slug"
+          v-for="(a, i) in g.rows" :key="g.ym + i" class="row" :class="{ 'no-thumb': !a.thumb }" :to="'/article/' + a.slug"
           :data-cat="a.cat" :data-region="a.region" :data-competition="a.competition"
         >
           <span class="thumb" aria-hidden="true" :style="a.thumb ? { backgroundImage: `url('${img(a.thumb)}')` } : undefined">
@@ -338,6 +338,8 @@ body.view-grid .featured { display: grid; grid-template-columns: repeat(5, 1fr);
 /* 그리드 뷰 */
 body.view-grid .items { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 20px; margin-top: 0; padding-top: 20px; }
 body.view-grid .row { display: flex; flex-direction: column; gap: 9px; }
+/* 사진 없는 기사: 그리드에서는 숨기고 리스트에서만 노출 */
+body.view-grid .row.no-thumb { display: none; }
 body.view-grid .thumb { display: block; aspect-ratio: 4 / 3; border-radius: 0; }
 body.view-grid .promo-thumb { background: #000; display: flex; align-items: center; justify-content: center; overflow: hidden; }
 body.view-grid .promo-thumb img { display: block; width: 100%; height: auto; }

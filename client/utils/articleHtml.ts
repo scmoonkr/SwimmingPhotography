@@ -44,6 +44,9 @@ const enDate = (iso: string) => {
   return `${pad2(t.d)}-${pad2(t.mo)}-${t.y}`
 }
 
+// 사이드바 기록 표기: 끝 두 자리(센티초)의 앞 0 제거 — "32초 01" → "32초 1"
+const recKo = (r: string) => String(r || '').replace(/0(\d)\s*$/, '$1')
+
 // public 루트 기준 절대경로로 정규화
 const imgUrl = (u: string) => {
   const s = String(u || '')
@@ -318,7 +321,8 @@ export function buildArticleLayout(doc: any, opts: BuildOpts = {}): string {
   let sideRecord = ''
   if (pd.event || pd.record) {
     const rows: string[] = []
-    if (pd.record) rows.push(`<div class="rec-time"><span>${esc(pd.record)}</span>${pd.rank ? `<span class="rec-flag">${esc(pd.rank)}</span>` : ''}</div>`)
+    // 기록 줄도 아래 .rr 들과 동일 스타일(값 좌·순위 우, 같은 폰트/색/보더). 기록은 "32초 1" 형.
+    if (pd.record) rows.push(`<div class="rr"><span class="k">${esc(pd.rank || '')}</span><span class="v">${esc(recKo(pd.record))}</span></div>`)
     if (pd.date) rows.push(`<div class="rr"><span class="k" data-en="Date">날짜</span><span class="v">${esc(koDayLabel(pd.date))}</span></div>`)
     if (pd.athlete) rows.push(`<div class="rr"><span class="k" data-en="Athlete">선수</span><span class="v">${esc(pd.athlete)}</span></div>`)
     if (pd.competition) rows.push(`<div class="rr"><span class="k" data-en="Meet">대회</span><span class="v">${esc(pd.competition)}</span></div>`)
