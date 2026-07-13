@@ -69,6 +69,13 @@
     font-size: 13px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase;
     color: var(--ink);
   }
+  /* 이 기사의 기록 — 사이드바 요약 카드 (박스·배경 없이 사이트 톤: 얇은 라인 + 모노 기록. 기사보다 시선을 끌지 않게 은은하게) */
+  .side-record { padding-top: 9px; }
+  .side-record .rr { display: flex; flex-direction: row-reverse; justify-content: space-between; align-items: baseline; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line-soft); }   /* row-reverse → 값 왼쪽 · 레이블 오른쪽 */
+  .side-record .rr:last-child { border-bottom: none; padding-bottom: 0; }
+  .side-record .rr .k { flex: 0 0 auto; font-size: 11px; color: var(--ink-light); }
+  .side-record .rr .v { font-family: var(--serif); font-size: 13px; font-weight: 500; color: var(--ink); text-align: left; line-height: 1.5; }
+
   .side-latest { list-style: none; }
   .side-latest li { padding: 9px 0;  }
   .side-latest li:last-child { padding-bottom: 0; }
@@ -199,6 +206,41 @@
   .gallery.single .gallery-prev,
   .gallery.single .gallery-next,
   .gallery.single .gallery-dots { display: none; }   /* 1장이면 넘김 버튼·점 없음 */
+
+  /* 유튜브 영상 (본문 블록 · 클릭 후 로드 facade) */
+  .art-video { margin: 22px 0 0; }
+  .yt-frame { position: relative; aspect-ratio: 16 / 9; background: #000; overflow: hidden; border-radius: 3px; }
+  .yt-facade { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; border: none; background: #000; cursor: pointer; display: block; }
+  .yt-poster { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; transition: opacity .2s ease; }
+  .yt-facade:hover .yt-poster { opacity: .88; }
+  .yt-play { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 68px; height: 48px; border-radius: 13px; background: rgba(0,0,0,.55); transition: background .15s ease; }
+  .yt-facade:hover .yt-play { background: var(--orange); }
+  .yt-play::after { content: ''; position: absolute; top: 50%; left: 50%; transform: translate(-42%, -50%); border-style: solid; border-width: 11px 0 11px 18px; border-color: transparent transparent transparent #fff; }
+  .yt-iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+  .art-video-fallback { margin: 22px 0 0; }
+  .art-video-fallback a { color: var(--orange); word-break: break-all; }
+
+  /* 콜아웃 (highlight/note) — 인용과 같은 좌측 보더 형식, 색만 구별 */
+  .art-callout { margin: 24px 0; padding: 15px 20px; border-left: 3px solid; border-radius: 0 3px 3px 0; }
+  .art-callout .co-kicker { margin: 0 0 7px; font-family: var(--sans); font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+  .art-callout .co-label + .co-tag::before { content: '·'; margin: 0 .45em; opacity: .55; }
+  .art-callout .co-text { margin: 0; font-family: var(--serif); }
+  .art-highlight { background: #F0FAFB; border-left-color: #1596A3; }
+  .art-highlight .co-kicker { color: #0E7A86; }
+  .art-highlight .co-text { font-size: calc(17px * var(--read-fs)); font-weight: 700; line-height: 1.55; color: var(--ink); }
+  .art-note { background: var(--paper-deep); border-left-color: var(--ink-light); }
+  .art-note .co-kicker { color: var(--ink-mute); }
+  .art-note .co-text { font-size: calc(14px * var(--read-fs)); line-height: 1.7; color: var(--ink-mute); }
+
+  /* 공식 기록 (stat) — 결과 카드 형식(다크 박스 + 큰 기록) */
+  .art-stat { margin: 24px 0; padding: 20px 24px; background: #16363D; border-radius: 4px; }
+  .art-stat .stat-label { margin: 0 0 6px; font-family: var(--sans); font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: #7FB6BE; }
+  .art-stat .stat-value { margin: 0; font-family: var(--mono); font-size: 40px; font-weight: 700; line-height: 1.05; color: #fff; font-variant-numeric: tabular-nums; }
+  .art-stat .stat-desc { margin: 9px 0 0; font-family: var(--sans); font-size: 13px; line-height: 1.5; color: #B4D0D5; }
+
+  /* 맺음말 (conclusion) — 본문 맨 끝 마무리 문단 */
+  .art-conclusion { margin: 30px 0 0; padding-top: 22px; border-top: 1px solid var(--line); font-family: var(--serif); font-size: calc(16px * var(--read-fs)); font-weight: 500; line-height: 1.75; color: var(--ink-soft); }
+
   .art-caption {
     font-size: 12.5px; color: var(--ink-mute); font-style: italic;
     line-height: 1.65; padding: 9px 0 0;

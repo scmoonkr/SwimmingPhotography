@@ -55,6 +55,7 @@ onBeforeUnmount(() => es?.close())
         <NuxtLink to="/introduction">{{ t('소개', 'About') }}</NuxtLink>
         <NuxtLink to="/agreement">{{ t('규약', 'Guidelines') }}</NuxtLink>
         <NuxtLink to="/submission">{{ t('제보', 'Submit') }}</NuxtLink>
+        <a class="fn-admin" href="/backend">{{ t('관리자', 'Admin') }}</a>
       </nav>
 
       <p class="promise">{{ t(
@@ -88,6 +89,7 @@ onBeforeUnmount(() => es?.close())
           </template>
         </div>
       </div>
+      <span class="foot-marquee-end" aria-hidden="true" />
     </div>
   </div>
 
@@ -120,6 +122,7 @@ onBeforeUnmount(() => es?.close())
 .foot-nav { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
 .foot-nav a { font-size: 12px; color: var(--ink-light); letter-spacing: .02em; transition: color .15s; }
 .foot-nav a:hover { color: var(--ink); }
+.foot-nav .fn-admin { color: #C6C6C3; }   /* 관리자 — 한 단계 더 흐리게 (reg-detail과 동일 톤). backend 진입점 */
 .site-foot .promise { color: var(--ink); margin-bottom: 12px; max-width: max(620px, calc(60% - 8px)); }
 .site-foot .legal { letter-spacing: .01em; }
 .site-foot .legal .reg-detail { color: #C6C6C3; }
@@ -157,12 +160,13 @@ onBeforeUnmount(() => es?.close())
 .foot-modal .x { flex: 0 0 auto; border: none; background: none; cursor: pointer; font-size: 20px; line-height: 1; color: var(--ink-light); padding: 0; margin: 0; }
 .foot-modal .x:hover { color: var(--ink); }
 
-/* 하단 안내 마퀴 */
-.foot-marquee { position: fixed; left: 0; right: 0; bottom: 0; z-index: 900; background: #141414; overflow: hidden; }
-.foot-marquee-inner { max-width: 1200px; margin: 0 auto; padding: 0 32px; display: flex; align-items: center; height: 38px; }
-.foot-marquee-label { flex: 0 0 auto; font-family: var(--sans); font-size: 10px; font-weight: 700; letter-spacing: .18em; color: var(--orange); text-transform: uppercase; padding-right: 16px; margin-right: 16px; border-right: 1px solid rgba(255,255,255,.18); }
+/* 하단 안내 마퀴 — 고정(fixed) 아님: 푸터 뒤 문서 흐름 맨 아래에 놓여 스크롤해야 보임 (상단 속보 티커와 통일) */
+.foot-marquee { background: #141414; overflow: hidden; }
+.foot-marquee-inner { max-width: 1200px; margin: 0 auto; padding: 0 24px; display: flex; align-items: center; height: 38px; }   /* 좌우 24px = .wrap과 동일 */
+.foot-marquee-label { flex: 0 0 auto; font-family: var(--serif); font-size: 13px; font-weight: 700; line-height: 1.6; letter-spacing: normal; color: var(--orange); padding-right: 16px; margin-right: 0; border-right: 1px solid rgba(255,255,255,.18); }
 .foot-marquee-viewport { flex: 1 1 auto; overflow: hidden; }
-.foot-marquee-track { display: flex; align-items: center; width: max-content; animation: foot-marquee-scroll 44s linear infinite; }
+.foot-marquee-end { flex: 0 0 auto; width: 0; height: calc(13px * 1.6); border-left: 1px solid rgba(255,255,255,.18); }   /* 오른쪽 끝 짝대기 — 라벨 border와 동일 규격 */
+.foot-marquee-track { display: flex; align-items: center; width: max-content; animation: foot-marquee-scroll 66s linear infinite; }
 .foot-marquee-track:hover { animation-play-state: paused; }
 .foot-marquee-item { font-family: var(--serif); font-size: 13px; color: rgba(255,255,255,.9); white-space: nowrap; }
 .foot-marquee-sep { flex: 0 0 auto; color: var(--orange); font-size: 8px; margin: 0 20px; }
@@ -174,9 +178,10 @@ onBeforeUnmount(() => es?.close())
 .foot-marquee.is-breaking .foot-marquee-item { color: #fff; font-weight: 500; }
 @media (prefers-reduced-motion: reduce) { .foot-marquee-track { animation: none; } }
 @media (max-width: 720px) {
-  .foot-marquee-inner { padding: 0 14px; height: 34px; }
-  .foot-marquee-label { font-size: 9px; padding-right: 12px; margin-right: 12px; letter-spacing: .14em; }
+  .foot-marquee-inner { height: 34px; }
+  .foot-marquee-label { padding-right: 12px; }
   .foot-marquee-item { font-size: 12px; }
   .foot-marquee-sep { margin: 0 16px; }
 }
+@media (max-width: 640px) { .foot-marquee-inner { padding: 0 18px; } }   /* .wrap 모바일 패딩(18px)과 정렬 */
 </style>

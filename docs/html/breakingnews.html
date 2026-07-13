@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>속보 — Swimming Photography</title>
+<meta name="description" content="Swimming Photography 속보. 대한민국 수영 현장의 빠른 소식을 한 줄로 전합니다. 자세한 내용은 추후 작성되는 기사로 이어집니다.">
+<link rel="canonical" href="https://swimmingphotography.com/breakingnews.html">
+<meta name="robots" content="index, follow">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Swimming Photography">
+<meta property="og:title" content="속보 — Swimming Photography">
+<meta property="og:description" content="대한민국 수영 현장의 빠른 소식을 한 줄로 전합니다.">
+<meta property="og:url" content="https://swimmingphotography.com/breakingnews.html">
+<meta property="og:locale" content="ko_KR">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@500;700&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #1A1A1A;
+    --ink-soft: #2E2E2E;
+    --ink-mute: #6A6A68;
+    --ink-light: #9A9A97;
+    --line: #E4E4E1;
+    --line-soft: #F0F0EE;
+    --paper: #FFFFFF;
+    --paper-deep: #F6F5F3;
+    --orange: #FF5A00;               /* 형광 주황 — 강조색 */
+    --orange-deep: #C2410C;          /* 버닝 오렌지 — hover */
+    --grad-orange: linear-gradient(135deg, #FF7A2D 0%, #FF4D00 100%);
+    --sans: 'Noto Sans KR', -apple-system, BlinkMacSystemFont, sans-serif;
+    --serif: 'Noto Serif KR', Georgia, serif;
+    --mono: ui-monospace, 'SF Mono', Menlo, Consolas, 'Roboto Mono', monospace;
+    --maxw: 1200px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    font-family: var(--serif);
+    color: var(--ink);
+    background: var(--paper);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  [hidden] { display: none !important; }
+  a { color: inherit; text-decoration: none; }
+  img { display: block; max-width: 100%; }
+
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
+
+  /* ── 페이지 제목 (search.html의 .result-title과 동일 톤) ── */
+  .page-title { font-family: var(--serif); font-size: 13px; font-weight: 500; line-height: 1.6; color: var(--ink-mute); margin: 0 0 14px; }
+  .page-title strong { color: var(--ink); font-weight: 700; }
+  .page-title .back-link { color: var(--ink-light); transition: color .15s; }   /* 흐릿한 링크 — 간격은 스페이스 한 칸 */
+  .page-title .back-link:hover { color: var(--ink); }
+
+  /* ── 속보 리스트 (index 리스트 뷰와 동일한 감성: 날짜 그룹 헤딩 + 행) ── */
+  .day-group {
+    font-family: var(--serif);
+    font-size: 12.5px; font-weight: 400; letter-spacing: normal;
+    color: var(--ink-mute);
+    padding: 26px 0 10px;
+  }
+  .bk-row {
+    display: grid;
+    grid-template-columns: 195px 1fr;   /* 일시(풀 표기) / [속보] 제목 */
+    column-gap: var(--frame-gap, 38px);
+    align-items: center;
+    width: 100%; text-align: left;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--line-soft);
+    background: none; border-left: none; border-right: none; border-top: none;
+    cursor: pointer;
+  }
+  .bk-row .t { font-family: var(--serif); font-size: 12.5px; font-weight: 400; letter-spacing: normal; color: var(--ink-mute); font-variant-numeric: tabular-nums; white-space: nowrap; }   /* 그룹 타이틀(.day-group)과 동일 폰트 — 메인 리스트뷰 톤 */
+  .bk-row .h { font-family: var(--serif); font-weight: 500; font-size: 15.5px; line-height: 1.4; color: var(--ink); }
+  .bk-row .h .flag { color: var(--orange); font-weight: 700; margin-right: .45em; }
+  .bk-row:hover .h { color: var(--orange-deep); }
+  .bk-list { padding-bottom: 8px; }
+  .bk-list .day-group:first-child { padding-top: var(--frame-gap, 38px); }
+
+  .empty { text-align: center; color: var(--ink-light); font-size: 14px; padding: 48px 0; }
+  /* 속보 없는 날짜 섹션의 안내 행 */
+  .bk-none { font-family: var(--serif); font-size: 13px; color: var(--ink-light); padding: 12px 0; border-bottom: 1px solid var(--line-soft); }
+
+  @media (max-width: 640px) {
+    .wrap { padding: 0 18px; }
+    .bk-row { display: block; padding: 13px 0; }
+    .bk-row .h { display: block; font-size: 16px; margin-bottom: 4px; }
+    .bk-row .t { display: block; font-size: 12px; }
+    .day-group { font-size: 11.5px; }
+  }
+</style>
+<script src="assets/i18n.js"></script>
+</head>
+<body>
+
+  <!-- 공용 헤더 (assets/header.js 단일 소스로 모든 페이지가 재사용) -->
+  <header id="site-header"></header>
+  <script src="assets/header.js"></script>
+  <script src="assets/breaking.js"></script>
+
+  <div class="wrap">
+
+    <h1 class="page-title"><strong data-en="Breaking news at this hour.">이 시간 속보입니다.</strong> <span data-en="The fastest updates, one line at a time. Full details follow in upcoming articles.">가장 빠른 소식을 한 줄로 전합니다. 자세한 내용은 추후 기사로 이어집니다.</span> <a class="back-link" href="index.html" data-en="All articles">전체 기사 보기</a></h1>
+
+    <div class="bk-list" id="bkList"></div>
+
+    <p class="empty" hidden data-en="No entries yet.">아직 등록된 내용이 없습니다.</p>
+
+  </div>
+
+  <footer id="site-footer"></footer>
+  <script src="assets/footer.js"></script>
+
+<script>
+(() => {
+  'use strict';
+  const listEl = document.getElementById('bkList');
+  const empty = document.querySelector('.empty');
+  const EN = () => !!(window.MB && window.MB.isEN());
+
+  const MONTHS_EN = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  // 월 그룹 라벨: KO "2026년 5월" / EN "May 2026"
+  const monthLabel = ym => { const q = ym.split('-'); return EN() ? MONTHS_EN[(+q[1]) - 1] + ' ' + q[0] : q[0] + '년 ' + (+q[1]) + '월'; };
+  // 일자 그룹 라벨 = 실제 날짜(요일 포함): "2026년 7월 12일 일요일" / EN "Sunday, 12-07-2026"
+  const KO_DAYS = ['일요일','월요일','화요일','수요일','목요일','금요일','토요일'];
+  const EN_DAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const pad2 = n => ('0' + n).slice(-2);
+  const dayLabel = d => EN()
+    ? EN_DAYS[d.getDay()] + ', ' + pad2(d.getDate()) + '-' + pad2(d.getMonth() + 1) + '-' + d.getFullYear()
+    : d.getFullYear() + '년 ' + (d.getMonth() + 1) + '월 ' + d.getDate() + '일 ' + KO_DAYS[d.getDay()];
+  // 행 일시 (속보 페이지 전용): "2026년 5월 22일 오후 05시 33분" / EN "22-05-2026 05:33 PM"
+  const fmtFull = s => {
+    const m = (s || '').match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+    if (!m) return s || '';
+    const H = +m[4], am = H < 12, h12 = ('0' + (H % 12 === 0 ? 12 : H % 12)).slice(-2);
+    return EN()
+      ? m[3] + '-' + m[2] + '-' + m[1] + ' ' + h12 + ':' + m[5] + ' ' + (am ? 'AM' : 'PM')
+      : m[1] + '년 ' + (+m[2]) + '월 ' + (+m[3]) + '일 ' + (am ? '오전' : '오후') + ' ' + h12 + '시 ' + m[5] + '분';
+  };
+
+  function render() {
+    const B = window.MBBreaking;
+    const items = B.items();
+    listEl.innerHTML = '';
+    empty.hidden = true;   // 날짜 섹션이 항상 표시되므로(빈 날은 '등록된 속보가 없습니다') 전체 empty 문구는 불필요
+
+    const heading = label => { const h = document.createElement('div'); h.className = 'day-group'; h.textContent = label; listEl.appendChild(h); };
+    const rowOf = it => {
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'bk-row';
+      row.innerHTML =
+        '<span class="t">' + fmtFull(it.publishedAt) + '</span>' +   // 일시 풀 표기: 2026년 5월 22일 오후 05시 33분
+        '<span class="h"><span class="flag">' + (EN() ? '[Breaking]' : '[속보]') + '</span></span>';
+      row.querySelector('.h').append(B.pick(it, 'title'));   // 제목은 텍스트로 안전 삽입
+      row.addEventListener('click', () => B.open(it));
+      listEl.appendChild(row);
+    };
+
+    // ── 최근 일주일(오늘~7일 전): 날짜별 섹션을 항상 표시 — 속보는 그날그날 쌓이므로 ──
+    const now = new Date();
+    const t0 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const isoOf = d => d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+    const older = [];
+    const byDay = {};
+    for (const it of items) {
+      const day = (it.publishedAt || '').slice(0, 10);
+      const diff = Math.round((t0 - new Date(day + 'T00:00:00')) / 86400000);   // 오늘=0, 어제=1 …
+      if (diff >= 0 && diff <= 7) (byDay[day] = byDay[day] || []).push(it);
+      else older.push(it);
+    }
+    for (let diff = 0; diff <= 7; diff++) {
+      const d = new Date(t0.getTime() - diff * 86400000);
+      heading(dayLabel(d));
+      const dayItems = byDay[isoOf(d)] || [];
+      if (dayItems.length) dayItems.forEach(rowOf);
+      else { const p = document.createElement('div'); p.className = 'bk-none'; p.textContent = EN() ? 'No entries.' : '등록된 내용이 없습니다.'; listEl.appendChild(p); }
+    }
+
+    // ── 그 이전: 월별 묶음 ──
+    let curYm = null;
+    for (const it of older) {
+      const ym = (it.publishedAt || '').slice(0, 7);
+      if (ym !== curYm) { curYm = ym; heading(monthLabel(ym)); }
+      rowOf(it);
+    }
+  }
+
+  window.MBBreaking.ready.then(render);
+  document.addEventListener('mb:lang', render);   // 언어 전환 시 재렌더
+})();
+</script>
+
+</body>
+</html>

@@ -1,12 +1,12 @@
 <script setup lang="ts">
-// 홈 갤러리 — docs/html/index.html 이식(목업).
-// 그리드/리스트 토글, 분야 필터, featured, 월 그룹을 재현. (타이핑·더보기 등 과한 연출은 간소화)
-import { computed, onMounted, ref } from 'vue'
-import ARTICLES from '~/content/articles.json'
+// 홈 갤러리 — 그리드/리스트 토글, 분야 필터, featured, 월 그룹.
+// 기사 목록·featured 모두 DB(/api/articles) 연동.
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { normArticle } from '~/utils/articleList'
 
 const { isEN, t } = useLang()
 
-// public 기준 이미지 경로 (articles.json 은 'images/…' 상대경로)
+// public 기준 이미지 경로 (DB 이미지 경로는 'images/…' 상대경로)
 const img = (p: string) => (p ? '/' + p.replace(/^\/?/, '') : '')
 
 // ── 뷰(grid/list) ──
@@ -99,8 +99,15 @@ const pick = (a: any, f: string) => {
 }
 const metaLine = (a: any) => [fmtDate(a.date), fmtRecord(a.record), pick(a, 'event'), pick(a, 'athlete')].filter(Boolean).join(' | ')
 
+// ── 기사 목록 (DB 연동) : 발행 기사 최신순, 홈 노출(showInHome) 대상만 ──
+const { data: listData } = await useAsyncData('home:articles', () =>
+  $fetch<any[]>('/api/articles', { params: { type: 'article', status: 'published', limit: 200 } })
+    .catch(() => [] as any[]),
+)
+const docs = computed(() => (listData.value || []).filter((d: any) => d.slug && (!d.visibility || d.visibility.showInHome !== false)))
+
 // ── 목록/그룹 ──
-const sorted = computed(() => [...(ARTICLES as any[])].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0)))
+const sorted = computed(() => docs.value.map(normArticle).sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0)))
 const filtered = computed(() => sorted.value.filter((a) => curCat.value === 'all' || a.cat === curCat.value))
 const months = computed(() => {
   const out: string[] = []; let prev = ''
@@ -109,15 +116,73 @@ const months = computed(() => {
 })
 const groups = computed(() => months.value.map((ym) => ({ ym, label: labelOf(ym), rows: filtered.value.filter((a) => ymOf(a) === ym) })))
 
-// ── featured (그리드 상단 3장) ──
-const FEAT = [
-  { img: 'images/temp/featured/20260426_092705_048A0886.jpg', cat: '경기', catEN: 'Meets', date: '2026년 5월 22일', dateEN: '22-05-2026', title: '홍길동, 자유형 100m 한국신기록 수립', titleEN: 'HONG, Gildong Sets Korean Record in 100m Freestyle', big: true },
-  { img: 'images/temp/featured/20260426_120619_048A4162.jpg', cat: '경기', catEN: 'Meets', date: '2026년 5월 22일', dateEN: '22-05-2026', title: '남자 계영 400m 결승, 0.33초 차 은메달', titleEN: "Men's 400m Freestyle Relay Final: Silver by 0.33s", big: false },
-  { img: 'images/temp/featured/20260426_103020_7R505742.jpg', cat: '경기', catEN: 'Meets', date: '2026년 5월 21일', dateEN: '21-05-2026', title: '홍길동, 자유형 50m도 한국신기록', titleEN: 'HONG, Gildong Adds a Korean Record in 50m Freestyle', big: false },
-]
-const featCat = (f: any) => (isEN.value ? f.catEN : f.cat)
-const featDate = (f: any) => (isEN.value ? f.dateEN : f.date)
-const featTitle = (f: any) => (isEN.value ? f.titleEN : f.title)
+// ── featured (그리드 상단, 큰 1 + 옆 2) : visibility.isFeatured 기사 최신순 ──
+// 목록과 같은 fetch 에서 파생 — 대시보드에서 isFeatured 를 켜면 자동 반영. 첫 장이 hero(big).
+const featImg = (d: any) => d?.media?.coverImage || (d?.media?.images && d.media.images[0]?.url) || d?.media?.thumb || ''
+const feat = computed(() => (listData.value || []).filter((d: any) => d.slug && d.visibility?.isFeatured).slice(0, 3).map((d, i) => ({
+  slug: d.slug,
+  img: featImg(d),
+  cat: (d.translations?.ko?.categories || [])[0] || d?.payload?.data?.category || '경기',
+  catEN: (d.translations?.en?.categories || [])[0] || '',
+  title: d.translations?.ko?.title || '',
+  titleEN: d.translations?.en?.title || '',
+  date: d?.payload?.data?.date || String(d.publishedAt || '').slice(0, 10),
+  big: i === 0,
+})))
+const featCat = (f: any) => (isEN.value ? (f.catEN || f.cat) : f.cat)
+const featTitle = (f: any) => (isEN.value ? (f.titleEN || f.title) : f.title)
+
+// ── 속보 박스 (메뉴 바로 밑, 높이 = 그리드 썸네일과 동일 · 그리드·리스트 공통) ──
+const { items: bkItems, hasItems: hasBreaking, load: loadBreaking, pick: bkPick, open: bkOpen } = useBreaking()
+const bkFlag = computed(() => (isEN.value ? '[Breaking]' : '[속보]'))
+const topBreaking = computed(() => bkItems.value.slice(0, 3))   // 속보 3줄 고정
+const bbBox = ref<HTMLElement | null>(null)
+const bbList = ref<HTMLElement | null>(null)
+
+// 휴먼타임: N분 전 · N시간 전 · N일 전 · N주 전 · N달 전 · N년 전
+function humanTime(s: string) {
+  const m = (s || '').match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/)
+  if (!m) return ''
+  const sec = Math.max(0, (Date.now() - new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]).getTime()) / 1000)
+  const mn = Math.floor(sec / 60), hr = Math.floor(mn / 60), dy = Math.floor(hr / 24)
+  const wk = Math.floor(dy / 7), mo = Math.floor(dy / 30), yr = Math.floor(dy / 365)
+  const en = isEN.value
+  if (mn < 60)  return en ? mn + ' min ago' : mn + '분 전'
+  if (hr < 24)  return en ? hr + (hr === 1 ? ' hour' : ' hours') + ' ago' : hr + '시간 전'
+  if (dy < 7)   return en ? dy + (dy === 1 ? ' day' : ' days') + ' ago' : dy + '일 전'
+  if (dy < 30)  return en ? wk + (wk === 1 ? ' week' : ' weeks') + ' ago' : wk + '주 전'
+  if (dy < 365) return en ? mo + (mo === 1 ? ' month' : ' months') + ' ago' : mo + '달 전'
+  return en ? yr + (yr === 1 ? ' year' : ' years') + ' ago' : yr + '년 전'
+}
+
+// 높이 = 그리드 썸네일(4:3) 높이 + 4줄(속보 3 + 링크 1)이 flex로 균등하게 꽉 채움.
+// 실제 썸네일 offsetHeight 측정 대신 컨테이너 폭에서 공식으로 계산 — body의 view-grid 클래스
+// 적용 타이밍(클라이언트 라우팅 시 useHead 지연)과 무관하게 결정적이라, 뷰가 아직 안 잡힌 순간
+// 전체폭 썸네일 높이(수백px)가 박제되는 버그를 막는다. (minmax(190px,1fr)·gap 20 / 모바일 2열·gap 14)
+function syncBBHeight() {
+  const box = bbBox.value, list = bbList.value
+  if (!box || !list || !hasBreaking.value) return
+  const itemsEl = document.getElementById('items')
+  const w = (itemsEl && itemsEl.clientWidth) || box.clientWidth
+  if (w) {
+    const mobile = window.matchMedia('(max-width:640px)').matches
+    const n = mobile ? 2 : Math.max(1, Math.floor((w + 20) / 210))
+    const gap = mobile ? 14 : 20
+    box.style.height = Math.round(((w - gap * (n - 1)) / n) * 3 / 4) + 'px'
+  }
+  const els = [...list.children] as HTMLElement[]
+  els.forEach((el, i) => { el.style.flex = '1 1 0'; el.classList.toggle('bb-last', i === els.length - 1) })
+}
+
+onMounted(async () => {
+  await loadBreaking()
+  await nextTick()
+  syncBBHeight()
+  window.addEventListener('resize', syncBBHeight)
+})
+onBeforeUnmount(() => { if (import.meta.client) window.removeEventListener('resize', syncBBHeight) })
+// 목록 변화·뷰 전환·언어 전환 시 높이 재동기
+watch([bkItems, view, isEN], () => nextTick().then(syncBBHeight))
 </script>
 
 <template>
@@ -129,6 +194,7 @@ const featTitle = (f: any) => (isEN.value ? f.titleEN : f.title)
           v-for="c in cats" :key="c.k" class="chip"
           :class="{ active: curCat === c.k }" @click="curCat = c.k"
         >{{ t(c.k, c.en) }}</button>
+        <NuxtLink class="chip chip-link" to="/breakingnews">{{ t('속보', 'Breaking') }}</NuxtLink>
         <button class="chip chip-search" type="button" @click="showSearch = true">{{ t('검색', 'Search') }}</button>
       </div>
       <button
@@ -149,20 +215,33 @@ const featTitle = (f: any) => (isEN.value ? f.titleEN : f.title)
       >
     </div>
 
-    <!-- featured (그리드 전용) -->
-    <div class="featured" id="featured">
-      <template v-for="(f, i) in FEAT" :key="i">
-        <a v-if="f.big" class="feat-item feat-big" href="/article">
+    <!-- 속보 박스 (그리드·리스트 공통 · 메뉴 바로 밑 · 높이 = 그리드 썸네일과 동일 · 헤드 없음) -->
+    <div v-show="hasBreaking" ref="bbBox" class="breaking-box">
+      <div ref="bbList" class="bb-list">
+        <button
+          v-for="it in topBreaking" :key="it.id" type="button" class="bb-item"
+          @click="bkOpen(it)"
+        >
+          <span class="bb-line"><span class="flag">{{ bkFlag }}</span>{{ bkPick(it, 'title') }}<span v-if="humanTime(it.publishedAt)" class="tm">{{ humanTime(it.publishedAt) }}</span></span>
+        </button>
+        <NuxtLink class="bb-item bb-more-row" to="/breakingnews"><span class="bb-line">{{ t('속보 전체 보기', 'All breaking news') }}</span></NuxtLink>
+      </div>
+    </div>
+
+    <!-- featured (그리드 전용) · visibility.isFeatured 기사 최신순 · 없으면 숨김 -->
+    <div v-if="feat.length" class="featured" id="featured">
+      <template v-for="(f, i) in feat" :key="f.slug || i">
+        <NuxtLink v-if="f.big" class="feat-item feat-big" :to="'/article/' + f.slug">
           <img class="on" :src="img(f.img)" alt="">
-          <span class="feat-cap"><span class="fc-cat">{{ featCat(f) }}</span><span class="fc-date">{{ featDate(f) }}</span><span class="fc-title">{{ featTitle(f) }}</span></span>
-        </a>
+          <span class="feat-cap"><span class="fc-cat">{{ featCat(f) }}</span><span class="fc-date">{{ fmtDate(f.date) }}</span><span class="fc-title">{{ featTitle(f) }}</span></span>
+        </NuxtLink>
       </template>
       <div class="feat-side">
-        <template v-for="(f, i) in FEAT" :key="'s' + i">
-          <a v-if="!f.big" class="feat-item" href="/article">
+        <template v-for="(f, i) in feat" :key="'s' + (f.slug || i)">
+          <NuxtLink v-if="!f.big" class="feat-item" :to="'/article/' + f.slug">
             <img class="on" :src="img(f.img)" alt="">
-            <span class="feat-cap"><span class="fc-cat">{{ featCat(f) }}</span><span class="fc-date">{{ featDate(f) }}</span><span class="fc-title">{{ featTitle(f) }}</span></span>
-          </a>
+            <span class="feat-cap"><span class="fc-cat">{{ featCat(f) }}</span><span class="fc-date">{{ fmtDate(f.date) }}</span><span class="fc-title">{{ featTitle(f) }}</span></span>
+          </NuxtLink>
         </template>
       </div>
     </div>
@@ -178,8 +257,8 @@ const featTitle = (f: any) => (isEN.value ? f.titleEN : f.title)
 
       <template v-for="g in groups" :key="g.ym">
         <div class="month-group">{{ g.label }}</div>
-        <a
-          v-for="(a, i) in g.rows" :key="g.ym + i" class="row" href="/article"
+        <NuxtLink
+          v-for="(a, i) in g.rows" :key="g.ym + i" class="row" :to="'/article/' + a.slug"
           :data-cat="a.cat" :data-region="a.region" :data-competition="a.competition"
         >
           <span class="thumb" aria-hidden="true" :style="a.thumb ? { backgroundImage: `url('${img(a.thumb)}')` } : undefined">
@@ -191,7 +270,7 @@ const featTitle = (f: any) => (isEN.value ? f.titleEN : f.title)
           <span class="c-athlete">{{ pick(a, 'athlete') }}</span>
           <span class="c-event">{{ pick(a, 'event') }}</span>
           <span class="c-record">{{ fmtRecord(a.record) }}</span>
-        </a>
+        </NuxtLink>
       </template>
 
       <p v-if="!groups.length" class="empty">{{ t('해당하는 기사가 없습니다.', 'No matching articles.') }}</p>
@@ -222,9 +301,20 @@ const featTitle = (f: any) => (isEN.value ? f.titleEN : f.title)
 .search-input::placeholder { color: var(--ink-light); font-size: 16px; }
 .search-input:focus { outline: none; box-shadow: inset 0 -2px 0 var(--orange); }
 
+/* 속보 박스 (그리드·리스트 공통, 메뉴 바로 밑) — 상단 티커와 같은 배경(#FBFBFB), 높이는 JS가 그리드 썸네일 높이와 동기화. 헤드 없음 */
+.breaking-box { display: flex; flex-direction: column; background: #FBFBFB; border: none; margin-top: var(--frame-gap); padding: 6px 22px; overflow: hidden; }
+.bb-list { flex: 1 1 auto; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+.bb-item { display: flex; align-items: center; width: 100%; text-align: left; background: none; border: none; cursor: pointer; font-family: var(--serif); font-size: 13.5px; line-height: 1.5; color: var(--ink); padding: 6px 0; border-bottom: 1px solid rgba(26,26,26,.05); transition: color .15s; }
+.bb-item.bb-last { border-bottom: none; }
+.bb-item .bb-line { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bb-item .flag { color: var(--orange); font-weight: 700; margin-right: .45em; }
+.bb-item .tm { color: var(--ink-light); font-size: 12px; margin-left: .6em; font-variant-numeric: tabular-nums; }
+.bb-item:hover { color: var(--orange-deep); }
+.bb-item.bb-more-row { color: var(--ink-light); }
+
 /* featured */
 .featured { display: none; }
-body.view-grid .featured { display: grid; grid-template-columns: repeat(5, 1fr); grid-template-rows: 1fr 1fr; gap: 20px; margin: var(--frame-gap) 0 0; }
+body.view-grid .featured { display: grid; grid-template-columns: repeat(5, 1fr); grid-template-rows: 1fr 1fr; gap: 20px; margin: 20px 0 0; }
 .feat-big { grid-column: 1 / 4; grid-row: 1 / 3; aspect-ratio: 3 / 2; }
 .feat-side { grid-column: 4 / 6; grid-row: 1 / 3; display: flex; flex-direction: column; gap: 20px; }
 .feat-side .feat-item { flex: 1; min-height: 0; }

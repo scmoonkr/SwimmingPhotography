@@ -59,7 +59,8 @@
       "paragraph":   { "type": "paragraph",   "text": "string" },
       "quote":       { "type": "quote",       "text": "string", "source": "string" },
       "recordTable": { "type": "recordTable", "caption": "string", "rows": [ { "segment": "string", "record": "string", "note": "string" } ] },
-      "heading":     { "type": "heading",     "text": "string" }
+      "heading":     { "type": "heading",     "text": "string" },
+      "video":       { "type": "video",       "provider": "youtube", "url": "string(유튜브 URL)", "caption": "string(선택)", "note": "url 에서 11자 video ID 추출·검증 후 클릭 후 로드(facade)로 임베드. ID 못 찾으면 링크 폴백. 저작권/허가 확인 필수" }
     },
     "example": [
       { "type": "paragraph", "text": "홍 선수는 출발 반응속도 0.33초로 결선에 오른 8명 가운데 두 번째로 빠르게 입수했다. 50m 반환점을 「33초 33」에 통과한 그는 마지막까지 선두를 지키며 2위와 「0초 33」 차이로 터치패드를 찍었다." },

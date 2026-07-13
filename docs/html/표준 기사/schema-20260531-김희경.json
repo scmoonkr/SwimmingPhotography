@@ -1,0 +1,269 @@
+{
+  "slug": "article-20260531-kimheekyung",
+  "type": "article",
+  "status": "published",
+
+  "langDefault": "ko",
+  "availableLangs": ["ko"],
+
+  "sourceType": "manual",
+  "generationJobId": null,
+
+  "reporter": {
+    "name": "편집부",
+    "nameEng": "Editorial Team",
+    "email": "press@medalbank.com"
+  },
+
+  "relations": {
+    "competitionId": "10001",
+    "venueId": null,
+    "athleteId": null,
+    "teamId": null,
+    "timeIds": null,
+    "imageIds": null,
+    "startListIds": null
+  },
+
+  "media": {
+    "thumb": "images/20260531/used/20260531_134347_048A4954_김희경.jpg",
+    "coverImage": "images/20260531/used/20260531_134347_048A4954_김희경.jpg",
+    "images": [
+      {
+        "imageId": null,
+        "url": "images/20260531/used/20260531_134347_048A4954_김희경.jpg",
+        "role": "race",
+        "photographer": "편집부",
+        "photographerEng": "Editorial Team",
+        "email": "press@medalbank.com",
+        "translations": {
+          "ko": {
+            "title": "",
+            "caption": "김희경이 여자 접영 50m 결선에서 역영하고 있다. 이날 김 선수는 32초 01로 성인4그룹 1위에 올랐다. 사진=편집부 (@medalbankaquatics) / 2026년 5월 31일 고양체육관 수영장"
+          },
+          "en": { "title": "", "caption": "" },
+          "ja": { "title": "", "caption": "" }
+        }
+      },
+      {
+        "imageId": null,
+        "url": "images/20260531/used/20260531_134634_048A5012_김희경.jpg",
+        "role": "race",
+        "photographer": "편집부",
+        "photographerEng": "Editorial Team",
+        "email": "press@medalbank.com",
+        "translations": {
+          "ko": {
+            "title": "",
+            "caption": "김희경이 접영 50m 결선에서 리커버리 동작을 이어 가고 있다. 김 선수는 오전 자유형 50m를 기권해 이 종목이 이날 유일한 경기였다. 사진=편집부 (@medalbankaquatics) / 2026년 5월 31일 고양체육관 수영장"
+          },
+          "en": { "title": "", "caption": "" },
+          "ja": { "title": "", "caption": "" }
+        }
+      },
+      {
+        "imageId": null,
+        "url": "images/20260531/used/20260531_134651_7R508086_김희경.jpg",
+        "role": "race",
+        "photographer": "편집부",
+        "photographerEng": "Editorial Team",
+        "email": "press@medalbank.com",
+        "translations": {
+          "ko": {
+            "title": "",
+            "caption": "김희경이 278경기 7레인에서 레이스를 펼치고 있다. 이날 기록 32초 01은 성인4그룹 1위였다. 사진=편집부 (@medalbankaquatics) / 2026년 5월 31일 고양체육관 수영장"
+          },
+          "en": { "title": "", "caption": "" },
+          "ja": { "title": "", "caption": "" }
+        }
+      }
+    ]
+  },
+
+  "tags": [
+    "competition.masters",
+    "discipline.butterfly",
+    "distance.50",
+    "course.lcm",
+    "medal.gold",
+    "region.gyeonggi",
+    "venue.goyang_gymnasium"
+  ],
+
+  "searchTags": [
+    "접영",
+    "butterfly",
+    "50m",
+    "성인4그룹",
+    "고양마스터즈",
+    "접영50m",
+    "김희경"
+  ],
+
+  "searchCategories": [
+    "meet",
+    "athlete",
+    "masters"
+  ],
+
+  "translations": {
+    "ko": {
+      "title": "김희경, 접영 50m 성인4그룹 1위",
+      "subtitle": "고양체육관서 32초 01… 오전 기권 뒤 첫 종목 1위",
+      "excerpt": "고양체육관서 32초 01… 오전 기권 뒤 첫 종목 1위",
+      "content": {
+        "lead": "김희경(GIL) 선수가 5월 31일 여자 접영 50m 결선에서 32초 01을 기록하며 성인4그룹 1위에 올랐다. 경기도 고양시 고양체육관 수영장에서 열린 2026 고양 전국마스터즈 수영대회에서다. 김 선수는 몸 상태가 좋지 않아 오전에 열린 자유형 50m를 기권했고, 오후 첫 종목에서 이 성적을 냈다.",
+        "blocks": [
+          {
+            "type": "paragraph",
+            "text": "오전 기권으로 이날 김 선수의 일정은 접영 한 종목으로 줄었다. 자유형 50m는 성인4그룹 208경기 1레인에 배정돼 있었으나 출발대에 서지 않았고, 기록지에는 무기록으로 남았다. 오후에 경기장에 들어온 김 선수는 서둘러 몸을 풀고 278경기 7레인 출발대에 섰다."
+          },
+          {
+            "type": "paragraph",
+            "text": "접영 50m는 출발부터 피니시까지 전력 스퍼트로 이어지는 단거리 종목으로, 당일 컨디션이 기록에 그대로 드러난다. 컨디션 난조 속에서도 김 선수의 기록은 32초 01, 그룹 1위였다."
+          },
+          {
+            "type": "quote",
+            "text": "몸이 좋지 않아 잠을 더 자야겠다고 생각해서 오전 경기는 포기했어요.",
+            "speaker": "김희경",
+            "role": "참가 선수",
+            "source": "경기 후 현장 인터뷰",
+            "isVerified": false
+          },
+          {
+            "type": "paragraph",
+            "text": "김 선수는 경기 뒤 \"오후에 경기장에 들어와서 조금 급한 준비를 하긴 했지만, 오늘 몸 상태에 비해 이 정도 경기실적이면 선방했다고 생각한다\"고 말했다."
+          },
+          {
+            "type": "paragraph",
+            "title": "기록으로 본 32초 01",
+            "text": "여자 접영 50m 세계기록은 사라 셰스트룀(스웨덴)이 2014년 세운 24초 43이다. 이 종목은 2028 로스앤젤레스 올림픽부터 정식 종목으로 치러질 예정이어서 올림픽 기록은 아직 나오지 않았다. 여자 한국기록은 정소은이 2019년 작성한 26초 26, 남자 한국기록은 백인철(부산광역시중구청)이 2023년 작성한 23초 15다. 마스터즈 무대로 좁히면 한국마스터즈기록은 오윤지(스위머)가 2024년 세운 29초 87로, 김 선수의 이날 기록과는 2초 14 차이다."
+          },
+          {
+            "type": "recordTable",
+            "caption": "여자 접영 50m 기록 비교",
+            "rows": [
+              { "segment": "이번 대회", "record": "32초 01", "note": "김희경 · 성인4그룹 1위" },
+              { "segment": "세계기록", "record": "24초 43", "note": "셰스트룀(스웨덴) · 2014" },
+              { "segment": "올림픽 기록", "record": "—", "note": "2028 LA 대회부터 정식 종목" },
+              { "segment": "한국기록(여)", "record": "26초 26", "note": "정소은 · 2019" },
+              { "segment": "한국기록(남)", "record": "23초 15", "note": "백인철 · 2023" },
+              { "segment": "세계마스터즈기록", "record": "26초 32", "note": "구로키 마사코(일본) · 2019" },
+              { "segment": "한국마스터즈기록", "record": "29초 87", "note": "오윤지 · 2024" }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "title": "'고양시의 딸'",
+            "text": "김 선수는 고양시 수영연맹 안팎에서 '고양시의 딸'로 불릴 만큼 지역 수영계의 아낌을 받아 온 선수다. 해마다 경기도 도민체육대회에 고양시 대표로 출전해 온 베테랑으로, 생활체육인으로서 전문 선수 출신들과 같은 무대에서 꾸준히 경쟁해 왔다. 연맹이 주최하는 대회와 행사에도 꾸준히 함께해 왔다."
+          },
+          {
+            "type": "paragraph",
+            "text": "큰 키에서 나오는 긴 리치와 유연한 어깨 회전을 활용하는 영법이 김 선수의 스타일이다. 스스로는 근력을 약점으로 꼽지만, 이를 보완하기 위해 훈련 방법을 바꿔 가며 시도를 거듭해 왔다. 연맹 안팎에서는 다음 대회에서 더 나아진 모습을 기대하는 목소리가 나온다."
+          },
+          {
+            "type": "paragraph",
+            "title": "하루에 치른 전국 무대",
+            "text": "2026 고양 전국마스터즈 수영대회는 5월 31일 고양체육관 수영장에서 하루 동안 열렸다. 전국 107개 팀 소속 선수와 개인 자격 참가자 등 750여 명이 출전해 엔트리는 1600건을 넘었고, 종목은 △자유형 △배영 △평영 △접영 △개인혼영 △계영으로 진행됐다."
+          },
+          {
+            "type": "paragraph",
+            "text": "모든 종목은 별도 예선 없이 결선 레이스로 진행됐고, 오전과 오후 세션으로 나뉘어 하루 종일 경기가 이어졌다. 성인부는 연령대별 그룹으로 나뉘어 같은 그룹 안에서 기록으로 순위를 가렸으며, 계영에는 70개 팀이 나섰다. 김 선수가 속한 GIL은 이번 대회에 16명이 출전했다."
+          }
+        ],
+        "conclusion": ""
+      },
+      "categories": ["경기"],
+      "tags": ["고양마스터즈", "접영50m", "김희경"],
+      "seoTitle": "김희경, 접영 50m 성인4그룹 1위",
+      "seoDescription": "김희경(GIL)이 2026 고양 전국마스터즈 수영대회 여자 접영 50m 결선에서 32초 01로 성인4그룹 1위에 올랐다."
+    },
+    "en": {
+      "title": "",
+      "subTitle": "",
+      "excerpt": "",
+      "content": "",
+      "categories": [],
+      "tags": [],
+      "seoTitle": "",
+      "seoDescription": ""
+    },
+    "ja": {
+      "title": "",
+      "subTitle": "",
+      "excerpt": "",
+      "content": "",
+      "categories": [],
+      "tags": [],
+      "seoTitle": "",
+      "seoDescription": ""
+    }
+  },
+
+  "payload": {
+    "type": "meet_report",
+    "data": {
+      "competition": "2026 고양 전국마스터즈 수영대회",
+      "region": "경기",
+      "venue": "고양체육관 수영장",
+      "date": "2026-05-31",
+      "athlete": "김희경",
+      "team": "GIL",
+      "isRegistered": false,
+      "ageGroup": "성인부",
+      "discipline": {
+        "gender": "여자",
+        "stroke": "접영",
+        "distance": 50,
+        "course": "LCM"
+      },
+      "event": "여자 접영 50M LCM",
+      "round": "결선",
+      "rank": "1위",
+      "time": "00:32.01",
+      "record": "32초 01",
+      "copyright": "ⓒ Swimming Photography. 무단 전재 및 재배포 금지.",
+      "registrationNumber": "인천,아 33333호"
+    }
+  },
+
+  "editorial": {
+    "factChecked": false,
+    "reviewedBy": "",
+    "reviewMemo": "",
+    "riskLevel": "low"
+  },
+
+  "visibility": {
+    "isFeatured": false,
+    "showInHome": true,
+    "showInSearch": true,
+    "showInAthleteProfile": true,
+    "showInTeamPage": true,
+    "showInCompetitionPage": true
+  },
+
+  "permissions": {
+    "consentStatus": "unknown",
+    "canShowAthleteName": true,
+    "canShowHighResPhoto": false
+  },
+
+  "stats": {
+    "views": 0,
+    "uniqueViews": 0,
+    "likes": 0,
+    "shares": 0
+  },
+
+  "corrections": [
+    {
+      "timestamp": "2026-05-31T18:33:00+09:00",
+      "note": "발행"
+    }
+  ],
+
+  "publishedAt": "2026-05-31T18:33:00+09:00",
+  "createdAt": "2026-05-31T18:33:00+09:00",
+  "updatedAt": null
+}

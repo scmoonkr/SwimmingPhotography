@@ -161,7 +161,7 @@
   .result-title { font-family: var(--serif); font-size: 13px; font-weight: 500; line-height: 1.6; color: var(--ink-mute); margin: 0; }
   .result-title strong { color: var(--ink); font-weight: 700; }
   /* 결과 제목 + "다른 내용 찾아보기" 링크를 한 줄에 */
-  .result-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .result-head { display: flex; align-items: baseline; gap: 4px; flex-wrap: wrap; }   /* 링크 간격 ≈ 스페이스 한 칸 */
   .research-link { font-family: var(--serif); font-size: 13px; font-weight: 500; line-height: 1.6; color: var(--ink-light); background: none; border: none; padding: 0; cursor: pointer; transition: color .15s; }
   .research-link:hover { color: var(--ink); }
   .research-link[hidden] { display: none; }
@@ -328,6 +328,7 @@
   <!-- 공용 헤더 (assets/header.js 단일 소스로 모든 페이지가 재사용) -->
   <header id="site-header"></header>
   <script src="assets/header.js"></script>
+  <script src="assets/breaking.js"></script>
 
   <div class="wrap">
 
@@ -336,6 +337,7 @@
       <div class="result-head">
         <h1 class="result-title" id="resultTitle"></h1>
         <button class="research-link" type="button" data-search-toggle data-en="Search for something else">다른 내용 찾아보기</button>
+        <a class="research-link" href="index.html" data-en="All articles">전체 기사 보기</a>
       </div>
       <button class="view-toggle" type="button" aria-label="그리드/리스트 보기 전환" data-view-toggle>
         <span class="vt-inner"><span class="vt-dim"></span><span class="vt-sep" aria-hidden="true">·</span><span class="vt-cur"></span></span>

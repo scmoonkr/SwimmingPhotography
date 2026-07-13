@@ -15,12 +15,15 @@ const toId = (id) => {
 // 목록. type/status 외에 category(searchCategories 포함), q(제목 부분검색) 지원.
 router.get('/', async (req, res) => {
   try {
-    const { type, status, category, q, limit = 200 } = req.query
+    const { type, status, category, q, slug, featured, limit = 200 } = req.query
     const filter = {}
     if (type) filter.type = type
     if (status) filter.status = status
+    if (slug) filter.slug = String(slug)
     if (category) filter.searchCategories = String(category)
     if (q) filter['translations.ko.title'] = { $regex: String(q), $options: 'i' }
+    // 홈 상단 하이라이트: visibility.isFeatured=true 인 기사만
+    if (featured === 'true' || featured === '1') filter['visibility.isFeatured'] = true
     const docs = await (await coll())
       .find(filter)
       .sort({ publishedAt: -1, createdAt: -1 })
