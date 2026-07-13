@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// 공용 푸터 — 하단 티커는 기사(있으면)/안내(없으면)를 표시.
-import { computed, onMounted, ref } from 'vue'
+// 공용 푸터 — 하단 티커는 안내 문구(테스트 안내)를 표시.
+import { computed, ref } from 'vue'
 
 const { t, isEN } = useLang()
 const modalOpen = ref(false)
@@ -10,25 +10,9 @@ const NOTICE = () => t(
   'This website is currently in testing and is not yet in official operation.',
 )
 
-// ── 하단 티커: 기사(있으면)/안내(없으면) ──
-const articles = ref<{ title: string; titleEn: string }[]>([])
-const hasArticles = computed(() => articles.value.length > 0)
-const marqueeLabel = computed(() => (hasArticles.value ? t('기사', 'ARTICLE') : t('안내', 'NOTICE')))
-// 흐를 항목: 기사 있으면 제목들(현재 언어), 없으면 안내 문구 1개
-const marqueeItems = computed(() => (hasArticles.value
-  ? articles.value.map((a) => ((isEN.value && a.titleEn) ? a.titleEn : a.title)).filter(Boolean)
-  : [NOTICE()]))
-
-onMounted(async () => {
-  try {
-    const list = await $fetch<any[]>('/api/articles', {
-      params: { type: 'article', status: 'published', limit: 15 },
-    })
-    articles.value = (list || [])
-      .map((a) => ({ title: a.translations?.ko?.title || '', titleEn: a.translations?.en?.title || '' }))
-      .filter((a) => a.title)
-  } catch {}
-})
+// ── 하단 티커: 안내 문구 (테스트 안내) ──
+const marqueeLabel = computed(() => t('안내', 'NOTICE'))
+const marqueeItems = computed(() => [NOTICE()])
 </script>
 
 <template>
