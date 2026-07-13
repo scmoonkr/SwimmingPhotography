@@ -2,7 +2,13 @@
 import { useMock } from '~/composables/useMock'
 
 const data = useMock()
-const count = (key: string) => data[key]?.rows.length ?? 0
+
+// 사이드바 건수 — 실제 DB 카운트(/api/counts). 실패 시 mock rows 로 폴백.
+const dbCounts = ref<Record<string, number>>({})
+onMounted(async () => {
+  try { dbCounts.value = await $fetch<Record<string, number>>(`${useRuntimeConfig().public.apiBase}/api/counts`) } catch {}
+})
+const count = (key: string) => dbCounts.value[key] ?? (data[key]?.rows.length ?? 0)
 
 // 네비게이션 — 라벨 · 경로 · 건수 · 아이콘(SVG path)
 const nav = [

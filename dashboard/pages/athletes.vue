@@ -1,11 +1,413 @@
 <script setup lang="ts">
-import { useEntity } from '~/composables/useMock'
-const e = useEntity('athletes')
+// 선수(Athletes) — SP.times 를 선수별로 그룹핑한 뷰.
+// 필터: 대회선택·성별·선수명. row 클릭 → 상세 드로어(선수 정보 + times[종목·기록·순위]). 선수추가(수동).
+import { computed, onMounted, ref, watch } from 'vue'
+import { slugify } from '~/composables/useMock'
+import type { Column, Field } from '~/composables/useMock'
+
+const api = (p = '') => `${useRuntimeConfig().public.apiBase}/api/athletes${p}`
+
+// ── 옵션 ──
+const GENDERS = [{ v: '', l: '성별 전체' }, { v: 'men', l: '남자' }, { v: 'women', l: '여자' }, { v: 'mixed', l: '혼성' }]
+const DISCIPLINE_LABEL: Record<string, string> = {
+  FR: '자유형', BA: '배영', BR: '평영', FL: '접영', IM: '개인혼영', FRR: '계영', MR: '혼계영',
+  BK: '배영(BK)', BRMS: '평영(MS)', BROS: '평영(OS)', BROW: '평영(OW)', BRUW: '평영(UW)', BRZS: '평영(ZS)',
+}
+const DISCIPLINES = ['', 'FR', 'BA', 'BR', 'FL', 'IM', 'FRR', 'MR', 'BK', 'BRMS', 'BROS', 'BROW', 'BRUW', 'BRZS']
+const DISTANCES = ['', '25M', '50M', '100M', '200M', '400M', '500M', '800M', '1000M', '1500M', '3000M', '5000M', '10000M']
+const disc = (v: string) => (DISCIPLINE_LABEL[v] || v || '')
+const genderLabel = (v: string) => ({ men: '남자', women: '여자', mixed: '혼성' } as Record<string, string>)[v] || v
+const eventLabel = (t: any) => [disc(t.discipline), t.distance, t.course].filter(Boolean).join(' ')
+
+// ── 필터 ──
+const competitionID = ref<number | ''>('')
+const gender = ref('')
+const group = ref('')
+const name = ref('')
+const groupOptions = ref<string[]>([])
+
+// 기록 표기: "00:24.43" → "24초 43" / "01:33.33" → "1분 33초 33"
+const fmtRec = (t: any) => {
+  const m = String(t || '').match(/^(\d+):(\d+)\.(\d+)/)
+  if (!m) return t || ''
+  return (+m[1] > 0) ? `${+m[1]}분 ${+m[2]}초 ${m[3]}` : `${+m[2]}초 ${m[3]}`
+}
+// 차이(초): 선수 timeStamp − 기록 timeStamp (하루 분수 → 초)
+const fmtDiff = (aTs: any, rTs: any) => {
+  if (aTs == null || rTs == null) return ''
+  const s = (aTs - rTs) * 86400
+  if (!isFinite(s)) return ''
+  return (s >= 0 ? '+' : '−') + Math.abs(s).toFixed(2)
+}
+const evKey = (t: any) => `${t.discipline || ''}|${t.distance || ''}|${t.course || ''}`
+
+const competitions = ref<any[]>([])
+const loadCompetitions = async () => {
+  try { competitions.value = await $fetch<any[]>(api('/competitions'), { params: { limit: 2000 } }) } catch { competitions.value = [] }
+}
+
+// ── 테이블 컬럼 ──
+const columns: Column[] = [
+  { key: 'name', label: '선수명', cls: 'strong' },
+  { key: 'gender', label: '성별', cls: 'muted', get: (r) => genderLabel(r.gender) },
+  { key: 'group', label: 'group' },
+  { key: 'ageGroup', label: 'ageGroup', cls: 'muted' },
+  { key: 'team', label: '팀', cls: 'muted' },
+  { key: 'count', label: '기록', cls: 'num', get: (r) => (r.times || []).length },
+]
+
+// ── 목록 ──
+const rows = ref<any[]>([])
+const loading = ref(false)
+const errorMsg = ref('')
+const notice = ref('')
+const load = async () => {
+  loading.value = true
+  errorMsg.value = ''
+  try {
+    const params: Record<string, any> = { limit: 3000 }
+    if (competitionID.value) params.competitionID = competitionID.value
+    if (gender.value) params.gender = gender.value
+    if (group.value) params.group = group.value
+    if (name.value.trim()) params.name = name.value.trim()
+    rows.value = await $fetch<any[]>(api(), { params })
+    // group 미지정 조회일 때 group 셀렉트 옵션 갱신(전체 집합 유지)
+    if (!group.value) groupOptions.value = [...new Set(rows.value.map((r) => r.group).filter(Boolean))].sort()
+  } catch (err: any) {
+    rows.value = []
+    errorMsg.value = err?.data?.error || err?.message || '조회 실패'
+  } finally {
+    loading.value = false
+  }
+}
+watch([competitionID, gender, group], load)
+
+// ── 상세 드로어 (읽기전용): 선수 + 팀통계 + times별 기록 비교 ──
+const selected = ref<any | null>(null)
+const open = ref(false)
+const teamStats = ref<{ athletes: number; times: number } | null>(null)
+const recordsByEvent = ref<Record<string, any[]>>({})
+
+const openRow = async (r: any) => {
+  selected.value = r; open.value = true
+  teamStats.value = null; recordsByEvent.value = {}; activeTab.value = 0; genJson.value = ''
+  if (r.team) {
+    try { teamStats.value = await $fetch(api('/team-stats'), { params: { team: r.team, competitionID: competitionID.value || undefined } }) } catch {}
+  }
+  // 종목(영법·거리·코스)별로 기록 1회씩 조회
+  const seen: Record<string, any> = {}
+  for (const t of (r.times || [])) { const k = evKey(t); if (k && !seen[k]) seen[k] = t }
+  for (const k of Object.keys(seen)) {
+    const t = seen[k]
+    try {
+      const recs = await $fetch<any[]>(api('/records'), { params: { discipline: t.discipline, distance: t.distance, course: t.course } })
+      recordsByEvent.value = { ...recordsByEvent.value, [k]: recs }
+    } catch {}
+  }
+}
+// 기록 탭 (종목별) — timeStamp 빠른순
+const timeTabs = computed<any[]>(() => (selected.value?.times || []).slice().sort((a: any, b: any) => (a.timeStamp || Infinity) - (b.timeStamp || Infinity)))
+const activeTab = ref(0)
+const tabLabel = (t: any) => `${disc(t.discipline)} ${t.distance || ''}`.trim()
+const detailInfo = () => {
+  const r = selected.value
+  if (!r) return []
+  return [['성별', genderLabel(r.gender)], ['group', r.group], ['부(ageGroup)', r.ageGroup], ['시도', r.sido]]
+    .filter(([, v]) => v !== undefined && v !== null && v !== '')
+}
+// 기록 비교표(구분·기록·차이·비고) — time 하나 기준
+const isNation = (s: any) => /^[A-Z]{2,3}$/.test(String(s || ''))
+const recNote = (r: any) => (r ? `${r.name || ''}${isNation(r.team) ? ` (${r.team})` : ''} · ${String(r.datetime || '').slice(0, 4)}` : '')
+const compRows = (t: any) => {
+  const recs = recordsByEvent.value[evKey(t)] || []
+  const g = selected.value?.gender || 'women'
+  // 같은 종류(예: 마스터즈)가 여러 개면 가장 빠른(대표) 기록 선택
+  const pick = (type: string, gd: string) => recs
+    .filter((r) => r.type === type && r.gender === gd)
+    .sort((a, b) => (a.timeStamp ?? Infinity) - (b.timeStamp ?? Infinity))[0]
+  const row = (label: string, r: any) => ({ label, time: r ? fmtRec(r.time) : '—', diff: r ? fmtDiff(t.timeStamp, r.timeStamp) : '', note: recNote(r) })
+  return [
+    { label: '이번 대회', time: fmtRec(t.time), diff: '', note: `${selected.value?.name || ''}${selected.value?.ageGroup ? ' · ' + selected.value.ageGroup : ''}${t.rank != null ? ' ' + t.rank + '위' : ''}` },
+    row('세계기록', pick('WR', g)),
+    row('올림픽기록', pick('OR', g)),
+    row('한국기록(여)', pick('KR', 'women')),
+    row('한국기록(남)', pick('KR', 'men')),
+    row('세계마스터즈기록', pick('WMR', g)),
+    row('한국마스터즈기록', pick('KMR', g)),
+  ]
+}
+
+// ── 선수추가 드로어 (DetailDrawer, 편집) ──
+const addOpen = ref(false)
+const blankAthlete = () => ({ name: '', gender: '', group: '', ageGroup: '', team: '', sido: '', discipline: '', distance: '', course: 'LCM', time: '', rank: null as number | null })
+const addFields: Field[] = [
+  { key: 'name', label: '선수명', get: (r) => r.name ?? '', set: (r, v) => { r.name = v } },
+  { key: 'gender', label: '성별', type: 'select', options: ['', 'men', 'women', 'mixed'], get: (r) => r.gender ?? '', set: (r, v) => { r.gender = v } },
+  { key: 'group', label: 'group', get: (r) => r.group ?? '', set: (r, v) => { r.group = v } },
+  { key: 'ageGroup', label: 'ageGroup', get: (r) => r.ageGroup ?? '', set: (r, v) => { r.ageGroup = v } },
+  { key: 'team', label: '팀', get: (r) => r.team ?? '', set: (r, v) => { r.team = v } },
+  { key: 'sido', label: '시도', get: (r) => r.sido ?? '', set: (r, v) => { r.sido = v } },
+  { key: 'discipline', label: '영법', type: 'select', options: DISCIPLINES, get: (r) => r.discipline ?? '', set: (r, v) => { r.discipline = v } },
+  { key: 'distance', label: '거리', type: 'select', options: DISTANCES, get: (r) => r.distance ?? '', set: (r, v) => { r.distance = v } },
+  { key: 'course', label: '코스', type: 'select', options: ['LCM', 'SCM'], get: (r) => r.course ?? '', set: (r, v) => { r.course = v } },
+  { key: 'time', label: '기록', get: (r) => r.time ?? '', set: (r, v) => { r.time = v } },
+  { key: 'rank', label: '순위', get: (r) => r.rank ?? '', set: (r, v) => { r.rank = (v === '' || v == null) ? null : Number(v) } },
+]
+const addSelected = ref<Record<string, any>>(blankAthlete())
+const openAdd = () => { addSelected.value = blankAthlete(); addOpen.value = true }
+const onAddSave = async (form: Record<string, any>) => {
+  const base: Record<string, any> = blankAthlete()
+  for (const f of addFields) f.set(base, form[f.key])
+  if (!base.name) { alert('선수명을 입력하세요.'); return }
+  try {
+    await $fetch(api(), {
+      method: 'POST',
+      body: {
+        name: base.name, gender: base.gender, group: base.group, ageGroup: base.ageGroup, team: base.team, sido: base.sido,
+        competitionID: competitionID.value || undefined,
+        times: [{ discipline: base.discipline, distance: base.distance, course: base.course, time: base.time, rank: base.rank }],
+      },
+    })
+    addOpen.value = false
+    notice.value = '선수 추가됨'
+    await load()
+  } catch (err: any) {
+    alert('저장 실패: ' + (err?.data?.error || err?.message || ''))
+  }
+}
+
+// ── 기사 LLM 생성 ──
+const genLoading = ref(false)
+const genJson = ref('')
+const generateArticle = async () => {
+  if (!selected.value) return
+  genLoading.value = true; genJson.value = ''
+  try {
+    const a = selected.value
+    // 드로어에 표시된 내용(선수·팀통계·종목별 기록 비교)을 그대로 JSON 으로 구성
+    const events = timeTabs.value.map((t) => ({
+      event: `${disc(t.discipline)} ${t.distance || ''} ${t.course || ''}`.trim(),
+      time: fmtRec(t.time),
+      rank: t.rank,
+      records: compRows(t)
+        .filter((cr) => cr.label !== '이번 대회')
+        .map((cr) => ({ category: cr.label, time: cr.time, diff: cr.diff, holder: cr.note })),
+    }))
+    const payload = {
+      athlete: { name: a.name, gender: genderLabel(a.gender), group: a.group, ageGroup: a.ageGroup, team: a.team, sido: a.sido },
+      teamStats: teamStats.value,
+      competitionName: (a.times || [])[0]?.competitionName || '',
+      events,
+    }
+    const r = await $fetch<any>(api('/generate-article'), { method: 'POST', body: { data: payload } })
+    genJson.value = r.content || ''
+  } catch (err: any) {
+    genJson.value = '생성 실패: ' + (err?.data?.error || err?.message || '')
+  } finally {
+    genLoading.value = false
+  }
+}
+
+// ── 생성된 기사 JSON 을 SP.articles 에 저장(초안) ──
+const saving = ref(false)
+const saveArticle = async () => {
+  const a = selected.value
+  if (!a) return
+  let parsed: any
+  try { parsed = JSON.parse(genJson.value) } catch { alert('JSON 형식이 올바르지 않습니다. 기사LLM생성 후 내용을 확인하세요.'); return }
+  const title = String(parsed.title || '').trim()
+  if (!title) { alert('제목(title)이 없습니다.'); return }
+  const ev0 = (a.times || [])[0] || {}
+  const blocks = Array.isArray(parsed.blocks) ? parsed.blocks : []
+  const tags = Array.isArray(parsed.tags) ? parsed.tags.filter(Boolean) : []
+  const doc = {
+    slug: slugify(title),
+    type: 'article', status: 'draft', langDefault: 'ko', sourceType: 'ai_generated',
+    reporter: { name: '편집부', nameEng: 'Editorial Team', email: 'press@medalbank.com' },
+    searchCategories: ['경기'], searchTags: tags,
+    translations: {
+      ko: {
+        title, subtitle: parsed.subtitle || '', excerpt: String(parsed.lead || '').slice(0, 60),
+        content: { lead: parsed.lead || '', blocks, conclusion: parsed.conclusion || '' },
+        categories: ['경기'], tags, seoTitle: title, seoDescription: String(parsed.lead || '').slice(0, 80),
+      },
+    },
+    payload: { data: { athlete: a.name, competition: ev0.competitionName || '', region: a.sido || '', gender: a.gender || '', ageGroup: a.ageGroup || '' } },
+    publishedAt: '',
+  }
+  saving.value = true
+  try {
+    await $fetch(`${useRuntimeConfig().public.apiBase}/api/articles`, { method: 'POST', body: doc })
+    notice.value = `기사 저장됨(초안) — "${title}"`
+    open.value = false
+  } catch (err: any) {
+    alert('저장 실패: ' + (err?.data?.error || err?.message || ''))
+  } finally {
+    saving.value = false
+  }
+}
+
+const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') open.value = false }
+onMounted(() => { loadCompetitions(); load() })
 </script>
 
 <template>
   <div>
-    <PageHeader :title="e.title" :en="e.en" :subtitle="e.subtitle" :add-label="`${e.title} 추가`" />
-    <DataTable :columns="e.columns" :rows="e.rows" :search-placeholder="`${e.title} 검색…`" />
+    <!-- 툴바: 필터 + 액션 -->
+    <div class="toolbar">
+      <select v-model="competitionID" class="filter-select filter-comp" aria-label="대회">
+        <option value="">대회 전체</option>
+        <option v-for="c in competitions" :key="c.competitionID" :value="c.competitionID">
+          {{ c.competitionName }}<span v-if="c.datetime"> ({{ c.datetime }})</span>
+        </option>
+      </select>
+      <select v-model="gender" class="filter-select" aria-label="성별">
+        <option v-for="g in GENDERS" :key="g.v" :value="g.v">{{ g.l }}</option>
+      </select>
+      <select v-model="group" class="filter-select" aria-label="group">
+        <option value="">group 전체</option>
+        <option v-for="g in groupOptions" :key="g" :value="g">{{ g }}</option>
+      </select>
+      <input v-model="name" class="filter-input filter-name" type="search" placeholder="선수명 검색…" @keydown.enter="load">
+      <button class="btn btn-ghost" type="button" @click="load">검색</button>
+      <span class="t-spacer" />
+      <button class="btn btn-primary" type="button" @click="openAdd">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
+        선수추가
+      </button>
+    </div>
+
+    <p v-if="errorMsg" class="load-error">{{ errorMsg }}</p>
+    <p v-if="notice" class="notice">{{ notice }}</p>
+    <p v-if="!loading" class="result-note">총 {{ rows.length }}명</p>
+
+    <DataTable :columns="columns" :rows="rows" clickable hide-search hide-actions @row-click="openRow" />
+
+    <!-- 상세 드로어 (읽기전용): 선수 + times -->
+    <div class="drawer-root" :class="{ open }" @keydown="onKey">
+      <div class="drawer-ov" @click="open = false" />
+      <aside class="drawer" role="dialog" aria-modal="true" aria-label="선수 상세">
+        <header class="drawer-head">
+          <h2>{{ selected?.name || '선수' }}</h2>
+          <button class="drawer-x" aria-label="닫기" @click="open = false">×</button>
+        </header>
+        <div class="drawer-body">
+          <div v-for="d in detailInfo()" :key="d[0]" class="detail-row">
+            <span class="detail-k">{{ d[0] }}</span><span class="detail-v">{{ d[1] }}</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-k">팀</span>
+            <span class="detail-v">{{ selected?.team || '-' }}<span v-if="teamStats" class="team-stat"> (선수 {{ teamStats.athletes }} · 기록 {{ teamStats.times }})</span></span>
+          </div>
+
+          <div class="times-head">기록 ({{ timeTabs.length }})</div>
+          <div v-if="timeTabs.length" class="rec-tabs">
+            <button
+              v-for="(t, i) in timeTabs" :key="i" type="button"
+              class="rec-tab" :class="{ active: activeTab === i }" @click="activeTab = i"
+            >{{ tabLabel(t) }}</button>
+          </div>
+          <div v-if="timeTabs[activeTab]" class="event-block">
+            <table class="comp-table">
+              <thead><tr><th>구분</th><th>기록</th><th class="num">차이</th><th>비고</th></tr></thead>
+              <tbody>
+                <tr v-for="(cr, j) in compRows(timeTabs[activeTab])" :key="j" :class="{ own: cr.label === '이번 대회' }">
+                  <td class="cat">{{ cr.label }}</td>
+                  <td class="mono">{{ cr.time }}</td>
+                  <td class="num diff">{{ cr.diff }}</td>
+                  <td class="muted">{{ cr.note }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p v-else class="empty-block">기록 없음</p>
+
+          <!-- 기사 LLM 생성 -->
+          <div class="gen-section">
+            <button class="btn btn-primary" type="button" :disabled="genLoading" @click="generateArticle">
+              {{ genLoading ? '생성 중…' : '기사LLM생성' }}
+            </button>
+            <textarea v-model="genJson" class="gen-json" rows="10" spellcheck="false" placeholder="기사 LLM 생성 JSON…" />
+          </div>
+        </div>
+        <footer class="drawer-foot">
+          <button class="btn btn-primary" type="button" :disabled="saving || !genJson.trim()" @click="saveArticle">
+            {{ saving ? '저장 중…' : '저장' }}
+          </button>
+          <button class="btn btn-ghost" type="button" @click="open = false">닫기</button>
+        </footer>
+      </aside>
+    </div>
+
+    <!-- 선수추가 드로어 -->
+    <DetailDrawer
+      :open="addOpen" title="선수 추가" :fields="addFields" :row="addSelected"
+      @close="addOpen = false" @save="onAddSave"
+    />
   </div>
 </template>
+
+<style scoped>
+.toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
+.t-spacer { flex: 1 1 auto; }
+.filter-select {
+  font-family: var(--sans); font-size: 13.5px; color: var(--ink);
+  background: var(--paper); border: 1px solid var(--line); border-radius: 6px; padding: 9px 12px; cursor: pointer;
+}
+.filter-comp { flex: 0 1 340px; max-width: 340px; }
+.filter-input {
+  font-family: var(--sans); font-size: 13.5px; color: var(--ink);
+  background: var(--paper); border: 1px solid var(--line); border-radius: 6px; padding: 9px 12px;
+}
+.filter-name { flex: 0 1 200px; }
+.filter-input:focus, .filter-select:focus { outline: none; border-color: var(--orange); }
+
+.load-error { margin-bottom: 14px; padding: 10px 14px; border-radius: 6px; background: var(--bad-bg); color: var(--bad); font-size: 13px; }
+.notice { margin-bottom: 12px; padding: 10px 14px; border-radius: 6px; background: var(--good-bg); color: var(--good); font-size: 13px; }
+.result-note { font-size: 12.5px; color: var(--ink-mute); margin: 0 0 12px; }
+
+/* 읽기전용 드로어 */
+.drawer-root { position: fixed; inset: 0; z-index: 1000; pointer-events: none; }
+.drawer-ov { position: absolute; inset: 0; background: rgba(26,26,26,.34); opacity: 0; transition: opacity .22s ease; }
+.drawer {
+  position: absolute; top: 0; right: 0; height: 100%; width: min(520px, 94vw);
+  background: var(--paper); border-left: 1px solid var(--line); box-shadow: -18px 0 50px rgba(26,26,26,.12);
+  display: flex; flex-direction: column; transform: translateX(100%); transition: transform .26s cubic-bezier(.4,0,.2,1);
+}
+.drawer-root.open { pointer-events: auto; }
+.drawer-root.open .drawer-ov { opacity: 1; }
+.drawer-root.open .drawer { transform: translateX(0); }
+.drawer-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 22px; border-bottom: 1px solid var(--line); }
+.drawer-head h2 { font-size: 17px; font-weight: 700; color: var(--ink); }
+.drawer-x { border: none; background: none; cursor: pointer; font-size: 22px; line-height: 1; color: var(--ink-light); padding: 0; }
+.drawer-x:hover { color: var(--ink); }
+.drawer-body { flex: 1; overflow-y: auto; padding: 12px 22px 20px; }
+.detail-row { display: flex; gap: 14px; padding: 8px 0; border-bottom: 1px solid var(--line-soft); }
+.detail-k { flex: 0 0 92px; font-size: 12px; font-weight: 700; color: var(--ink-mute); }
+.detail-v { flex: 1; font-size: 13.5px; color: var(--ink); }
+.team-stat { color: var(--ink-mute); font-size: 12px; }
+.times-head { font-size: 12px; font-weight: 700; color: var(--ink-mute); margin: 18px 0 4px; }
+.rec-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 12px; }
+.rec-tab { font-family: var(--sans); font-size: 12.5px; color: var(--ink-mute); background: var(--paper-deep); border: 1px solid transparent; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+.rec-tab:hover { color: var(--ink); }
+.rec-tab.active { color: #fff; background: var(--orange); }
+.event-block { margin-bottom: 14px; }
+.comp-table { width: 100%; border-collapse: collapse; }
+.comp-table th { text-align: left; font-size: 11px; font-weight: 700; color: var(--ink-light); padding: 5px 8px; border-bottom: 1px solid var(--line); }
+.comp-table th.num { text-align: right; }
+.comp-table td { font-size: 12.5px; color: var(--ink); padding: 6px 8px; border-bottom: 1px solid var(--line-soft); }
+.comp-table td.num { text-align: right; }
+.comp-table td.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.comp-table td.diff { font-family: var(--mono); color: var(--ink-mute); font-size: 11.5px; }
+.comp-table td.muted { color: var(--ink-light); font-size: 11.5px; }
+.comp-table td.cat { font-weight: 500; white-space: nowrap; }
+.comp-table tr.own { background: var(--orange-bg); }
+.comp-table tr.own td { color: var(--ink); font-weight: 700; }
+.comp-table tr.own td.muted { font-weight: 500; color: var(--ink-mute); }
+.empty-block { color: var(--ink-light); font-size: 13px; padding: 12px 0; }
+
+.gen-section { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--line); }
+.gen-json { width: 100%; margin-top: 10px; font-family: var(--mono); font-size: 12px; line-height: 1.6; color: var(--ink); background: var(--paper-deep); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; resize: vertical; }
+.gen-json:focus { outline: none; border-color: var(--orange); background: var(--paper); }
+.drawer-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 22px; border-top: 1px solid var(--line); }
+</style>

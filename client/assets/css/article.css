@@ -246,6 +246,23 @@
     line-height: 1.65; padding: 9px 0 0;
   }
 
+  /* 제보 안내 모달 (이야기 제보하기 → #tipModal) — SiteFooter .foot-modal 규격 이식 */
+  .foot-modal { position: fixed; inset: 0; z-index: 1000; display: none; }
+  .foot-modal.open { display: block; }
+  .foot-modal .ov { position: absolute; inset: 0; background: rgba(26,26,26,.34); }
+  .foot-modal .box {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%);
+    width: calc(100% - 40px); max-width: 440px; background: var(--paper);
+    border: 1px solid var(--line); border-radius: 0; padding: 30px 30px 26px;
+    box-shadow: 0 18px 50px rgba(26,26,26,.18); font-family: var(--serif);
+  }
+  .foot-modal .modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+  .foot-modal .modal-head h3 { font-size: 16px; font-weight: 700; color: var(--ink); margin: 0; letter-spacing: -.005em; line-height: 1.2; }
+  .foot-modal .box p { font-size: 14px; line-height: 1.85; color: var(--ink-soft); margin: 0 0 10px; }
+  .foot-modal .box p:last-child { margin-bottom: 0; }
+  .foot-modal .x { flex: 0 0 auto; border: none; background: none; cursor: pointer; font-size: 20px; line-height: 1; color: var(--ink-light); padding: 0; margin: 0; }
+  .foot-modal .x:hover { color: var(--ink); }
+
   /* 본문 */
   .art-body {
     font-family: var(--serif);

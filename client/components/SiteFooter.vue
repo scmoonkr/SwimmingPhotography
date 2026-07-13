@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// 공용 푸터 — 하단 티커는 속보(있으면)/안내(없으면)를 표시하고 SSE로 실시간 갱신.
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+// 공용 푸터 — 하단 티커는 기사(있으면)/안내(없으면)를 표시.
+import { computed, onMounted, ref } from 'vue'
 
 const { t, isEN } = useLang()
 const modalOpen = ref(false)
@@ -10,36 +10,25 @@ const NOTICE = () => t(
   'This website is currently in testing and is not yet in official operation.',
 )
 
-// ── 속보 티커 ──
-const breaking = ref<{ _id: string; title: string; publishedAt?: string }[]>([])
-const hasBreaking = computed(() => breaking.value.length > 0)
-const marqueeLabel = computed(() => (hasBreaking.value ? t('속보', 'BREAKING') : t('안내', 'NOTICE')))
-// 흐를 항목: 속보 있으면 제목들, 없으면 안내 문구 1개
-const marqueeItems = computed(() => (hasBreaking.value ? breaking.value.map((b) => b.title).filter(Boolean) : [NOTICE()]))
+// ── 하단 티커: 기사(있으면)/안내(없으면) ──
+const articles = ref<{ title: string; titleEn: string }[]>([])
+const hasArticles = computed(() => articles.value.length > 0)
+const marqueeLabel = computed(() => (hasArticles.value ? t('기사', 'ARTICLE') : t('안내', 'NOTICE')))
+// 흐를 항목: 기사 있으면 제목들(현재 언어), 없으면 안내 문구 1개
+const marqueeItems = computed(() => (hasArticles.value
+  ? articles.value.map((a) => ((isEN.value && a.titleEn) ? a.titleEn : a.title)).filter(Boolean)
+  : [NOTICE()]))
 
-let es: EventSource | null = null
 onMounted(async () => {
-  // 1) 현재 속보 로드
   try {
     const list = await $fetch<any[]>('/api/articles', {
-      params: { type: 'breaking_news', status: 'published', limit: 10 },
+      params: { type: 'article', status: 'published', limit: 15 },
     })
-    breaking.value = (list || []).map((a) => ({
-      _id: String(a._id), title: a.translations?.ko?.title || '', publishedAt: a.publishedAt,
-    })).filter((b) => b.title)
-  } catch {}
-  // 2) 실시간 구독 (새 속보 등록 시 즉시 반영)
-  try {
-    es = new EventSource('/api/stream')
-    es.addEventListener('breaking', (ev) => {
-      try {
-        const d = JSON.parse((ev as MessageEvent).data)
-        if (d?.title) breaking.value = [d, ...breaking.value.filter((b) => b._id !== d._id)].slice(0, 20)
-      } catch {}
-    })
+    articles.value = (list || [])
+      .map((a) => ({ title: a.translations?.ko?.title || '', titleEn: a.translations?.en?.title || '' }))
+      .filter((a) => a.title)
   } catch {}
 })
-onBeforeUnmount(() => es?.close())
 </script>
 
 <template>
@@ -74,8 +63,8 @@ onBeforeUnmount(() => es?.close())
     </div>
   </footer>
 
-  <!-- 하단 고정 티커: 속보(있으면) / 안내(없으면) -->
-  <div class="foot-marquee" :class="{ 'is-breaking': hasBreaking }">
+  <!-- 하단 티커: 기사(있으면) / 안내(없으면) -->
+  <div class="foot-marquee">
     <div class="foot-marquee-inner">
       <span class="foot-marquee-label">{{ marqueeLabel }}</span>
       <div class="foot-marquee-viewport">

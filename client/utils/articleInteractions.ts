@@ -245,6 +245,20 @@ export function wireArticleInteractions(el: HTMLElement, opts: { en: () => boole
     })
   })()
 
+  // ── 이야기 제보하기([data-form]) → 제보 안내 모달(#tipModal) ──
+  ;(() => {
+    const modal = el.querySelector<HTMLElement>('#tipModal')
+    if (!modal) return
+    const open = () => modal.classList.add('open')
+    const close = () => modal.classList.remove('open')
+    el.querySelectorAll<HTMLElement>('[data-form]').forEach((b) =>
+      b.addEventListener('click', (e) => { e.preventDefault(); open() }))
+    modal.addEventListener('click', (e) => { if ((e.target as HTMLElement).hasAttribute('data-close')) close() })
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close() }
+    document.addEventListener('keydown', onKey)
+    cleanups.push(() => { document.removeEventListener('keydown', onKey); modal.classList.remove('open') })
+  })()
+
   return {
     cleanup: () => cleanups.forEach((fn) => fn()),
     refreshLang: () => langRefreshers.forEach((fn) => fn()),

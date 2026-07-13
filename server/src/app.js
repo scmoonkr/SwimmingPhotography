@@ -8,6 +8,9 @@ import categoriesRouter from './routes/categories.js'
 import articlesRouter from './routes/articles.js'
 import competitionsRouter from './routes/competitions.js'
 import venuesRouter from './routes/venues.js'
+import timesRouter from './routes/times.js'
+import athletesRouter from './routes/athletes.js'
+import countsRouter from './routes/counts.js'
 import streamRouter from './routes/stream.js'
 
 // 모노레포 루트의 .env 를 로드 (서버 cwd 와 무관하게)
@@ -27,6 +30,9 @@ app.use('/api/categories', categoriesRouter)
 app.use('/api/articles', articlesRouter)
 app.use('/api/competitions', competitionsRouter)
 app.use('/api/venues', venuesRouter)
+app.use('/api/times', timesRouter)
+app.use('/api/athletes', athletesRouter)
+app.use('/api/counts', countsRouter)
 app.use('/api/stream', streamRouter)
 
 app.get('/api/health', (req, res) => {

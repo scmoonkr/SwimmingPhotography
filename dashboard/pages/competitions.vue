@@ -6,6 +6,24 @@ import type { Field } from '~/composables/useMock'
 
 const e = useEntity('competitions')
 const api = (p = '') => `${useRuntimeConfig().public.apiBase}/api/competitions${p}`
+const timesApi = (p = '') => `${useRuntimeConfig().public.apiBase}/api/times${p}`
+
+// ── 이 대회 기록 가져오기 (mergedTimes → SP.times upsert) ──
+const importing = ref(false)
+const importMsg = ref('')
+const importTimes = async () => {
+  const cid = selected.value?.competitionID
+  if (cid == null || cid === '') { importMsg.value = '대회 ID가 없습니다. 먼저 저장하세요.'; return }
+  importing.value = true; importMsg.value = ''
+  try {
+    const r = await $fetch<any>(timesApi('/import'), { method: 'POST', body: { competitionID: Number(cid) } })
+    importMsg.value = `가져오기 완료 — 원본 ${r.matched}건 · 신규 ${r.inserted} · 중복제외 ${r.skipped}`
+  } catch (err: any) {
+    importMsg.value = '가져오기 실패: ' + (err?.data?.error || err?.message || '')
+  } finally {
+    importing.value = false
+  }
+}
 
 // ── 필터 (연도 + 대회 검색) ──
 const nowYear = new Date().getFullYear()
@@ -81,8 +99,9 @@ const onPickSource = (row: Record<string, any>) => {
   open.value = true
 }
 
-// 편집 필드 (competitions 스키마)
+// 편집 필드 (competitions 스키마) — competitionID 는 원본(BR) 키. 대회검색으로 채워 저장·기록가져오기에 사용.
 const fields: Field[] = [
+  { key: 'competitionID', label: '대회 ID (원본 competitionID)', type: 'text', get: (r) => r.competitionID ?? '', set: (r, v) => { r.competitionID = (v === '' || v == null) ? null : Number(v) } },
   { key: 'competitionName', label: '대회명', type: 'text', get: (r) => r.competitionName ?? '', set: (r, v) => { r.competitionName = v } },
   { key: 'datetime', label: '일자 (YYYY-MM-DD)', type: 'text', get: (r) => r.datetime ?? '', set: (r, v) => { r.datetime = v } },
   { key: 'pool', label: '경기장', type: 'text', get: (r) => r.pool ?? '', set: (r, v) => { r.pool = v } },
@@ -92,8 +111,8 @@ const fields: Field[] = [
   { key: 'stem', label: 'stem (대회 시리즈명)', type: 'text', get: (r) => r.stem ?? '', set: (r, v) => { r.stem = v } },
 ]
 
-const openRow = (r: Record<string, any>) => { isNew.value = false; selected.value = r; open.value = true }
-const openNew = () => { isNew.value = true; selected.value = blankCompetition(); open.value = true }
+const openRow = (r: Record<string, any>) => { isNew.value = false; selected.value = r; open.value = true; importMsg.value = '' }
+const openNew = () => { isNew.value = true; selected.value = blankCompetition(); open.value = true; importMsg.value = '' }
 
 const onSave = async (v: Record<string, any>) => {
   const base = isNew.value ? blankCompetition() : JSON.parse(JSON.stringify(selected.value))
@@ -164,7 +183,15 @@ const onDrawerDelete = async () => {
       :open="open" :title="isNew ? '대회 추가' : '대회 상세 · 편집'"
       :fields="fields" :row="selected"
       @close="open = false" @save="onSave" @delete="onDrawerDelete"
-    />
+    >
+      <template #foot-actions>
+        <button
+          v-if="!isNew && selected?.competitionID != null && selected?.competitionID !== ''"
+          class="btn btn-ghost" type="button" :disabled="importing" @click="importTimes"
+        >{{ importing ? '가져오는 중…' : '기록가져오기' }}</button>
+        <span v-if="importMsg" class="imp-msg">{{ importMsg }}</span>
+      </template>
+    </DetailDrawer>
 
     <!-- 원본(Breaststroke) 대회 검색 모달 -->
     <SearchPickerModal
@@ -194,4 +221,5 @@ const onDrawerDelete = async () => {
   margin-bottom: 14px; padding: 10px 14px; border-radius: 6px;
   background: var(--bad-bg); color: var(--bad); font-size: 13px;
 }
+.imp-msg { font-size: 12px; color: var(--ink-mute); line-height: 1.4; flex-basis: 100%; }
 </style>

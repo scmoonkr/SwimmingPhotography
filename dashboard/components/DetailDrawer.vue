@@ -49,6 +49,7 @@ const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') emit('close') }
       <footer class="drawer-foot">
         <div class="foot-left">
           <button v-if="row && row._id" class="btn btn-danger" type="button" @click="emit('delete')">삭제</button>
+          <slot name="foot-actions" />
         </div>
         <div class="foot-right">
           <button class="btn btn-ghost" type="button" @click="emit('close')">취소</button>
@@ -99,7 +100,9 @@ const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') emit('close') }
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
   padding: 14px 22px; border-top: 1px solid var(--line);
 }
-.foot-right { display: flex; gap: 8px; }
+.foot-left { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex: 1 1 auto; min-width: 0; }
+.foot-right { display: flex; gap: 8px; flex: 0 0 auto; }
+.foot-right .btn { white-space: nowrap; }
 .btn-danger { background: var(--bad-bg); color: var(--bad); }
 .btn-danger:hover { background: var(--bad); color: #fff; }
 </style>

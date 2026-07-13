@@ -39,6 +39,10 @@ const koDate = (iso: string) => {
   const t = parseDT(iso) || parseDT(iso + 'T00:00'); if (!t) return ''
   return `${t.y}년 ${t.mo}월 ${t.d}일`
 }
+const enDate = (iso: string) => {
+  const t = parseDT(iso) || parseDT(iso + 'T00:00'); if (!t) return ''
+  return `${pad2(t.d)}-${pad2(t.mo)}-${t.y}`
+}
 
 // public 루트 기준 절대경로로 정규화
 const imgUrl = (u: string) => {
@@ -63,9 +67,12 @@ const attrEn = (en: string) => (en ? ` data-en="${escA(en)}"` : '')
 export interface RelatedItem {
   slug: string
   category?: string
+  categoryEn?: string
   title: string
+  titleEn?: string
   region?: string
   date?: string   // ISO or YYYY-MM-DD
+  thumb?: string  // 카드 썸네일 (media.thumb 등)
 }
 
 export interface BuildOpts {
@@ -268,15 +275,22 @@ export function buildArticleLayout(doc: any, opts: BuildOpts = {}): string {
   // ── 같은 대회 최근 기사 (related) ──
   let relatedHtml = ''
   if (related.length) {
-    const lis = related.map((r) =>
-      `<li><a class="l-title" href="/article/${escA(r.slug)}"><span class="l-cat">${esc(r.category || '경기')}</span><span class="l-bar"> | </span>${esc(r.title)}</a><span class="l-meta">${esc([r.region, koDate(r.date || '')].filter(Boolean).join(' · '))}</span></li>`).join('')
+    // article.html 스타일: 이미지 그리드 카드(.listing-grid / .lg-card)
+    const cards = related.map((r) => {
+      const thumbStyle = r.thumb ? ` style="background-image:url('${escA(imgUrl(r.thumb))}')"` : ''
+      return `<a class="lg-card" href="/article/${escA(r.slug)}">
+          <span class="lg-thumb"${thumbStyle}></span>
+          <span class="lg-title"><span class="lg-cat"${attrEn(r.categoryEn || '')}>${esc(r.category || '경기')}</span><span${attrEn(r.titleEn || '')}>${esc(r.title)}</span></span>
+          <span class="lg-date"${attrEn(r.date ? enDate(r.date) : '')}>${esc(koDate(r.date || ''))}</span>
+        </a>`
+    }).join('')
     relatedHtml = `
       <section class="listing" id="sec-related">
         <div class="listing-head">
           <h2 data-en="More from this meet">${esc(opts.relatedHeading || '같은 대회 최근 기사')}</h2>
           ${opts.moreHref ? `<a class="listing-more" href="${escA(opts.moreHref)}" data-en="See more">더 보기</a>` : ''}
         </div>
-        <ul>${lis}</ul>
+        <div class="listing-grid">${cards}</div>
       </section>`
   }
 
@@ -285,6 +299,20 @@ export function buildArticleLayout(doc: any, opts: BuildOpts = {}): string {
         <h3 class="ad-heading" data-en="Advertisement">광고</h3>
         <div class="ad-slot">ㅍㅇ ㅎㅇㅌ</div>
       </section>`
+
+  // ── 제보 안내 모달 (이야기 제보하기 → 열림, article.html 이식) ──
+  const tipModal = `
+    <div class="foot-modal" id="tipModal" role="dialog" aria-modal="true" aria-label="제보 안내">
+      <div class="ov" data-close></div>
+      <div class="box">
+        <div class="modal-head">
+          <h3 data-en="About tips">제보 안내</h3>
+          <button type="button" class="x" data-close aria-label="닫기">×</button>
+        </div>
+        <p data-en="We are not accepting tips at this time. All tip-related channels are currently closed, and we operate solely through the editorial team.">현재는 제보를 받지 않고 있습니다. 모든 제보와 관련된 트랙을 제한한 상태로, 편집부의 역량으로만 운영하고 있습니다.</p>
+        <p data-en="We'll let you know when the tip channel reopens. We cheer for Korean swimming.">추후 제보 채널이 다시 열리면 안내드리겠습니다. 대한민국 수영을 응원합니다.</p>
+      </div>
+    </div>`
 
   // ── 사이드바: 이 기사의 기록 (경기 기사) ──
   let sideRecord = ''
@@ -383,5 +411,6 @@ export function buildArticleLayout(doc: any, opts: BuildOpts = {}): string {
       ${ad}
     </article>
     ${sidebar}
+    ${tipModal}
   </div>`
 }

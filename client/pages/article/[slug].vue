@@ -29,9 +29,12 @@ const { data, error } = await useAsyncData(
         .map((d) => ({
           slug: d.slug,
           category: (d.translations?.ko?.categories || [])[0] || '경기',
+          categoryEn: (d.translations?.en?.categories || [])[0] || '',
           title: d.translations?.ko?.title || '',
+          titleEn: d.translations?.en?.title || '',
           region: d?.payload?.data?.region || '',
           date: d.publishedAt || '',
+          thumb: d?.media?.thumb || d?.media?.coverImage || (d?.media?.images && d.media.images[0]?.url) || '',
         }))
     } catch {}
     return { doc, related }
