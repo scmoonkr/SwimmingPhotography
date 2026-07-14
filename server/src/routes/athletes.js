@@ -130,12 +130,89 @@ router.get('/records', async (req, res) => {
   }
 })
 
-// PB(개인 최고기록) 조회 — BR.mergedTimes 에서 선수의 해당 종목 가장 빠른 기록.
-// query: name·gender·group·discipline·distance(·course). 가장 빠른(timeStamp 최소) 1건 반환.
-router.get('/pb', async (req, res) => {
+// ── myranking(외부 사이트) 연동 ──
+// 스크래퍼(playwright+OCR)는 무거운 의존성이라, 없을 때 서버가 죽지 않도록 지연 로드한다.
+let _mrMod = null
+async function getMyRanking() {
+  if (_mrMod == null) {
+    _mrMod = await import('../myranking.js').catch((e) => {
+      console.error('myranking 모듈 로드 실패(폴백 사용):', e?.message || e)
+      return false   // 실패 캐시 → 재시도 안 함
+    })
+  }
+  return _mrMod && _mrMod.fetchMyRankingTimes ? _mrMod : null
+}
+
+const DISC_KO = { FR: '자유형', BA: '배영', BK: '배영', BR: '평영', FL: '접영', IM: '개인혼영' }
+const GENDER_KO = { men: '남자', women: '여자', mixed: '혼성' }
+// 시간 문자열 → 초 (비교/정렬용). "32.01" · "1:33.33" · "01:33.33"
+function timeToSec(t) {
+  const m = String(t || '').match(/^(?:(\d+):)?(\d{1,2})[.:](\d{1,2})$/)
+  if (!m) return Infinity
+  const cs = (m[3] + '00').slice(0, 2)
+  return (m[1] ? +m[1] * 60 : 0) + (+m[2]) + (+cs) / 100
+}
+// 시간 문자열 → "MM:SS.SS" (대시보드 fmtRec 가 "32초 01" 로 표기)
+function normTime(t) {
+  const m = String(t || '').match(/^(?:(\d+):)?(\d{1,2})[.:](\d{1,2})$/)
+  if (!m) return String(t || '')
+  return `${(m[1] || '0').padStart(2, '0')}:${m[2].padStart(2, '0')}.${(m[3] + '00').slice(0, 2)}`
+}
+
+// myranking 에서 time 조회. GET /api/athletes/myranking?q=문성중 남자 평영 50M&headless=true&timeout=120
+router.get('/myranking', async (req, res) => {
   try {
-    const { name, gender, group, discipline, distance, course } = req.query
-    if (!name || !discipline || !distance) return res.json(null)
+    const q = String(req.query.q || '').trim()
+    if (!q) return res.status(400).json({ error: '검색어(q)가 필요합니다.' })
+    const mr = await getMyRanking()
+    if (!mr) return res.status(503).json({ error: 'myranking 모듈을 사용할 수 없습니다. server 에서 playwright·tesseract.js·@tesseract.js-data/eng 설치 및 `npx playwright install chromium` 필요.' })
+    const headless = req.query.headless !== 'false'
+    const timeoutSec = Math.min(Math.max(Number(req.query.timeout) || 120, 5), 600)
+    const result = await mr.fetchMyRankingTimes(q, {
+      headless, reuseBrowser: true, securityVerificationTimeout: timeoutSec * 1000,
+    })
+    res.json(result)
+  } catch (e) {
+    res.status(502).json({ error: 'myranking 조회 실패: ' + (e?.message || String(e)) })
+  }
+})
+
+// PB(개인 최고기록) 조회 — myranking 우선, 없거나 실패하면 BR.mergedTimes 폴백.
+// query: name·gender·group·discipline·distance(·course). source=merged 면 myranking 건너뜀.
+router.get('/pb', async (req, res) => {
+  const { name, gender, group, discipline, distance, course, source } = req.query
+  if (!name || !discipline || !distance) return res.json(null)
+
+  // 1) myranking 우선
+  if (source !== 'merged') {
+    try {
+      const mr = await getMyRanking()
+      if (mr) {
+        const q = [name, GENDER_KO[gender], DISC_KO[discipline] || discipline, distance].filter(Boolean).join(' ')
+        const r = await mr.fetchMyRankingTimes(q, { headless: true, reuseBrowser: true, securityVerificationTimeout: 30_000 })
+        const best = (r.records || [])
+          .map((rec) => ({ rec, sec: timeToSec(rec.time) }))
+          .filter((x) => Number.isFinite(x.sec))
+          .sort((a, b) => a.sec - b.sec)[0]
+        if (best) {
+          return res.json({
+            source: 'myranking',
+            time: normTime(best.rec.time),
+            timeStamp: best.sec / 86400,   // mergedTimes 와 동일 단위(하루 분수)
+            competitionName: best.rec.competitionName || best.rec.competition || '',
+            datetime: best.rec.date || best.rec.competitionDate || '',
+            discipline: String(discipline), distance: String(distance), course: course ? String(course) : '',
+            rank: best.rec.rank || null, pb: !!best.rec.pb,
+          })
+        }
+      }
+    } catch (e) {
+      console.error('myranking PB 실패(mergedTimes 폴백):', e?.message || e)
+    }
+  }
+
+  // 2) 폴백: BR.mergedTimes 에서 가장 빠른(timeStamp 최소) 1건
+  try {
     const match = { name: String(name), discipline: String(discipline), distance: String(distance) }
     if (gender) match.gender = String(gender)
     if (group) match.group = String(group)
@@ -145,7 +222,7 @@ router.get('/pb', async (req, res) => {
       .sort({ timeStamp: 1 })
       .limit(1)
       .next()
-    res.json(doc || null)
+    res.json(doc ? { ...doc, source: 'merged' } : null)
   } catch (e) {
     res.status(500).json({ error: e.message })
   }
