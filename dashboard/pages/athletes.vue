@@ -226,14 +226,38 @@ const generateArticle = async () => {
     genLoading.value = false
   }
 }
+// 클립보드 복사 — HTTPS/localhost 는 Clipboard API, HTTP(비보안) 는 execCommand 폴백.
+async function copyText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch {}
+  try {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.style.position = 'fixed'
+    ta.style.top = '-9999px'
+    ta.setAttribute('readonly', '')
+    document.body.appendChild(ta)
+    ta.select()
+    ta.setSelectionRange(0, text.length)
+    const ok = document.execCommand('copy')
+    document.body.removeChild(ta)
+    return ok
+  } catch {
+    return false
+  }
+}
+
 // LLM 에 넘겨줄 선수 기록 JSON 을 클립보드에 복사
 const copyPayload = async () => {
   const payload = buildPayload()
   if (!payload) return
-  try {
-    await navigator.clipboard.writeText(JSON.stringify(payload, null, 2))
+  if (await copyText(JSON.stringify(payload, null, 2))) {
     notice.value = 'JSON 복사됨 (클립보드)'
-  } catch {
+  } else {
     alert('복사 실패: 클립보드 접근 권한을 확인하세요.')
   }
 }

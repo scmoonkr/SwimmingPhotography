@@ -68,16 +68,29 @@ export function wireArticleInteractions(el: HTMLElement, opts: { en: () => boole
   // ── URL 복사하기 : 클립보드 복사 + 안내 문구 ──
   const copyBtn = el.querySelector<HTMLButtonElement>('[data-copy]')
   copyBtn?.addEventListener('click', async () => {
+    const url = window.location.href
+    // HTTPS/localhost 는 Clipboard API, HTTP(비보안) 는 execCommand 폴백.
+    let ok = false
     try {
-      await navigator.clipboard.writeText(window.location.href)
+      if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(url); ok = true }
+    } catch {}
+    if (!ok) {
+      try {
+        const ta = document.createElement('textarea')
+        ta.value = url; ta.style.position = 'fixed'; ta.style.top = '-9999px'; ta.setAttribute('readonly', '')
+        document.body.appendChild(ta); ta.select(); ta.setSelectionRange(0, url.length)
+        ok = document.execCommand('copy'); document.body.removeChild(ta)
+      } catch {}
+    }
+    if (ok) {
       const prev = copyBtn.textContent
       const isMobile = window.matchMedia('(max-width: 640px)').matches
       copyBtn.textContent = EN()
         ? (isMobile ? 'Copied. Paste it anywhere.' : 'Copied to clipboard. Paste it wherever you like.')
         : (isMobile ? '복사 완료. 붙여넣기 해주세요.' : '클립보드 복사 완료. 원하시는 곳에 붙여넣기 해주세요.')
       setTimeout(() => { copyBtn.textContent = prev }, 1800)
-    } catch (e) {
-      window.prompt(EN() ? "This article's URL" : '이 기사의 주소', window.location.href)
+    } else {
+      window.prompt(EN() ? "This article's URL" : '이 기사의 주소', url)
     }
   })
 
