@@ -57,7 +57,10 @@ router.get('/competitions', async (req, res) => {
 router.get('/', async (req, res) => {
   try {
     const { competitionID, gender, name, group, limit = 2000 } = req.query
-    const match = {}
+    const match = {
+      time: { $type: 'string', $ne: '' },   // 기록(time)이 없거나 ''인 것 제외
+      discipline: { $nin: ['FRR', 'MR'] },   // 단체전(계영 FRR·혼계영 MR) 제외
+    }
     if (competitionID) match.competitionID = Number(competitionID)
     if (gender) match.gender = String(gender)
     if (group) match.group = String(group)
@@ -122,6 +125,27 @@ router.get('/records', async (req, res) => {
       .find(q, { projection: { type: 1, gender: 1, time: 1, timeStamp: 1, name: 1, team: 1, datetime: 1, location: 1, discipline: 1, distance: 1, course: 1 } })
       .toArray()
     res.json(docs)
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// PB(개인 최고기록) 조회 — BR.mergedTimes 에서 선수의 해당 종목 가장 빠른 기록.
+// query: name·gender·group·discipline·distance(·course). 가장 빠른(timeStamp 최소) 1건 반환.
+router.get('/pb', async (req, res) => {
+  try {
+    const { name, gender, group, discipline, distance, course } = req.query
+    if (!name || !discipline || !distance) return res.json(null)
+    const match = { name: String(name), discipline: String(discipline), distance: String(distance) }
+    if (gender) match.gender = String(gender)
+    if (group) match.group = String(group)
+    if (course) match.course = String(course)
+    const doc = await (await BR()).collection('mergedTimes')
+      .find(match, { projection: { time: 1, timeStamp: 1, competitionName: 1, datetime: 1, course: 1, discipline: 1, distance: 1 } })
+      .sort({ timeStamp: 1 })
+      .limit(1)
+      .next()
+    res.json(doc || null)
   } catch (e) {
     res.status(500).json({ error: e.message })
   }

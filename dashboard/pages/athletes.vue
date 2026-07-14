@@ -87,14 +87,15 @@ const selected = ref<any | null>(null)
 const open = ref(false)
 const teamStats = ref<{ athletes: number; times: number } | null>(null)
 const recordsByEvent = ref<Record<string, any[]>>({})
+const pbByEvent = ref<Record<string, any>>({})
 
 const openRow = async (r: any) => {
   selected.value = r; open.value = true
-  teamStats.value = null; recordsByEvent.value = {}; activeTab.value = 0; genJson.value = ''
+  teamStats.value = null; recordsByEvent.value = {}; pbByEvent.value = {}; activeTab.value = 0; genJson.value = ''
   if (r.team) {
     try { teamStats.value = await $fetch(api('/team-stats'), { params: { team: r.team, competitionID: competitionID.value || undefined } }) } catch {}
   }
-  // 종목(영법·거리·코스)별로 기록 1회씩 조회
+  // 종목(영법·거리·코스)별로 기록·PB 1회씩 조회
   const seen: Record<string, any> = {}
   for (const t of (r.times || [])) { const k = evKey(t); if (k && !seen[k]) seen[k] = t }
   for (const k of Object.keys(seen)) {
@@ -103,12 +104,18 @@ const openRow = async (r: any) => {
       const recs = await $fetch<any[]>(api('/records'), { params: { discipline: t.discipline, distance: t.distance, course: t.course } })
       recordsByEvent.value = { ...recordsByEvent.value, [k]: recs }
     } catch {}
+    try {
+      const pb = await $fetch<any>(api('/pb'), { params: { name: r.name, gender: r.gender, group: r.group, discipline: t.discipline, distance: t.distance, course: t.course } })
+      pbByEvent.value = { ...pbByEvent.value, [k]: pb }
+    } catch {}
   }
 }
 // 기록 탭 (종목별) — timeStamp 빠른순
 const timeTabs = computed<any[]>(() => (selected.value?.times || []).slice().sort((a: any, b: any) => (a.timeStamp || Infinity) - (b.timeStamp || Infinity)))
 const activeTab = ref(0)
-const tabLabel = (t: any) => `${disc(t.discipline)} ${t.distance || ''}`.trim()
+const ROUND_KO: Record<string, string> = { preliminaries: '예선', finals: '결선', semiFinals: '준결선' }
+// 라운드가 있으면 "자유형 50M 예선"처럼 표기
+const tabLabel = (t: any) => [disc(t.discipline), t.distance, ROUND_KO[t.round]].filter(Boolean).join(' ')
 const detailInfo = () => {
   const r = selected.value
   if (!r) return []
@@ -126,8 +133,16 @@ const compRows = (t: any) => {
     .filter((r) => r.type === type && r.gender === gd)
     .sort((a, b) => (a.timeStamp ?? Infinity) - (b.timeStamp ?? Infinity))[0]
   const row = (label: string, r: any) => ({ label, time: r ? fmtRec(r.time) : '—', diff: r ? fmtDiff(t.timeStamp, r.timeStamp) : '', note: recNote(r) })
+  // PB(개인 최고기록) — BR.mergedTimes 최고기록.
+  // 이번 대회가 PB면 이번 대회 차이에 'PB' 표시하고 별도 PB 행은 생략. 아니면 과거 PB 행 표시.
+  const pb = pbByEvent.value[evKey(t)]
+  const isPB = !!(pb && pb.timeStamp != null && t.timeStamp != null && Math.abs(t.timeStamp - pb.timeStamp) < 1e-9)
+  const pbRow = (pb && !isPB)
+    ? { label: 'PB', time: fmtRec(pb.time), diff: fmtDiff(t.timeStamp, pb.timeStamp), note: `${pb.competitionName || ''}${pb.datetime ? ` (${String(pb.datetime).slice(0, 4)})` : ''}` }
+    : null
   return [
-    { label: '이번 대회', time: fmtRec(t.time), diff: '', note: `${selected.value?.name || ''}${selected.value?.ageGroup ? ' · ' + selected.value.ageGroup : ''}${t.rank != null ? ' ' + t.rank + '위' : ''}` },
+    { label: '이번 대회', time: fmtRec(t.time), diff: isPB ? 'PB' : '', note: `${selected.value?.name || ''}${selected.value?.ageGroup ? ' · ' + selected.value.ageGroup : ''}${t.rank != null ? ' ' + t.rank + '위' : ''}` },
+    ...(pbRow ? [pbRow] : []),
     row('세계기록', pick('WR', g)),
     row('올림픽기록', pick('OR', g)),
     row('한국기록(여)', pick('KR', 'women')),
@@ -179,32 +194,47 @@ const onAddSave = async (form: Record<string, any>) => {
 // ── 기사 LLM 생성 ──
 const genLoading = ref(false)
 const genJson = ref('')
+// 드로어에 표시된 내용(선수·팀통계·종목별 기록 비교)을 그대로 JSON payload 로 구성 (LLM 입력)
+const buildPayload = () => {
+  const a = selected.value
+  if (!a) return null
+  const events = timeTabs.value.map((t) => ({
+    event: `${disc(t.discipline)} ${t.distance || ''} ${t.course || ''}`.trim(),
+    time: fmtRec(t.time),
+    rank: t.rank,
+    records: compRows(t)
+      .filter((cr) => cr.label !== '이번 대회')
+      .map((cr) => ({ category: cr.label, time: cr.time, diff: cr.diff, holder: cr.note })),
+  }))
+  return {
+    athlete: { name: a.name, gender: genderLabel(a.gender), group: a.group, ageGroup: a.ageGroup, team: a.team, sido: a.sido },
+    teamStats: teamStats.value,
+    competitionName: (a.times || [])[0]?.competitionName || '',
+    events,
+  }
+}
 const generateArticle = async () => {
-  if (!selected.value) return
+  const payload = buildPayload()
+  if (!payload) return
   genLoading.value = true; genJson.value = ''
   try {
-    const a = selected.value
-    // 드로어에 표시된 내용(선수·팀통계·종목별 기록 비교)을 그대로 JSON 으로 구성
-    const events = timeTabs.value.map((t) => ({
-      event: `${disc(t.discipline)} ${t.distance || ''} ${t.course || ''}`.trim(),
-      time: fmtRec(t.time),
-      rank: t.rank,
-      records: compRows(t)
-        .filter((cr) => cr.label !== '이번 대회')
-        .map((cr) => ({ category: cr.label, time: cr.time, diff: cr.diff, holder: cr.note })),
-    }))
-    const payload = {
-      athlete: { name: a.name, gender: genderLabel(a.gender), group: a.group, ageGroup: a.ageGroup, team: a.team, sido: a.sido },
-      teamStats: teamStats.value,
-      competitionName: (a.times || [])[0]?.competitionName || '',
-      events,
-    }
     const r = await $fetch<any>(api('/generate-article'), { method: 'POST', body: { data: payload } })
     genJson.value = r.content || ''
   } catch (err: any) {
     genJson.value = '생성 실패: ' + (err?.data?.error || err?.message || '')
   } finally {
     genLoading.value = false
+  }
+}
+// LLM 에 넘겨줄 선수 기록 JSON 을 클립보드에 복사
+const copyPayload = async () => {
+  const payload = buildPayload()
+  if (!payload) return
+  try {
+    await navigator.clipboard.writeText(JSON.stringify(payload, null, 2))
+    notice.value = 'JSON 복사됨 (클립보드)'
+  } catch {
+    alert('복사 실패: 클립보드 접근 권한을 확인하세요.')
   }
 }
 
@@ -311,10 +341,10 @@ onMounted(() => { loadCompetitions(); load() })
             <table class="comp-table">
               <thead><tr><th>구분</th><th>기록</th><th class="num">차이</th><th>비고</th></tr></thead>
               <tbody>
-                <tr v-for="(cr, j) in compRows(timeTabs[activeTab])" :key="j" :class="{ own: cr.label === '이번 대회' }">
+                <tr v-for="(cr, j) in compRows(timeTabs[activeTab])" :key="j" :class="{ own: cr.label === '이번 대회', pbrow: cr.label === 'PB' }">
                   <td class="cat">{{ cr.label }}</td>
                   <td class="mono">{{ cr.time }}</td>
-                  <td class="num diff">{{ cr.diff }}</td>
+                  <td class="num diff" :class="{ 'is-pb': cr.diff === 'PB' }">{{ cr.diff }}</td>
                   <td class="muted">{{ cr.note }}</td>
                 </tr>
               </tbody>
@@ -324,9 +354,15 @@ onMounted(() => { loadCompetitions(); load() })
 
           <!-- 기사 LLM 생성 -->
           <div class="gen-section">
-            <button class="btn btn-primary" type="button" :disabled="genLoading" @click="generateArticle">
-              {{ genLoading ? '생성 중…' : '기사LLM생성' }}
-            </button>
+            <div class="gen-actions">
+              <button class="btn btn-primary" type="button" :disabled="genLoading" @click="generateArticle">
+                {{ genLoading ? '생성 중…' : '기사LLM생성' }}
+              </button>
+              <button class="btn btn-ghost" type="button" :disabled="!timeTabs.length" @click="copyPayload">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" /></svg>
+                JSON 복사
+              </button>
+            </div>
             <textarea v-model="genJson" class="gen-json" rows="10" spellcheck="false" placeholder="기사 LLM 생성 JSON…" />
           </div>
         </div>
@@ -370,7 +406,7 @@ onMounted(() => { loadCompetitions(); load() })
 .drawer-root { position: fixed; inset: 0; z-index: 1000; pointer-events: none; }
 .drawer-ov { position: absolute; inset: 0; background: rgba(26,26,26,.34); opacity: 0; transition: opacity .22s ease; }
 .drawer {
-  position: absolute; top: 0; right: 0; height: 100%; width: min(520px, 94vw);
+  position: absolute; top: 0; right: 0; height: 100%; width: min(760px, 96vw);
   background: var(--paper); border-left: 1px solid var(--line); box-shadow: -18px 0 50px rgba(26,26,26,.12);
   display: flex; flex-direction: column; transform: translateX(100%); transition: transform .26s cubic-bezier(.4,0,.2,1);
 }
@@ -404,9 +440,13 @@ onMounted(() => { loadCompetitions(); load() })
 .comp-table tr.own { background: var(--orange-bg); }
 .comp-table tr.own td { color: var(--ink); font-weight: 700; }
 .comp-table tr.own td.muted { font-weight: 500; color: var(--ink-mute); }
+.comp-table tr.pbrow td.cat { color: var(--orange-deep); font-weight: 700; }
+.comp-table td.is-pb { color: var(--orange); font-weight: 700; }
 .empty-block { color: var(--ink-light); font-size: 13px; padding: 12px 0; }
 
 .gen-section { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--line); }
+.gen-actions { display: flex; gap: 8px; align-items: center; }
+.gen-actions .btn svg { width: 15px; height: 15px; }
 .gen-json { width: 100%; margin-top: 10px; font-family: var(--mono); font-size: 12px; line-height: 1.6; color: var(--ink); background: var(--paper-deep); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; resize: vertical; }
 .gen-json:focus { outline: none; border-color: var(--orange); background: var(--paper); }
 .drawer-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 22px; border-top: 1px solid var(--line); }
