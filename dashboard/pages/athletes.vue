@@ -210,6 +210,8 @@ const buildPayload = () => {
     athlete: { name: a.name, gender: genderLabel(a.gender), group: a.group, ageGroup: a.ageGroup, team: a.team, sido: a.sido },
     teamStats: teamStats.value,
     competitionName: (a.times || [])[0]?.competitionName || '',
+    competitionDate: (a.times || [])[0]?.datetime || '',
+    venue: (a.times || [])[0]?.pool || '',
     events,
   }
 }

@@ -82,7 +82,7 @@ router.get('/', async (req, res) => {
               _id: '$_id',
               discipline: '$discipline', distance: '$distance', course: '$course',
               time: '$time', rank: '$rank', round: '$round', timeStamp: '$timeStamp',
-              competitionName: '$competitionName', datetime: '$datetime',
+              competitionName: '$competitionName', datetime: '$datetime', pool: '$pool',
             },
           },
         },
