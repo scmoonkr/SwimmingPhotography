@@ -43,7 +43,7 @@ const getRules = () => {
 router.get('/competitions', async (req, res) => {
   try {
     const docs = await (await SP()).collection('competitions')
-      .find({}, { projection: { competitionID: 1, competitionName: 1, datetime: 1 } })
+      .find({}, { projection: { competitionID: 1, competitionName: 1, datetime: 1, pool: 1, sido: 1 } })
       .sort({ competitionID: -1 })
       .limit(2000)
       .toArray()

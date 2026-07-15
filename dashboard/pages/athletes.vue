@@ -45,6 +45,8 @@ const competitions = ref<any[]>([])
 const loadCompetitions = async () => {
   try { competitions.value = await $fetch<any[]>(api('/competitions'), { params: { limit: 2000 } }) } catch { competitions.value = [] }
 }
+// 필터에서 선택한 대회 (JSON payload 의 대회명·일자·수영장 출처)
+const selectedComp = computed(() => competitions.value.find((c) => c.competitionID === competitionID.value) || null)
 
 // ── 테이블 컬럼 ──
 const columns: Column[] = [
@@ -207,12 +209,15 @@ const buildPayload = () => {
       .filter((cr) => cr.label !== '이번 대회')
       .map((cr) => ({ category: cr.label, time: cr.time, diff: cr.diff, holder: cr.note })),
   }))
+  // 대회명·일자·수영장은 필터에서 "선택한 대회" 기준. 미선택(전체)이면 선수 기록에서 폴백.
+  const c = selectedComp.value
+  const t0 = (a.times || [])[0] || {}
   return {
     athlete: { name: a.name, gender: genderLabel(a.gender), group: a.group, ageGroup: a.ageGroup, team: a.team, sido: a.sido },
     teamStats: teamStats.value,
-    competitionName: (a.times || [])[0]?.competitionName || '',
-    competitionDate: (a.times || [])[0]?.datetime || '',
-    venue: (a.times || [])[0]?.pool || '',
+    competitionName: c?.competitionName || t0.competitionName || '',
+    competitionDate: c?.datetime || t0.datetime || '',
+    venue: c?.pool || t0.pool || '',
     events,
   }
 }
