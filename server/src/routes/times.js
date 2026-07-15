@@ -112,7 +112,38 @@ router.post('/import', async (req, res) => {
       athletesUpserted = (rw.upsertedCount || 0) + (rw.modifiedCount || 0)
     }
 
-    res.json({ matched: rows.length, inserted: toInsert.length, skipped: rows.length - toInsert.length, competitionAdded, athletes: summary.length, athletesUpserted })
+    // 이 대회의 참가 규모 집계 → SP.competitions 에 기록
+    // 팀수 = 소속 distinct, 선수수 = name+gender distinct(단체전 제외), start수 = 개인 출전 기록 수
+    let stats = null
+    if (cid != null) {
+      const IND = { discipline: { $nin: ['FRR', 'MR'] } } // 단체전(계영) 제외
+      const [agg] = await c.aggregate([
+        { $match: { competitionID: cid, time: { $type: 'string', $ne: '' } } },
+        {
+          $facet: {
+            teams: [{ $match: { team: { $type: 'string', $ne: '' } } }, { $group: { _id: '$team' } }, { $count: 'n' }],
+            athletes: [{ $match: IND }, { $group: { _id: { name: '$name', gender: '$gender' } } }, { $count: 'n' }],
+            starts: [{ $match: IND }, { $count: 'n' }],
+          },
+        },
+        {
+          $project: {
+            teamCount: { $ifNull: [{ $arrayElemAt: ['$teams.n', 0] }, 0] },
+            athleteCount: { $ifNull: [{ $arrayElemAt: ['$athletes.n', 0] }, 0] },
+            startCount: { $ifNull: [{ $arrayElemAt: ['$starts.n', 0] }, 0] },
+          },
+        },
+      ]).toArray()
+      if (agg) {
+        stats = agg
+        await (await SP()).collection('competitions').updateOne(
+          { competitionID: cid },
+          { $set: { ...agg, statsUpdatedAt: new Date() } },
+        )
+      }
+    }
+
+    res.json({ matched: rows.length, inserted: toInsert.length, skipped: rows.length - toInsert.length, competitionAdded, athletes: summary.length, athletesUpserted, stats })
   } catch (e) {
     res.status(500).json({ error: e.message })
   }

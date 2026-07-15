@@ -36,12 +36,12 @@ const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') emit('close') }
       </header>
 
       <div class="drawer-body">
-        <label v-for="f in fields" :key="f.key" class="field">
+        <label v-for="f in fields" :key="f.key" class="field" :class="{ half: f.half }">
           <span class="field-label">{{ f.label }}</span>
           <select v-if="f.type === 'select'" v-model="form[f.key]" class="field-input">
             <option v-for="o in f.options || []" :key="o" :value="o">{{ o }}</option>
           </select>
-          <textarea v-else-if="f.type === 'textarea'" v-model="form[f.key]" class="field-input field-area" rows="7" />
+          <textarea v-else-if="f.type === 'textarea'" v-model="form[f.key]" class="field-input field-area" :rows="f.rows || 7" />
           <input v-else v-model="form[f.key]" class="field-input" type="text">
         </label>
       </div>
@@ -85,8 +85,10 @@ const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') emit('close') }
 .drawer-x { border: none; background: none; cursor: pointer; font-size: 22px; line-height: 1; color: var(--ink-light); padding: 0; }
 .drawer-x:hover { color: var(--ink); }
 
-.drawer-body { flex: 1; overflow-y: auto; padding: 20px 22px; display: flex; flex-direction: column; gap: 16px; }
-.field { display: flex; flex-direction: column; gap: 6px; }
+/* 2열 그리드 — 기본은 한 줄 전체(span 2), half 필드만 반 줄(span 1)로 나란히 */
+.drawer-body { flex: 1; overflow-y: auto; padding: 20px 22px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-content: start; }
+.field { grid-column: span 2; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.field.half { grid-column: span 1; }
 .field-label { font-size: 12px; font-weight: 700; color: var(--ink-mute); }
 .field-input {
   font-family: var(--sans); font-size: 13.5px; color: var(--ink);

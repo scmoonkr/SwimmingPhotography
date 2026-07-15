@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 대회 — SwimmingPhotography DB(competitions). 연도·대회명 필터는 서버로 전달.
 import { onMounted, ref, watch } from 'vue'
-import { useEntity, blankCompetition } from '~/composables/useMock'
+import { useEntity, blankCompetition, SIDO_LIST } from '~/composables/useMock'
 import type { Field } from '~/composables/useMock'
 
 const e = useEntity('competitions')
@@ -17,7 +17,13 @@ const importTimes = async () => {
   importing.value = true; importMsg.value = ''
   try {
     const r = await $fetch<any>(timesApi('/import'), { method: 'POST', body: { competitionID: Number(cid) } })
-    importMsg.value = `가져오기 완료 — 원본 ${r.matched}건 · 신규 ${r.inserted} · 중복제외 ${r.skipped}`
+    let msg = `가져오기 완료 — 원본 ${r.matched}건 · 신규 ${r.inserted} · 중복제외 ${r.skipped}`
+    if (r.stats) {
+      msg += ` / 팀 ${r.stats.teamCount} · 선수 ${r.stats.athleteCount} · start ${r.stats.startCount}`
+      if (selected.value) Object.assign(selected.value, r.stats) // 드로어 표시 갱신
+    }
+    importMsg.value = msg
+    await load()
   } catch (err: any) {
     importMsg.value = '가져오기 실패: ' + (err?.data?.error || err?.message || '')
   } finally {
@@ -101,14 +107,15 @@ const onPickSource = (row: Record<string, any>) => {
 
 // 편집 필드 (competitions 스키마) — competitionID 는 원본(BR) 키. 대회검색으로 채워 저장·기록가져오기에 사용.
 const fields: Field[] = [
-  { key: 'competitionID', label: '대회 ID (원본 competitionID)', type: 'text', get: (r) => r.competitionID ?? '', set: (r, v) => { r.competitionID = (v === '' || v == null) ? null : Number(v) } },
+  { key: 'competitionID', label: '대회 ID (원본 competitionID)', type: 'text', half: true, get: (r) => r.competitionID ?? '', set: (r, v) => { r.competitionID = (v === '' || v == null) ? null : Number(v) } },
+  { key: 'datetime', label: '일자 (YYYY-MM-DD)', type: 'text', half: true, get: (r) => r.datetime ?? '', set: (r, v) => { r.datetime = v } },
   { key: 'competitionName', label: '대회명', type: 'text', get: (r) => r.competitionName ?? '', set: (r, v) => { r.competitionName = v } },
-  { key: 'datetime', label: '일자 (YYYY-MM-DD)', type: 'text', get: (r) => r.datetime ?? '', set: (r, v) => { r.datetime = v } },
-  { key: 'pool', label: '경기장', type: 'text', get: (r) => r.pool ?? '', set: (r, v) => { r.pool = v } },
-  { key: 'sido', label: '지역', type: 'text', get: (r) => r.sido ?? '', set: (r, v) => { r.sido = v } },
-  { key: 'course', label: 'Course', type: 'select', options: ['LCM', 'SCM'], get: (r) => r.course ?? 'LCM', set: (r, v) => { r.course = v } },
-  { key: 'isMasters', label: '구분', type: 'select', options: ['일반', '마스터즈'], get: (r) => (r.isMasters ? '마스터즈' : '일반'), set: (r, v) => { r.isMasters = v === '마스터즈' } },
-  { key: 'stem', label: 'stem (대회 시리즈명)', type: 'text', get: (r) => r.stem ?? '', set: (r, v) => { r.stem = v } },
+  { key: 'sido', label: '시도', type: 'select', options: SIDO_LIST, half: true, get: (r) => r.sido ?? '', set: (r, v) => { r.sido = v } },
+  { key: 'pool', label: '수영장', type: 'text', half: true, get: (r) => r.pool ?? '', set: (r, v) => { r.pool = v } },
+  { key: 'course', label: 'Course', type: 'select', options: ['LCM', 'SCM'], half: true, get: (r) => r.course ?? 'LCM', set: (r, v) => { r.course = v } },
+  { key: 'isMasters', label: '구분', type: 'select', options: ['일반', '마스터즈'], half: true, get: (r) => (r.isMasters ? '마스터즈' : '일반'), set: (r, v) => { r.isMasters = v === '마스터즈' } },
+  { key: 'sketch', label: '대회 스케치', type: 'textarea', rows: 5, get: (r) => r.sketch ?? '', set: (r, v) => { r.sketch = v } },
+  { key: 'poolSketch', label: '수영장 스케치', type: 'textarea', rows: 5, get: (r) => r.poolSketch ?? '', set: (r, v) => { r.poolSketch = v } },
 ]
 
 const openRow = (r: Record<string, any>) => { isNew.value = false; selected.value = r; open.value = true; importMsg.value = '' }

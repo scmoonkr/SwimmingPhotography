@@ -25,6 +25,8 @@ export interface Field {
   label: string
   type?: 'text' | 'textarea' | 'select'
   options?: string[]
+  half?: boolean   // 한 줄에 둘씩 배치 (기본: 한 줄 전체)
+  rows?: number    // textarea 줄 수 (기본 7)
   get: (row: any) => any
   set: (row: any, value: any) => void
 }
@@ -83,7 +85,7 @@ const mkArticle = (o: {
 })
 
 // 시도 목록 (필터·셀렉트 공용)
-export const SIDO_LIST = ['서울', '부산', '대구', '인천', '광주', '대전', '울산', '세종', '경기', '강원', '충북', '충남', '전북', '전남', '경북', '경남', '제주']
+export const SIDO_LIST = ['서울', '부산', '대구', '인천', '대전', '울산', '세종', '경기', '강원', '충북', '충남', '전북', '전남', '광주', '경북', '경남', '제주', '해외']
 
 // 속보 분류 목록 (value=searchCategories 슬러그, label=표시)
 export const BN_CATEGORIES = [
@@ -112,8 +114,9 @@ export const blankCompetition = () => ({
   sido: '',
   course: 'LCM',
   isMasters: false,
-  stem: '',
   measured: '자동계측',
+  sketch: '',       // 대회 스케치
+  poolSketch: '',   // 수영장 스케치
 })
 
 // 신규 등록용 빈 기사(article) 객체 — type 으로 속보/기사 구분
@@ -218,6 +221,8 @@ const DATA: Record<string, Entity> = {
       { key: 'sido', label: '지역', cls: 'muted' },
       { key: 'course', label: 'Course' },
       { key: 'isMasters', label: '구분', get: (r) => (r.isMasters ? '마스터즈' : '일반') },
+      // 기록가져오기 때 집계되는 참가 규모
+      { key: 'scale', label: '팀 / 선수 / start', cls: 'muted', get: (r) => (r.startCount == null ? '—' : `${r.teamCount ?? 0} / ${r.athleteCount ?? 0} / ${r.startCount}`) },
     ],
     // 실제 데이터는 API(/api/competitions)에서 로드. 아래는 nav 카운트/폴백용 샘플.
     rows: [
