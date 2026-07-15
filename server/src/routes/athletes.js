@@ -144,52 +144,29 @@ router.get('/records', async (req, res) => {
   }
 })
 
-// ── myranking(외부 사이트) 연동 ──
-// 스크래퍼(playwright+OCR)는 무거운 의존성이라, 없을 때 서버가 죽지 않도록 지연 로드한다.
-let _mrMod = null
-async function getMyRanking() {
-  if (_mrMod == null) {
-    _mrMod = await import('../myranking.js').catch((e) => {
-      console.error('myranking 모듈 로드 실패(폴백 사용):', e?.message || e)
-      return false   // 실패 캐시 → 재시도 안 함
-    })
-  }
-  return _mrMod && _mrMod.fetchMyRankingTimes ? _mrMod : null
-}
-
-const DISC_KO = { FR: '자유형', BA: '배영', BK: '배영', BR: '평영', FL: '접영', IM: '개인혼영' }
-const GENDER_KO = { men: '남자', women: '여자', mixed: '혼성' }
-// 시간 문자열 → 초 (비교/정렬용). "32.01" · "1:33.33" · "01:33.33"
-function timeToSec(t) {
-  const m = String(t || '').match(/^(?:(\d+):)?(\d{1,2})[.:](\d{1,2})$/)
+// ── myranking 기록 표기 헬퍼 (myTimes 는 myranking 원본 포맷 MMss.cc 로 저장됨) ──
+// "32.68"=32.68초 · "112.65"=1분 12.65초 · "1:12.65" 도 허용. (myranking.js recordToSeconds 와 동일 규칙 —
+//  playwright 를 끌어오지 않으려고 여기서 자체 구현)
+function myRecToSec(t) {
+  const s = String(t ?? '').trim()
+  let m = s.match(/^(\d+):(\d+)\.(\d+)$/)
+  if (m) return (+m[1]) * 60 + (+m[2]) + +('0.' + m[3])
+  m = s.match(/^(\d+)\.(\d+)$/)
   if (!m) return Infinity
-  const cs = (m[3] + '00').slice(0, 2)
-  return (m[1] ? +m[1] * 60 : 0) + (+m[2]) + (+cs) / 100
+  const intp = m[1], cc = m[2]
+  const ss = intp.length > 2 ? intp.slice(-2) : intp
+  const mm = intp.length > 2 ? intp.slice(0, -2) : '0'
+  return (+mm) * 60 + (+ss) + +('0.' + cc)
 }
-// 시간 문자열 → "MM:SS.SS" (대시보드 fmtRec 가 "32초 01" 로 표기)
-function normTime(t) {
-  const m = String(t || '').match(/^(?:(\d+):)?(\d{1,2})[.:](\d{1,2})$/)
-  if (!m) return String(t || '')
-  return `${(m[1] || '0').padStart(2, '0')}:${m[2].padStart(2, '0')}.${(m[3] + '00').slice(0, 2)}`
+// 초 → "MM:SS.SS" (대시보드 fmtRec 가 "32초 68" / "1분 12초 65" 로 표기)
+function secToClock(sec) {
+  if (!Number.isFinite(sec)) return ''
+  const mm = Math.floor(sec / 60)
+  const rest = sec - mm * 60
+  const ss = Math.floor(rest)
+  const cc = Math.round((rest - ss) * 100)
+  return `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}.${String(cc).padStart(2, '0')}`
 }
-
-// myranking 에서 time 조회. GET /api/athletes/myranking?q=문성중 남자 평영 50M&headless=true&timeout=120
-router.get('/myranking', async (req, res) => {
-  try {
-    const q = String(req.query.q || '').trim()
-    if (!q) return res.status(400).json({ error: '검색어(q)가 필요합니다.' })
-    const mr = await getMyRanking()
-    if (!mr) return res.status(503).json({ error: 'myranking 모듈을 사용할 수 없습니다. server 에서 playwright·tesseract.js·@tesseract.js-data/eng 설치 및 `npx playwright install chromium` 필요.' })
-    const headless = req.query.headless !== 'false'
-    const timeoutSec = Math.min(Math.max(Number(req.query.timeout) || 120, 5), 600)
-    const result = await mr.fetchMyRankingTimes(q, {
-      headless, reuseBrowser: true, securityVerificationTimeout: timeoutSec * 1000,
-    })
-    res.json(result)
-  } catch (e) {
-    res.status(502).json({ error: 'myranking 조회 실패: ' + (e?.message || String(e)) })
-  }
-})
 
 // myranking 이벤트 텍스트 파싱: "자유형 50m 결승" → { discipline:'FR', distance:'50M', round:'결승' }
 // round = 영법·거리를 제거한 나머지(결승·결선·예선·준결승 등 그대로).
@@ -258,31 +235,33 @@ router.get('/pb', async (req, res) => {
   const { name, gender, group, discipline, distance, course, source } = req.query
   if (!name || !discipline || !distance) return res.json(null)
 
-  // 1) myranking 우선
+  // 1) myranking 우선 — "my" 크롤로 저장된 SP.myTimes 에서 해당 종목 가장 빠른 기록.
+  //    (라이브 스크래핑 대신 저장 데이터를 읽으므로 빠르다. 없으면 아래 mergedTimes 폴백)
   if (source !== 'merged') {
     try {
-      const mr = await getMyRanking()
-      if (mr) {
-        const q = [name, GENDER_KO[gender], DISC_KO[discipline] || discipline, distance].filter(Boolean).join(' ')
-        const r = await mr.fetchMyRankingTimes(q, { headless: true, reuseBrowser: true, securityVerificationTimeout: 30_000 })
-        const best = (r.records || [])
-          .map((rec) => ({ rec, sec: timeToSec(rec.time) }))
-          .filter((x) => Number.isFinite(x.sec))
-          .sort((a, b) => a.sec - b.sec)[0]
-        if (best) {
-          return res.json({
-            source: 'myranking',
-            time: normTime(best.rec.time),
-            timeStamp: best.sec / 86400,   // mergedTimes 와 동일 단위(하루 분수)
-            competitionName: best.rec.competitionName || best.rec.competition || '',
-            datetime: best.rec.date || best.rec.competitionDate || '',
-            discipline: String(discipline), distance: String(distance), course: course ? String(course) : '',
-            rank: best.rec.rank || null, pb: !!best.rec.pb,
-          })
-        }
+      const q = { name: String(name), discipline: String(discipline), distance: String(distance) }
+      if (gender) q.gender = String(gender)
+      const docs = await (await SP()).collection('myTimes')
+        .find(q, { projection: { time: 1, competitionName: 1, date: 1, rank: 1, pb: 1, round: 1, ageGroup: 1 } })
+        .limit(500)
+        .toArray()
+      const best = docs
+        .map((d) => ({ d, sec: myRecToSec(d.time) }))
+        .filter((x) => Number.isFinite(x.sec))
+        .sort((a, b) => a.sec - b.sec)[0]
+      if (best) {
+        return res.json({
+          source: 'myranking',
+          time: secToClock(best.sec),          // "MM:SS.SS" → 대시보드가 "32초 68" 로 표기
+          timeStamp: best.sec / 86400,          // mergedTimes 와 동일 단위(하루 분수)
+          competitionName: best.d.competitionName || '',
+          datetime: best.d.date || '',
+          discipline: String(discipline), distance: String(distance), course: course ? String(course) : '',
+          rank: best.d.rank ?? null, pb: best.d.pb || '',
+        })
       }
     } catch (e) {
-      console.error('myranking PB 실패(mergedTimes 폴백):', e?.message || e)
+      console.error('myTimes PB 조회 실패(mergedTimes 폴백):', e?.message || e)
     }
   }
 
