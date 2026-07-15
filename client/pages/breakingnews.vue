@@ -74,7 +74,7 @@ const flag = computed(() => (isEN.value ? '[Breaking]' : '[속보]'))
 <template>
   <div class="breaking-page">
     <h1 class="page-title">
-      <strong>{{ t('이 시간 속보입니다.', 'Breaking news at this hour.') }}</strong>
+      <strong>{{ t('이 시간 속보입니다.', 'Breaking news at this hour. ') }}</strong>
       <span>{{ t(' 가장 빠른 소식을 한 줄로 전합니다. 자세한 내용은 추후 기사로 이어집니다.', 'The fastest updates, one line at a time. Full details follow in upcoming articles.') }}</span>
       <NuxtLink class="back-link" to="/">{{ t(' 전체 기사 보기', 'All articles') }}</NuxtLink>
     </h1>

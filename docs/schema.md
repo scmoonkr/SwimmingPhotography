@@ -46,10 +46,20 @@ DB name: SwimmingPhotography
           ja: { title: "", caption: "" }
         }
       }
-    ]
+    ],
+		youtube: [
+			{
+        url: "",
+        translations: {
+          ko: { title: "", caption: "" },
+          en: { title: "", caption: "" },
+          ja: { title: "", caption: "" }
+        }
+      }
+		]
   },
 
-tags:[
+	tags:[
     "competition.meet",
     "discipline.freestyle",
     "distance.100",

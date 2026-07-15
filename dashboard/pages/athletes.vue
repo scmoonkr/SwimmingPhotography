@@ -54,6 +54,7 @@ const columns: Column[] = [
   { key: 'ageGroup', label: 'ageGroup', cls: 'muted' },
   { key: 'team', label: '팀', cls: 'muted' },
   { key: 'count', label: '기록', cls: 'num', get: (r) => (r.times || []).length },
+  { key: 'myTimesCount', label: 'my', cls: 'num', get: (r) => r.myTimesCount ?? 0 },
 ]
 
 // ── 목록 ──
@@ -303,6 +304,43 @@ const saveArticle = async () => {
   }
 }
 
+// ── "my" — name·gender 로 myranking.co.kr 크롤링 → SP.myTimes upsert ──
+const myLoading = ref(false)
+const fetchMy = async () => {
+  const a = selected.value
+  if (!a) return
+  myLoading.value = true; notice.value = ''
+  try {
+    const r = await $fetch<any>(api('/my'), { method: 'POST', body: { name: a.name, gender: a.gender } })
+    notice.value = `my 저장 — 조회 ${r.matched}건 · 신규 ${r.upserted} · 갱신 ${r.modified}`
+  } catch (err: any) {
+    notice.value = 'my 실패: ' + (err?.data?.error || err?.message || '')
+  } finally {
+    myLoading.value = false
+  }
+}
+
+// ── 목록 전체 순차 myranking 조회 (선수명 + 성별) → myTimes upsert ──
+const myAllLoading = ref(false)
+const myAllProgress = ref('')
+const fetchMyAll = async () => {
+  // 이미 my기록(myTimesCount>0)이 있는 선수는 제외
+  const list = rows.value.filter((a) => !(a.myTimesCount > 0))
+  if (!list.length) { notice.value = 'my 조회 대상이 없습니다 (목록의 선수가 모두 이미 조회됨).'; return }
+  if (!confirm(`my기록이 없는 ${list.length}명을 순차적으로 myranking 조회합니다. 오래 걸릴 수 있습니다. 진행할까요?`)) return
+  myAllLoading.value = true
+  let ok = 0
+  for (let i = 0; i < list.length; i++) {
+    const a = list[i]
+    myAllProgress.value = `${i + 1}/${list.length} — ${a.name}`
+    try { await $fetch(api('/my'), { method: 'POST', body: { name: a.name, gender: a.gender } }); ok++ } catch {}
+  }
+  myAllLoading.value = false
+  myAllProgress.value = ''
+  notice.value = `my 일괄 조회 완료 — 성공 ${ok}/${list.length}명`
+  await load()
+}
+
 const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') open.value = false }
 onMounted(() => { loadCompetitions(); load() })
 </script>
@@ -331,10 +369,14 @@ onMounted(() => { loadCompetitions(); load() })
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
         선수추가
       </button>
+      <button class="btn btn-ghost" type="button" :disabled="myAllLoading" @click="fetchMyAll">
+        {{ myAllLoading ? 'my 조회 중…' : 'my' }}
+      </button>
     </div>
 
     <p v-if="errorMsg" class="load-error">{{ errorMsg }}</p>
-    <p v-if="notice" class="notice">{{ notice }}</p>
+    <p v-if="myAllLoading" class="notice">my 일괄 조회 중… {{ myAllProgress }}</p>
+    <p v-else-if="notice" class="notice">{{ notice }}</p>
     <p v-if="!loading" class="result-note">총 {{ rows.length }}명</p>
 
     <DataTable :columns="columns" :rows="rows" clickable hide-search hide-actions @row-click="openRow" />
@@ -393,6 +435,9 @@ onMounted(() => { loadCompetitions(); load() })
           </div>
         </div>
         <footer class="drawer-foot">
+          <button class="btn btn-ghost my-btn" type="button" :disabled="myLoading" @click="fetchMy">
+            {{ myLoading ? 'my 조회 중…' : 'my' }}
+          </button>
           <button class="btn btn-primary" type="button" :disabled="saving || !genJson.trim()" @click="saveArticle">
             {{ saving ? '저장 중…' : '저장' }}
           </button>
@@ -476,4 +521,5 @@ onMounted(() => { loadCompetitions(); load() })
 .gen-json { width: 100%; margin-top: 10px; font-family: var(--mono); font-size: 12px; line-height: 1.6; color: var(--ink); background: var(--paper-deep); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; resize: vertical; }
 .gen-json:focus { outline: none; border-color: var(--orange); background: var(--paper); }
 .drawer-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 22px; border-top: 1px solid var(--line); }
+.drawer-foot .my-btn { margin-right: auto; }
 </style>

@@ -81,7 +81,38 @@ router.post('/import', async (req, res) => {
       .filter((r) => (r.timeID != null) ? !exTidSet.has(r.timeID) : !exSidSet.has(String(r._id)))
       .map((r) => { const d = { ...r }; delete d._id; if (d.timeID == null) d._srcId = String(r._id); return d })
     if (toInsert.length) await c.insertMany(toInsert, { ordered: false })
-    res.json({ matched: rows.length, inserted: toInsert.length, skipped: rows.length - toInsert.length, competitionAdded })
+
+    // 선수 요약 재집계 → SP.athletes upsert
+    // 단체전(FRR·MR)·time 없거나 "" 제외, name+gender+group 별 time count
+    const summary = await c.aggregate([
+      { $match: { time: { $type: 'string', $ne: '' }, discipline: { $nin: ['FRR', 'MR'] } } },
+      {
+        $group: {
+          _id: { name: '$name', gender: '$gender', group: '$group' },
+          name: { $first: '$name' },
+          gender: { $first: '$gender' },
+          group: { $first: '$group' },
+          team: { $first: '$team' },
+          timeCount: { $sum: 1 },
+        },
+      },
+    ]).toArray()
+    let athletesUpserted = 0
+    if (summary.length) {
+      const now = new Date()
+      const athColl = (await SP()).collection('athletes')
+      const ops = summary.map((s) => ({
+        updateOne: {
+          filter: { name: s.name ?? '', gender: s.gender ?? '', group: s.group ?? '' },
+          update: { $set: { name: s.name ?? '', gender: s.gender ?? '', group: s.group ?? '', team: s.team ?? '', timeCount: s.timeCount, updatedAt: now } },
+          upsert: true,
+        },
+      }))
+      const rw = await athColl.bulkWrite(ops, { ordered: false })
+      athletesUpserted = (rw.upsertedCount || 0) + (rw.modifiedCount || 0)
+    }
+
+    res.json({ matched: rows.length, inserted: toInsert.length, skipped: rows.length - toInsert.length, competitionAdded, athletes: summary.length, athletesUpserted })
   } catch (e) {
     res.status(500).json({ error: e.message })
   }

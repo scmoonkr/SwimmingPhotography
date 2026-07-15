@@ -89,6 +89,20 @@ router.get('/', async (req, res) => {
       },
       { $sort: { name: 1 } },
       { $limit: Math.min(Number(limit) || 2000, 5000) },
+      // myTimes(myranking 크롤링 결과) 건수 조인 — 선수(name+gender) 기준
+      {
+        $lookup: {
+          from: 'myTimes',
+          let: { nm: '$name', gd: '$gender' },
+          pipeline: [
+            { $match: { $expr: { $and: [{ $eq: ['$name', '$$nm'] }, { $eq: ['$gender', '$$gd'] }] } } },
+            { $count: 'c' },
+          ],
+          as: '_myt',
+        },
+      },
+      { $addFields: { myTimesCount: { $ifNull: [{ $arrayElemAt: ['$_myt.c', 0] }, 0] } } },
+      { $project: { _myt: 0 } },
     ]).toArray()
     res.json(docs)
   } catch (e) {
@@ -174,6 +188,67 @@ router.get('/myranking', async (req, res) => {
     res.json(result)
   } catch (e) {
     res.status(502).json({ error: 'myranking 조회 실패: ' + (e?.message || String(e)) })
+  }
+})
+
+// myranking 이벤트 텍스트 파싱: "자유형 50m 결승" → { discipline:'FR', distance:'50M', round:'결승' }
+// round = 영법·거리를 제거한 나머지(결승·결선·예선·준결승 등 그대로).
+const STROKE_CODE = { 자유형: 'FR', 배영: 'BA', 평영: 'BR', 접영: 'FL', 개인혼영: 'IM' }
+function parseEvent(evText) {
+  const s = String(evText || '').trim()
+  let discipline = '', strokeKo = ''
+  for (const ko of Object.keys(STROKE_CODE)) { if (s.includes(ko)) { discipline = STROKE_CODE[ko]; strokeKo = ko; break } }
+  const dm = s.match(/(\d+)\s*m/i)
+  const distance = dm ? dm[1] + 'M' : ''           // 거리 M 은 대문자
+  let round = s
+  if (strokeKo) round = round.replace(strokeKo, '')
+  if (dm) round = round.replace(dm[0], '')
+  round = round.replace(/\s+/g, ' ').trim()
+  return { discipline, distance, round }
+}
+
+// "my" — name·gender 로 myranking.co.kr 을 크롤링해 개인 기록을 SP.myTimes 에 upsert.
+router.post('/my', async (req, res) => {
+  try {
+    const { name, gender } = req.body || {}
+    if (!name) return res.status(400).json({ error: '선수명(name)이 필요합니다.' })
+    const mr = await import('../myranking.js').catch((e) => {
+      console.error('myranking 모듈 로드 실패:', e?.message || e); return null
+    })
+    if (!mr || !mr.lookupPB) return res.status(503).json({ error: 'myranking 모듈을 사용할 수 없습니다(playwright 설치 필요).' })
+    // discipline·distance 미지정 → 해당 선수의 전체 기록. gender 로 성별 필터.
+    const result = await mr.lookupPB({ name: String(name), gender })
+    if (!result || !result.ok) {
+      return res.status(502).json({ error: (result && result.error) || 'myranking 조회 실패', records: (result && result.records) || [] })
+    }
+    const recs = result.records || []
+    if (!recs.length) return res.json({ matched: 0, upserted: 0, modified: 0 })
+    const c = (await SP()).collection('myTimes')
+    const now = new Date()
+    const ops = recs.map((r) => {
+      const { discipline, distance, round } = parseEvent(r.event || '')
+      const doc = {
+        name: String(name),
+        gender: gender || '',
+        ageGroup: r.ageGroup || '',
+        discipline, distance, round,          // "자유형 50m 결선" → FR / 50M / 결선
+        event: r.event || '',                 // 원본 이벤트 텍스트
+        time: r.record || '',
+        rank: (r.rank ?? null),               // 메달/순위 (금1·은2·동3·N위)
+        competitionName: r.competition || '',
+        competitionID: r.competitionID || '',
+        date: r.date || '',                   // 대회 일자
+        pb: r.pb || '',                       // PB 달성 일자(PB면)
+        updatedAt: now,
+      }
+      // 키: 선수·종목(영법·거리·라운드)·대회·기록으로 결과 1건 식별(동일하면 갱신)
+      const key = { name: doc.name, gender: doc.gender, ageGroup: doc.ageGroup, discipline, distance, round, competitionID: doc.competitionID, time: doc.time }
+      return { updateOne: { filter: key, update: { $set: doc }, upsert: true } }
+    })
+    const rw = await c.bulkWrite(ops, { ordered: false })
+    res.json({ matched: recs.length, upserted: rw.upsertedCount || 0, modified: rw.modifiedCount || 0 })
+  } catch (e) {
+    res.status(502).json({ error: 'my 조회 실패: ' + (e?.message || String(e)) })
   }
 })
 
