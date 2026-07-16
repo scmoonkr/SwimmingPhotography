@@ -43,7 +43,7 @@ const getRules = () => {
 router.get('/competitions', async (req, res) => {
   try {
     const docs = await (await SP()).collection('competitions')
-      .find({}, { projection: { competitionID: 1, competitionName: 1, datetime: 1, pool: 1, sido: 1 } })
+      .find({}, { projection: { competitionID: 1, competitionName: 1, datetime: 1, pool: 1, sido: 1, teamCount: 1, athleteCount: 1, startCount: 1, disciplines: 1, sketch: 1, poolSketch: 1 } })
       .sort({ competitionID: -1 })
       .limit(2000)
       .toArray()
@@ -58,8 +58,9 @@ router.get('/', async (req, res) => {
   try {
     const { competitionID, gender, name, group, limit = 2000 } = req.query
     const match = {
-      time: { $type: 'string', $ne: '' },   // 기록(time)이 없거나 ''인 것 제외
-      discipline: { $nin: ['FRR', 'MR'] },   // 단체전(계영 FRR·혼계영 MR) 제외
+      time: { $type: 'string', $ne: '' },     // 기록(time)이 없거나 ''인 것 제외
+      status: { $nin: ['DQ', 'DNS'] },         // 실격(DQ)·미출전(DNS) 제외
+      discipline: { $nin: ['FRR', 'MR'] },     // 단체전(계영 FRR·혼계영 MR) 제외
     }
     if (competitionID) match.competitionID = Number(competitionID)
     if (gender) match.gender = String(gender)
@@ -81,7 +82,7 @@ router.get('/', async (req, res) => {
             $push: {
               _id: '$_id',
               discipline: '$discipline', distance: '$distance', course: '$course',
-              time: '$time', rank: '$rank', round: '$round', timeStamp: '$timeStamp',
+              time: '$time', rank: '$rank', eventRank: '$eventRank', round: '$round', heat: '$heat', timeStamp: '$timeStamp',
               competitionName: '$competitionName', datetime: '$datetime', pool: '$pool',
             },
           },
@@ -115,7 +116,7 @@ router.get('/team-stats', async (req, res) => {
   try {
     const { team, competitionID } = req.query
     if (!team) return res.json({ athletes: 0, times: 0 })
-    const match = { team: String(team) }
+    const match = { team: String(team), time: { $type: 'string', $ne: '' }, status: { $nin: ['DQ', 'DNS'] } }
     if (competitionID) match.competitionID = Number(competitionID)
     const rows = await (await coll()).aggregate([
       { $match: match },
@@ -123,6 +124,103 @@ router.get('/team-stats', async (req, res) => {
       { $project: { _id: 0, times: 1, athletes: { $size: '$names' } } },
     ]).toArray()
     res.json(rows[0] || { athletes: 0, times: 0 })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// 대회의 특정 팀 상세 — 소속팀 성적을 SP.times 에서 집계.
+//  total : 팀 전체 합계(대회 내). events : name 지정 시 그 선수가 출전한 종목만.
+//   - coarse 행: (성별·영법·거리)           예) 남자 평영 50M
+//   - fine   행: (성별·영법·거리·부·라운드)  예) 남자 평영 50M 성인6부 결승
+// DQ/DNS·빈 time 제외.
+router.get('/competition-teams', async (req, res) => {
+  try {
+    const { competitionID, team, name } = req.query
+    if (!competitionID || !team) return res.json({ total: null, events: [] })
+    const cid = Number(competitionID)
+    const t = await coll()
+    const base = { competitionID: cid, team: String(team), time: { $type: 'string', $ne: '' }, status: { $nin: ['DQ', 'DNS'] } }
+    const medal = { // 메달은 heat 순위(rank)가 아니라 종목순위(eventRank) 기준
+      goldCount: { $sum: { $cond: [{ $eq: ['$eventRank', 1] }, 1, 0] } },
+      silverCount: { $sum: { $cond: [{ $eq: ['$eventRank', 2] }, 1, 0] } },
+      bronzeCount: { $sum: { $cond: [{ $eq: ['$eventRank', 3] }, 1, 0] } },
+    }
+    const runAgg = (idFields) => t.aggregate([
+      { $match: base },
+      { $group: { _id: idFields, names: { $addToSet: '$name' }, startCount: { $sum: 1 }, ...medal } },
+    ]).toArray()
+
+    // 팀 전체 합계
+    const [tot] = await t.aggregate([
+      { $match: base },
+      { $group: { _id: null, names: { $addToSet: '$name' }, startCount: { $sum: 1 }, ...medal } },
+    ]).toArray()
+    const total = tot
+      ? { athleteCount: tot.names.length, startCount: tot.startCount, goldCount: tot.goldCount, silverCount: tot.silverCount, bronzeCount: tot.bronzeCount }
+      : { athleteCount: 0, startCount: 0, goldCount: 0, silverCount: 0, bronzeCount: 0 }
+
+    // 선수 출전 종목 키 (name 지정 시)
+    //  events : (성별·영법·거리)         → 선수 출전 종목
+    //  heats  : (성별·영법·거리·부)      → 선수 출전 종목 & 같은 부(ageGroup)만
+    let coarseKeys = null, ageKeys = null
+    if (name) {
+      const mine = await t.find(
+        { competitionID: cid, name: String(name), time: { $type: 'string', $ne: '' }, status: { $nin: ['DQ', 'DNS'] } },
+        { projection: { gender: 1, discipline: 1, distance: 1, ageGroup: 1 } },
+      ).toArray()
+      coarseKeys = new Set(mine.map((m) => `${m.gender}|${m.discipline}|${m.distance}`))
+      ageKeys = new Set(mine.map((m) => `${m.gender}|${m.discipline}|${m.distance}|${m.ageGroup || ''}`))
+    }
+    const inEvent = (r) => !coarseKeys || coarseKeys.has(`${r._id.gender}|${r._id.discipline}|${r._id.distance}`)
+    const inAge = (r) => !ageKeys || ageKeys.has(`${r._id.gender}|${r._id.discipline}|${r._id.distance}|${r._id.ageGroup || ''}`)
+
+    const coarse = await runAgg({ gender: '$gender', discipline: '$discipline', distance: '$distance' })
+    const fine = await runAgg({ gender: '$gender', discipline: '$discipline', distance: '$distance', ageGroup: '$ageGroup', round: '$round', heat: '$heat' })
+    const row = (r, detail) => ({
+      gender: r._id.gender, discipline: r._id.discipline, distance: r._id.distance,
+      ...(detail ? { ageGroup: r._id.ageGroup || '', round: r._id.round || '', heat: r._id.heat || '' } : {}),
+      athleteCount: r.names.length, startCount: r.startCount,
+      goldCount: r.goldCount, silverCount: r.silverCount, bronzeCount: r.bronzeCount,
+    })
+    const evtCmp = (a, b) => String(a.gender).localeCompare(String(b.gender)) || String(a.discipline).localeCompare(String(b.discipline)) || String(a.distance).localeCompare(String(b.distance))
+    const events = coarse.filter(inEvent).map((r) => row(r, false)).sort(evtCmp)
+    const heats = fine.filter(inAge).map((r) => row(r, true))
+      .sort((a, b) => evtCmp(a, b) || String(a.heat).localeCompare(String(b.heat)))
+
+    res.json({ total, events, heats })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// 드로어 저장분 조회 — SP.athletes(name+gender+group)의 json(소스)·llm(생성기사)·note
+router.get('/saved', async (req, res) => {
+  try {
+    const { name, gender, group } = req.query
+    if (!name) return res.json(null)
+    const doc = await (await SP()).collection('athletes').findOne(
+      { name: String(name), gender: String(gender || ''), group: String(group || '') },
+      { projection: { json: 1, llm: 1, note: 1, savedAt: 1 } },
+    )
+    res.json(doc || null)
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// 드로어 저장 — json(소스 payload)+llm(생성 기사 JSON)+note 를 SP.athletes 에 upsert(name+gender+group)
+router.post('/save', async (req, res) => {
+  try {
+    const { name, gender, group, json, llm, note } = req.body || {}
+    if (!name) return res.status(400).json({ error: '선수명(name)이 필요합니다.' })
+    const key = { name: String(name), gender: String(gender || ''), group: String(group || '') }
+    const r = await (await SP()).collection('athletes').updateOne(
+      key,
+      { $set: { ...key, json: json ?? null, llm: llm ?? '', note: note ?? '', savedAt: new Date() } },
+      { upsert: true },
+    )
+    res.json({ ok: true, upserted: !!r.upsertedCount, modified: r.modifiedCount })
   } catch (e) {
     res.status(500).json({ error: e.message })
   }
@@ -174,7 +272,11 @@ const STROKE_CODE = { 자유형: 'FR', 배영: 'BA', 평영: 'BR', 접영: 'FL',
 function parseEvent(evText) {
   const s = String(evText || '').trim()
   let discipline = '', strokeKo = ''
-  for (const ko of Object.keys(STROKE_CODE)) { if (s.includes(ko)) { discipline = STROKE_CODE[ko]; strokeKo = ko; break } }
+  // 핀수영(핀자유형·잠영 등)은 일반 수영 영법이 아니므로 매핑 제외.
+  // ("핀자유형"에 "자유형"이 포함돼 FR 로 오분류 → 잘못된 PB(핀수영 기록)가 잡히던 문제)
+  if (!/핀|잠영/.test(s)) {
+    for (const ko of Object.keys(STROKE_CODE)) { if (s.includes(ko)) { discipline = STROKE_CODE[ko]; strokeKo = ko; break } }
+  }
   const dm = s.match(/(\d+)\s*m/i)
   const distance = dm ? dm[1] + 'M' : ''           // 거리 M 은 대문자
   let round = s
@@ -239,7 +341,7 @@ router.get('/pb', async (req, res) => {
   //    (라이브 스크래핑 대신 저장 데이터를 읽으므로 빠르다. 없으면 아래 mergedTimes 폴백)
   if (source !== 'merged') {
     try {
-      const q = { name: String(name), discipline: String(discipline), distance: String(distance) }
+      const q = { name: String(name), discipline: String(discipline), distance: String(distance), event: { $not: /핀|잠영/ } }
       if (gender) q.gender = String(gender)
       const docs = await (await SP()).collection('myTimes')
         .find(q, { projection: { time: 1, competitionName: 1, date: 1, rank: 1, pb: 1, round: 1, ageGroup: 1 } })

@@ -82,10 +82,39 @@ router.post('/import', async (req, res) => {
       .map((r) => { const d = { ...r }; delete d._id; if (d.timeID == null) d._srcId = String(r._id); return d })
     if (toInsert.length) await c.insertMany(toInsert, { ordered: false })
 
+    // eventRank — 종목(부) 단위 순위. rank 는 heat 별 순위라,
+    // 같은 (성별·부·영법·거리·라운드) 안에서 timeStamp 오름차순으로 다시 매긴다.
+    // round 가 있으면 각 라운드별로 매겨져 결승 기록엔 '결승 기준' 순위가 부여된다.
+    // DQ/DNS·빈 time 은 순위 제외. 동타임은 같은 순위(1224 방식).
+    let eventRanked = 0
+    if (cid != null) {
+      const groups = await c.aggregate([
+        { $match: { competitionID: cid, time: { $type: 'string', $ne: '' }, status: { $nin: ['DQ', 'DNS'] }, timeStamp: { $type: 'number' } } },
+        { $sort: { timeStamp: 1 } },
+        {
+          $group: {
+            _id: { gender: '$gender', ageGroup: '$ageGroup', discipline: '$discipline', distance: '$distance', round: '$round' },
+            docs: { $push: { id: '$_id', ts: '$timeStamp' } },
+          },
+        },
+      ]).toArray()
+      const rankOps = []
+      for (const g of groups) {
+        let rank = 0, seen = 0, prevTs = null
+        for (const d of g.docs) {
+          seen++
+          if (prevTs === null || d.ts !== prevTs) rank = seen // 동타임이면 같은 순위, 다르면 현재 위치
+          prevTs = d.ts
+          rankOps.push({ updateOne: { filter: { _id: d.id }, update: { $set: { eventRank: rank } } } })
+        }
+      }
+      if (rankOps.length) { const rr = await c.bulkWrite(rankOps, { ordered: false }); eventRanked = rr.modifiedCount + rr.upsertedCount }
+    }
+
     // 선수 요약 재집계 → SP.athletes upsert
     // 단체전(FRR·MR)·time 없거나 "" 제외, name+gender+group 별 time count
     const summary = await c.aggregate([
-      { $match: { time: { $type: 'string', $ne: '' }, discipline: { $nin: ['FRR', 'MR'] } } },
+      { $match: { time: { $type: 'string', $ne: '' }, status: { $nin: ['DQ', 'DNS'] }, discipline: { $nin: ['FRR', 'MR'] } } },
       {
         $group: {
           _id: { name: '$name', gender: '$gender', group: '$group' },
@@ -118,12 +147,19 @@ router.post('/import', async (req, res) => {
     if (cid != null) {
       const IND = { discipline: { $nin: ['FRR', 'MR'] } } // 단체전(계영) 제외
       const [agg] = await c.aggregate([
-        { $match: { competitionID: cid, time: { $type: 'string', $ne: '' } } },
+        { $match: { competitionID: cid, time: { $type: 'string', $ne: '' }, status: { $nin: ['DQ', 'DNS'] } } },
         {
           $facet: {
             teams: [{ $match: { team: { $type: 'string', $ne: '' } } }, { $group: { _id: '$team' } }, { $count: 'n' }],
             athletes: [{ $match: IND }, { $group: { _id: { name: '$name', gender: '$gender' } } }, { $count: 'n' }],
             starts: [{ $match: IND }, { $count: 'n' }],
+            // 종목별 time count — [{ discipline, count }] (계영 포함, count 내림차순)
+            disciplines: [
+              { $match: { discipline: { $type: 'string', $ne: '' } } },
+              { $group: { _id: '$discipline', count: { $sum: 1 } } },
+              { $sort: { count: -1 } },
+              { $project: { _id: 0, discipline: '$_id', count: 1 } },
+            ],
           },
         },
         {
@@ -131,19 +167,44 @@ router.post('/import', async (req, res) => {
             teamCount: { $ifNull: [{ $arrayElemAt: ['$teams.n', 0] }, 0] },
             athleteCount: { $ifNull: [{ $arrayElemAt: ['$athletes.n', 0] }, 0] },
             startCount: { $ifNull: [{ $arrayElemAt: ['$starts.n', 0] }, 0] },
+            disciplines: '$disciplines',
           },
         },
       ]).toArray()
+      // 팀 × (성별·영법·거리) 상세 — [{ team, gender, discipline, distance, athleteCount, startCount, goldCount, silverCount, bronzeCount }]
+      const teamRows = await c.aggregate([
+        { $match: { competitionID: cid, time: { $type: 'string', $ne: '' }, status: { $nin: ['DQ', 'DNS'] }, team: { $type: 'string', $ne: '' } } },
+        {
+          $group: {
+            _id: { team: '$team', gender: '$gender', discipline: '$discipline', distance: '$distance' },
+            names: { $addToSet: '$name' },
+            startCount: { $sum: 1 },
+            goldCount: { $sum: { $cond: [{ $eq: ['$rank', 1] }, 1, 0] } },
+            silverCount: { $sum: { $cond: [{ $eq: ['$rank', 2] }, 1, 0] } },
+            bronzeCount: { $sum: { $cond: [{ $eq: ['$rank', 3] }, 1, 0] } },
+          },
+        },
+        {
+          $project: {
+            _id: 0,
+            team: '$_id.team', gender: '$_id.gender', discipline: '$_id.discipline', distance: '$_id.distance',
+            athleteCount: { $size: '$names' },
+            startCount: 1, goldCount: 1, silverCount: 1, bronzeCount: 1,
+          },
+        },
+        { $sort: { team: 1, gender: 1, discipline: 1, distance: 1 } },
+      ]).toArray()
+
       if (agg) {
-        stats = agg
+        stats = { ...agg, teamRows: teamRows.length }
         await (await SP()).collection('competitions').updateOne(
           { competitionID: cid },
-          { $set: { ...agg, statsUpdatedAt: new Date() } },
+          { $set: { ...agg, teams: teamRows, statsUpdatedAt: new Date() } },
         )
       }
     }
 
-    res.json({ matched: rows.length, inserted: toInsert.length, skipped: rows.length - toInsert.length, competitionAdded, athletes: summary.length, athletesUpserted, stats })
+    res.json({ matched: rows.length, inserted: toInsert.length, skipped: rows.length - toInsert.length, competitionAdded, eventRanked, athletes: summary.length, athletesUpserted, stats })
   } catch (e) {
     res.status(500).json({ error: e.message })
   }

@@ -8,6 +8,7 @@ const props = defineProps<{
   title?: string
   fields: Field[]
   row: Record<string, any> | null
+  width?: string   // 드로어 폭 (기본 min(460px, 92vw))
 }>()
 const emit = defineEmits<{ (e: 'close'): void; (e: 'save', v: Record<string, any>): void; (e: 'delete'): void }>()
 
@@ -29,13 +30,14 @@ const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') emit('close') }
 <template>
   <div class="drawer-root" :class="{ open }" @keydown="onKey">
     <div class="drawer-ov" @click="emit('close')" />
-    <aside class="drawer" role="dialog" aria-modal="true" :aria-label="title || '편집'">
+    <aside class="drawer" role="dialog" aria-modal="true" :aria-label="title || '편집'" :style="width ? { width } : undefined">
       <header class="drawer-head">
         <h2>{{ title || '편집' }}</h2>
         <button class="drawer-x" aria-label="닫기" @click="emit('close')">×</button>
       </header>
 
       <div class="drawer-body">
+        <slot name="body-top" />
         <label v-for="f in fields" :key="f.key" class="field" :class="{ half: f.half }">
           <span class="field-label">{{ f.label }}</span>
           <select v-if="f.type === 'select'" v-model="form[f.key]" class="field-input">

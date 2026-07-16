@@ -8,6 +8,14 @@ const e = useEntity('competitions')
 const api = (p = '') => `${useRuntimeConfig().public.apiBase}/api/competitions${p}`
 const timesApi = (p = '') => `${useRuntimeConfig().public.apiBase}/api/times${p}`
 
+// 종목 코드 → 한글
+const DISCIPLINE_LABEL: Record<string, string> = {
+  FR: '자유형', BA: '배영', BR: '평영', FL: '접영', IM: '개인혼영', FRR: '계영', MR: '혼계영',
+}
+const discLabel = (v: string) => DISCIPLINE_LABEL[v] || v || ''
+// disciplines [{discipline,count}] → "자유형 120 · 배영 80"
+const fmtDisciplines = (d: any) => Array.isArray(d) ? d.map((x) => `${discLabel(x.discipline)} ${x.count}`).join(' · ') : (d ?? '')
+
 // ── 이 대회 기록 가져오기 (mergedTimes → SP.times upsert) ──
 const importing = ref(false)
 const importMsg = ref('')
@@ -110,12 +118,14 @@ const fields: Field[] = [
   { key: 'competitionID', label: '대회 ID (원본 competitionID)', type: 'text', half: true, get: (r) => r.competitionID ?? '', set: (r, v) => { r.competitionID = (v === '' || v == null) ? null : Number(v) } },
   { key: 'datetime', label: '일자 (YYYY-MM-DD)', type: 'text', half: true, get: (r) => r.datetime ?? '', set: (r, v) => { r.datetime = v } },
   { key: 'competitionName', label: '대회명', type: 'text', get: (r) => r.competitionName ?? '', set: (r, v) => { r.competitionName = v } },
+  // 종목별 time count — 기록가져오기로 계산되는 읽기전용 값(폼 저장 시 배열 원본 보존)
+  { key: 'disciplines', label: '종목 (종목별 기록수)', type: 'text', half: false, get: (r) => fmtDisciplines(r.disciplines), set: () => {} },
   { key: 'sido', label: '시도', type: 'select', options: SIDO_LIST, half: true, get: (r) => r.sido ?? '', set: (r, v) => { r.sido = v } },
   { key: 'pool', label: '수영장', type: 'text', half: true, get: (r) => r.pool ?? '', set: (r, v) => { r.pool = v } },
   { key: 'course', label: 'Course', type: 'select', options: ['LCM', 'SCM'], half: true, get: (r) => r.course ?? 'LCM', set: (r, v) => { r.course = v } },
   { key: 'isMasters', label: '구분', type: 'select', options: ['일반', '마스터즈'], half: true, get: (r) => (r.isMasters ? '마스터즈' : '일반'), set: (r, v) => { r.isMasters = v === '마스터즈' } },
-  { key: 'sketch', label: '대회 스케치', type: 'textarea', rows: 5, get: (r) => r.sketch ?? '', set: (r, v) => { r.sketch = v } },
-  { key: 'poolSketch', label: '수영장 스케치', type: 'textarea', rows: 5, get: (r) => r.poolSketch ?? '', set: (r, v) => { r.poolSketch = v } },
+  { key: 'sketch', label: '대회 스케치', type: 'textarea', rows: 6, get: (r) => r.sketch ?? '', set: (r, v) => { r.sketch = v } },
+  { key: 'poolSketch', label: '수영장 스케치', type: 'textarea', rows: 4, get: (r) => r.poolSketch ?? '', set: (r, v) => { r.poolSketch = v } },
 ]
 
 const openRow = (r: Record<string, any>) => { isNew.value = false; selected.value = r; open.value = true; importMsg.value = '' }
@@ -188,9 +198,16 @@ const onDrawerDelete = async () => {
 
     <DetailDrawer
       :open="open" :title="isNew ? '대회 추가' : '대회 상세 · 편집'"
-      :fields="fields" :row="selected"
+      :fields="fields" :row="selected" width="min(598px, 94vw)"
       @close="open = false" @save="onSave" @delete="onDrawerDelete"
     >
+      <template v-if="!isNew" #body-top>
+        <div class="comp-stats">
+          <div class="stat"><span class="stat-n">{{ selected?.teamCount ?? '—' }}</span><span class="stat-l">팀</span></div>
+          <div class="stat"><span class="stat-n">{{ selected?.athleteCount ?? '—' }}</span><span class="stat-l">선수</span></div>
+          <div class="stat"><span class="stat-n">{{ selected?.startCount ?? '—' }}</span><span class="stat-l">start</span></div>
+        </div>
+      </template>
       <template #foot-actions>
         <button
           v-if="!isNew && selected?.competitionID != null && selected?.competitionID !== ''"
@@ -229,4 +246,12 @@ const onDrawerDelete = async () => {
   background: var(--bad-bg); color: var(--bad); font-size: 13px;
 }
 .imp-msg { font-size: 12px; color: var(--ink-mute); line-height: 1.4; flex-basis: 100%; }
+/* 드로어 상단 참가규모 (팀·선수·start) — grid 2열을 가득 채움 */
+.comp-stats { grid-column: span 2; display: flex; gap: 2px; }
+.comp-stats .stat {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 3px 2cqmin; background: var(--paper-deep); border-radius: 8px;
+}
+.comp-stats .stat-n { font-size: 20px; font-weight: 800; color: var(--ink); font-variant-numeric: tabular-nums; }
+.comp-stats .stat-l { font-size: 11.5px; font-weight: 700; color: var(--ink-mute); }
 </style>

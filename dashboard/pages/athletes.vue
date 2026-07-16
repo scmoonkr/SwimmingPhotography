@@ -2,7 +2,6 @@
 // 선수(Athletes) — SP.times 를 선수별로 그룹핑한 뷰.
 // 필터: 대회선택·성별·선수명. row 클릭 → 상세 드로어(선수 정보 + times[종목·기록·순위]). 선수추가(수동).
 import { computed, onMounted, ref, watch } from 'vue'
-import { slugify } from '~/composables/useMock'
 import type { Column, Field } from '~/composables/useMock'
 
 const api = (p = '') => `${useRuntimeConfig().public.apiBase}/api/athletes${p}`
@@ -89,14 +88,24 @@ watch([competitionID, gender, group], load)
 const selected = ref<any | null>(null)
 const open = ref(false)
 const teamStats = ref<{ athletes: number; times: number } | null>(null)
+const teamData = ref<any>(null) // 소속팀 성적 { total, events }(선수 출전종목 coarse/fine)
 const recordsByEvent = ref<Record<string, any[]>>({})
 const pbByEvent = ref<Record<string, any>>({})
 
 const openRow = async (r: any) => {
   selected.value = r; open.value = true
-  teamStats.value = null; recordsByEvent.value = {}; pbByEvent.value = {}; activeTab.value = 0; genJson.value = ''
+  teamStats.value = null; teamData.value = null; recordsByEvent.value = {}; pbByEvent.value = {}; activeTab.value = 0; genJson.value = ''; note.value = ''
+  // 저장분(SP.athletes) 있으면 llm(생성기사)·note 표시
+  try {
+    const saved = await $fetch<any>(api('/saved'), { params: { name: r.name, gender: r.gender, group: r.group } })
+    if (saved) { genJson.value = saved.llm || ''; note.value = saved.note || '' }
+  } catch {}
   if (r.team) {
     try { teamStats.value = await $fetch(api('/team-stats'), { params: { team: r.team, competitionID: competitionID.value || undefined } }) } catch {}
+    // 소속팀의 대회 성적 — 팀 합계 + 선수 출전종목(coarse/fine). payload 포함용
+    if (competitionID.value) {
+      try { teamData.value = await $fetch<any>(api('/competition-teams'), { params: { competitionID: competitionID.value, team: r.team, name: r.name } }) } catch {}
+    }
   }
   // 종목(영법·거리·코스)별로 기록·PB 1회씩 조회
   const seen: Record<string, any> = {}
@@ -119,12 +128,19 @@ const activeTab = ref(0)
 const ROUND_KO: Record<string, string> = { preliminaries: '예선', finals: '결선', semiFinals: '준결선' }
 // 라운드가 있으면 "자유형 50M 예선"처럼 표기
 const tabLabel = (t: any) => [disc(t.discipline), t.distance, ROUND_KO[t.round]].filter(Boolean).join(' ')
-const detailInfo = () => {
+// 상세 정보 2열 행: [성별|그룹] · [부|시도] · [heat|round] (heat/round 는 활성 기록 탭 기준)
+const infoRows = computed<[string, any][][]>(() => {
   const r = selected.value
   if (!r) return []
-  return [['성별', genderLabel(r.gender)], ['group', r.group], ['부(ageGroup)', r.ageGroup], ['시도', r.sido]]
-    .filter(([, v]) => v !== undefined && v !== null && v !== '')
-}
+  const t: any = timeTabs.value[activeTab.value] || {}
+  return [
+    [['성별', genderLabel(r.gender)], ['그룹', r.group]],
+    [['부', r.ageGroup], ['시도', r.sido]],
+    [['heat', t.heat], ['round', ROUND_KO[t.round] || t.round]],
+  ]
+})
+// disciplines [{discipline,count}] → "자유형 539 · 평영 367 …"
+const fmtDisciplines = (d: any) => Array.isArray(d) ? d.map((x) => `${disc(x.discipline)} ${x.count}`).join(' · ') : ''
 // 기록 비교표(구분·기록·차이·비고) — time 하나 기준
 const isNation = (s: any) => /^[A-Z]{2,3}$/.test(String(s || ''))
 const recNote = (r: any) => (r ? `${r.name || ''}${isNation(r.team) ? ` (${r.team})` : ''} · ${String(r.datetime || '').slice(0, 4)}` : '')
@@ -144,7 +160,7 @@ const compRows = (t: any) => {
     ? { label: 'PB', time: fmtRec(pb.time), diff: fmtDiff(t.timeStamp, pb.timeStamp), note: `${pb.competitionName || ''}${pb.datetime ? ` (${String(pb.datetime).slice(0, 4)})` : ''}` }
     : null
   return [
-    { label: '이번 대회', time: fmtRec(t.time), diff: isPB ? 'PB' : '', note: `${selected.value?.name || ''}${selected.value?.ageGroup ? ' · ' + selected.value.ageGroup : ''}${t.rank != null ? ' ' + t.rank + '위' : ''}` },
+    { label: '이번 대회', time: fmtRec(t.time), diff: isPB ? 'PB' : '', note: `${selected.value?.name || ''}${selected.value?.ageGroup ? ' · ' + selected.value.ageGroup : ''}${(t.eventRank ?? t.rank) != null ? ' ' + (t.eventRank ?? t.rank) + '위' : ''}` },
     ...(pbRow ? [pbRow] : []),
     row('세계기록', pick('WR', g)),
     row('올림픽기록', pick('OR', g)),
@@ -197,28 +213,59 @@ const onAddSave = async (form: Record<string, any>) => {
 // ── 기사 LLM 생성 ──
 const genLoading = ref(false)
 const genJson = ref('')
+const note = ref('') // LLM 참고 메모 (payload 에 포함)
 // 드로어에 표시된 내용(선수·팀통계·종목별 기록 비교)을 그대로 JSON payload 로 구성 (LLM 입력)
 const buildPayload = () => {
   const a = selected.value
   if (!a) return null
   const events = timeTabs.value.map((t) => ({
-    event: `${disc(t.discipline)} ${t.distance || ''} ${t.course || ''}`.trim(),
+    discipline: disc(t.discipline),
+    distance: t.distance || '',
+    course: t.course || '',
     time: fmtRec(t.time),
-    rank: t.rank,
+    rank: t.eventRank ?? t.rank,   // 종목순위(eventRank) 우선, 없으면 heat 순위
     records: compRows(t)
       .filter((cr) => cr.label !== '이번 대회')
       .map((cr) => ({ category: cr.label, time: cr.time, diff: cr.diff, holder: cr.note })),
   }))
-  // 대회명·일자·수영장은 필터에서 "선택한 대회" 기준. 미선택(전체)이면 선수 기록에서 폴백.
+  // 대회 정보는 필터에서 "선택한 대회" 기준. (competitionInfo·poolInfo 에 담음)
   const c = selectedComp.value
-  const t0 = (a.times || [])[0] || {}
   return {
     athlete: { name: a.name, gender: genderLabel(a.gender), group: a.group, ageGroup: a.ageGroup, team: a.team, sido: a.sido },
-    teamStats: teamStats.value,
-    competitionName: c?.competitionName || t0.competitionName || '',
-    competitionDate: c?.datetime || t0.datetime || '',
-    venue: c?.pool || t0.pool || '',
+    note: note.value || '',
     events,
+    competitionInfo: c ? {
+      competitionName: c.competitionName || '',
+      sido: c.sido || '',
+      date: c.datetime || '',
+      sketch: c.sketch || '',
+      teamCount: c.teamCount ?? null,
+      athleteCount: c.athleteCount ?? null,
+      startCount: c.startCount ?? null,
+      disciplines: c.disciplines || [],
+    } : null,
+    poolInfo: c ? { pool: c.pool || '', poolSketch: c.poolSketch || '' } : null,
+    // 소속팀의 이 대회 성적 — 팀 합계 + 선수가 출전한 종목(coarse: 성별·영법·거리, fine: +부·라운드)
+    teamInfo: teamData.value?.total ? {
+      team: a.team,
+      athleteCount: teamData.value.total.athleteCount,
+      startCount: teamData.value.total.startCount,
+      goldCount: teamData.value.total.goldCount,
+      silverCount: teamData.value.total.silverCount,
+      bronzeCount: teamData.value.total.bronzeCount,
+      events: (teamData.value.events || []).map((t: any) => ({
+        gender: genderLabel(t.gender), discipline: disc(t.discipline), distance: t.distance,
+        athleteCount: t.athleteCount, startCount: t.startCount,
+        goldCount: t.goldCount, silverCount: t.silverCount, bronzeCount: t.bronzeCount,
+      })),
+      // 선수 종목 & 같은 부(ageGroup)의 heat별
+      heats: (teamData.value.heats || []).map((t: any) => ({
+        gender: genderLabel(t.gender), discipline: disc(t.discipline), distance: t.distance,
+        ageGroup: t.ageGroup, round: t.round || '', heat: t.heat || '',
+        athleteCount: t.athleteCount, startCount: t.startCount,
+        goldCount: t.goldCount, silverCount: t.silverCount, bronzeCount: t.bronzeCount,
+      })),
+    } : null,
   }
 }
 const generateArticle = async () => {
@@ -270,38 +317,18 @@ const copyPayload = async () => {
   }
 }
 
-// ── 생성된 기사 JSON 을 SP.articles 에 저장(초안) ──
+// ── 드로어 저장 — json(소스 payload)+llm(생성 기사)+note 를 SP.athletes 에 upsert ──
 const saving = ref(false)
-const saveArticle = async () => {
+const saveAthlete = async () => {
   const a = selected.value
   if (!a) return
-  let parsed: any
-  try { parsed = JSON.parse(genJson.value) } catch { alert('JSON 형식이 올바르지 않습니다. 기사LLM생성 후 내용을 확인하세요.'); return }
-  const title = String(parsed.title || '').trim()
-  if (!title) { alert('제목(title)이 없습니다.'); return }
-  const ev0 = (a.times || [])[0] || {}
-  const blocks = Array.isArray(parsed.blocks) ? parsed.blocks : []
-  const tags = Array.isArray(parsed.tags) ? parsed.tags.filter(Boolean) : []
-  const doc = {
-    slug: slugify(title),
-    type: 'article', status: 'draft', langDefault: 'ko', sourceType: 'ai_generated',
-    reporter: { name: '편집부', nameEng: 'Editorial Team', email: 'press@medalbank.com' },
-    searchCategories: ['경기'], searchTags: tags,
-    translations: {
-      ko: {
-        title, subtitle: parsed.subtitle || '', excerpt: String(parsed.lead || '').slice(0, 60),
-        content: { lead: parsed.lead || '', blocks, conclusion: parsed.conclusion || '' },
-        categories: ['경기'], tags, seoTitle: title, seoDescription: String(parsed.lead || '').slice(0, 80),
-      },
-    },
-    payload: { data: { athlete: a.name, competition: ev0.competitionName || '', region: a.sido || '', gender: a.gender || '', ageGroup: a.ageGroup || '' } },
-    publishedAt: '',
-  }
   saving.value = true
   try {
-    await $fetch(`${useRuntimeConfig().public.apiBase}/api/articles`, { method: 'POST', body: doc })
-    notice.value = `기사 저장됨(초안) — "${title}"`
-    open.value = false
+    await $fetch(api('/save'), {
+      method: 'POST',
+      body: { name: a.name, gender: a.gender, group: a.group, json: buildPayload(), llm: genJson.value, note: note.value },
+    })
+    notice.value = `저장됨 — ${a.name}`
   } catch (err: any) {
     alert('저장 실패: ' + (err?.data?.error || err?.message || ''))
   } finally {
@@ -347,7 +374,13 @@ const fetchMyAll = async () => {
 }
 
 const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') open.value = false }
-onMounted(() => { loadCompetitions(); load() })
+onMounted(async () => {
+  await loadCompetitions()
+  // 전체를 조회하지 않고 대회 select 의 첫 대회를 선택 → 해당 대회 기록만 조회
+  // (competitionID 변경 시 watch 가 load 를 호출)
+  if (competitions.value.length) competitionID.value = competitions.value[0].competitionID
+  else await load()
+})
 </script>
 
 <template>
@@ -395,12 +428,33 @@ onMounted(() => { loadCompetitions(); load() })
           <button class="drawer-x" aria-label="닫기" @click="open = false">×</button>
         </header>
         <div class="drawer-body">
-          <div v-for="d in detailInfo()" :key="d[0]" class="detail-row">
-            <span class="detail-k">{{ d[0] }}</span><span class="detail-v">{{ d[1] }}</span>
+          <div v-for="(row, ri) in infoRows" :key="ri" class="info-duo">
+            <div v-for="(cell, ci) in row" :key="ci" class="detail-cell">
+              <span class="detail-k">{{ cell[0] }}</span><span class="detail-v">{{ (cell[1] ?? '') === '' ? '-' : cell[1] }}</span>
+            </div>
           </div>
-          <div class="detail-row">
-            <span class="detail-k">팀</span>
-            <span class="detail-v">{{ selected?.team || '-' }}<span v-if="teamStats" class="team-stat"> (선수 {{ teamStats.athletes }} · 기록 {{ teamStats.times }})</span></span>
+          <div class="info-duo">
+            <div class="detail-cell">
+              <span class="detail-k">팀</span>
+              <span class="detail-v team-v">{{ selected?.team || '-' }}<span v-if="teamStats" class="team-stat"> (선수 {{ teamStats.athletes }} · 기록 {{ teamStats.times }})</span></span>
+            </div>
+            <div class="detail-cell">
+              <span class="detail-k">수영장</span>
+              <span class="detail-v">{{ (timeTabs[activeTab]?.pool || selectedComp?.pool) || '-' }}</span>
+            </div>
+          </div>
+
+          <!-- 대회 정보 (선택된 대회) -->
+          <div v-if="selectedComp" class="comp-block">
+            <div class="comp-title">
+              {{ selectedComp.competitionName }}<span v-if="selectedComp.datetime" class="comp-date"> / {{ selectedComp.datetime }}</span>
+            </div>
+            <div class="comp-counts">
+              <span>팀 <b>{{ selectedComp.teamCount ?? '-' }}</b></span>
+              <span>선수 <b>{{ selectedComp.athleteCount ?? '-' }}</b></span>
+              <span>start <b>{{ selectedComp.startCount ?? '-' }}</b></span>
+            </div>
+            <div v-if="fmtDisciplines(selectedComp.disciplines)" class="comp-disc">{{ fmtDisciplines(selectedComp.disciplines) }}</div>
           </div>
 
           <div class="times-head">기록 ({{ timeTabs.length }})</div>
@@ -436,14 +490,17 @@ onMounted(() => { loadCompetitions(); load() })
                 JSON 복사
               </button>
             </div>
-            <textarea v-model="genJson" class="gen-json" rows="10" spellcheck="false" placeholder="기사 LLM 생성 JSON…" />
+            <div class="gen-cols">
+              <textarea v-model="genJson" class="gen-json" rows="10" spellcheck="false" placeholder="기사 LLM 생성 JSON…" />
+              <textarea v-model="note" class="gen-json" rows="10" spellcheck="false" placeholder="note (LLM 참고 메모)…" />
+            </div>
           </div>
         </div>
         <footer class="drawer-foot">
           <button class="btn btn-ghost my-btn" type="button" :disabled="myLoading" @click="fetchMy">
             {{ myLoading ? 'my 조회 중…' : 'my' }}
           </button>
-          <button class="btn btn-primary" type="button" :disabled="saving || !genJson.trim()" @click="saveArticle">
+          <button class="btn btn-primary" type="button" :disabled="saving || !selected" @click="saveAthlete">
             {{ saving ? '저장 중…' : '저장' }}
           </button>
           <button class="btn btn-ghost" type="button" @click="open = false">닫기</button>
@@ -498,6 +555,19 @@ onMounted(() => { loadCompetitions(); load() })
 .detail-k { flex: 0 0 92px; font-size: 12px; font-weight: 700; color: var(--ink-mute); }
 .detail-v { flex: 1; font-size: 13.5px; color: var(--ink); }
 .team-stat { color: var(--ink-mute); font-size: 12px; }
+/* 2열 정보 행 (성별|그룹, 부|시도, heat|round) */
+.info-duo { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding: 8px 0; border-bottom: 1px solid var(--line-soft); }
+.detail-cell { display: flex; gap: 10px; min-width: 0; }
+.detail-cell .detail-k { flex: 0 0 52px; }
+.detail-cell .detail-v { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.detail-cell .detail-v.team-v { white-space: normal; overflow: visible; }
+/* 대회 정보 블록 */
+.comp-block { margin: 14px 0 4px; padding: 12px 14px; background: var(--paper-deep); border-radius: 8px; }
+.comp-title { font-size: 13.5px; font-weight: 700; color: var(--ink); }
+.comp-title .comp-date { font-weight: 500; color: var(--ink-mute); }
+.comp-counts { margin-top: 8px; display: flex; gap: 14px; font-size: 12.5px; color: var(--ink-mute); }
+.comp-counts b { color: var(--ink); font-weight: 800; font-variant-numeric: tabular-nums; }
+.comp-disc { margin-top: 8px; font-size: 12px; color: var(--ink-mute); line-height: 1.6; }
 .times-head { font-size: 12px; font-weight: 700; color: var(--ink-mute); margin: 18px 0 4px; }
 .rec-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 12px; }
 .rec-tab { font-family: var(--sans); font-size: 12.5px; color: var(--ink-mute); background: var(--paper-deep); border: 1px solid transparent; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
@@ -523,6 +593,8 @@ onMounted(() => { loadCompetitions(); load() })
 .gen-section { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--line); }
 .gen-actions { display: flex; gap: 8px; align-items: center; }
 .gen-actions .btn svg { width: 15px; height: 15px; }
+.gen-cols { display: flex; gap: 10px; margin-top: 10px; }
+.gen-cols .gen-json { flex: 1; margin-top: 0; min-width: 0; }
 .gen-json { width: 100%; margin-top: 10px; font-family: var(--mono); font-size: 12px; line-height: 1.6; color: var(--ink); background: var(--paper-deep); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; resize: vertical; }
 .gen-json:focus { outline: none; border-color: var(--orange); background: var(--paper); }
 .drawer-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 22px; border-top: 1px solid var(--line); }
