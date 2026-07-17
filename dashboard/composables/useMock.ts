@@ -23,23 +23,33 @@ export interface Entity {
 export interface Field {
   key: string
   label: string
-  type?: 'text' | 'textarea' | 'select'
+  // 입력형: text | textarea | select. 표시전용: meta(읽기전용 텍스트) | thumbs(이미지 썸네일 줄) | link(URL)
+  type?: 'text' | 'textarea' | 'select' | 'checkbox' | 'meta' | 'thumbs' | 'link'
   options?: string[]
-  half?: boolean   // 한 줄에 둘씩 배치 (기본: 한 줄 전체)
+  half?: boolean   // 한 줄에 둘씩 배치 (span 2 = 반 줄). 기본: 한 줄 전체(span 4)
+  span?: 1 | 2 | 3 | 4  // 4열 그리드에서 차지할 칸 수 (half 보다 우선, 세밀 배치용)
   rows?: number    // textarea 줄 수 (기본 7)
-  get: (row: any) => any
+  get: (row: any) => any   // thumbs 는 url 배열, 그 외는 문자열 반환
   set: (row: any, value: any) => void
 }
 
 // 상태 라벨 → 뱃지 색 매핑 (DataTable 에서 사용)
 export const badgeVariant = (v: string): string => {
   const map: Record<string, string> = {
-    '진행중': 'b-good', '공개': 'b-good', '확정': 'b-good',
+    '진행중': 'b-good', '공개': 'b-good', '확정': 'b-good', '게시됨': 'b-good',
     '예정': 'b-warn', '검수': 'b-warn', '대기': 'b-warn',
     '취소': 'b-bad', '비공개': 'b-bad',
     '종료': 'b-mute', '초안': 'b-mute',
   }
   return map[v] || 'b-mute'
+}
+
+// 기사 미디어 포함 여부 — 목록 컬럼용
+export const hasImage = (r: any): boolean =>
+  !!(r?.media?.images?.length || r?.media?.thumb || r?.media?.coverImage)
+export const hasYoutube = (r: any): boolean => {
+  const blocks = r?.translations?.ko?.content?.blocks || []
+  return blocks.some((b: any) => b?.provider === 'youtube' || /youtu\.?be/i.test(String(b?.url || '')))
 }
 
 // title 로부터 slug 생성 (한글·영문·숫자 유지, 나머지는 하이픈)
@@ -204,10 +214,13 @@ const DATA: Record<string, Entity> = {
     title: '기사', en: 'Articles', subtitle: '기사를 작성하고 관리합니다.',
     columns: [
       { key: 'title', label: '제목', cls: 'strong', get: (r) => r.translations?.ko?.title || '' },
-      { key: 'categories', label: '분류', get: (r) => (r.searchCategories || []).join(', ') },
+      { key: 'type', label: '유형', cls: 'muted', get: (r) => (r.type === 'breaking_news' ? '속보' : '기사') },
+      { key: 'status', label: '상태', type: 'badge', get: (r) => (r.status === 'published' ? '게시됨' : '초안') },
       { key: 'reporter', label: '출처', cls: 'muted', get: (r) => r.reporter?.name || '' },
-      { key: 'tags', label: '태그', get: (r) => (r.searchTags || []).join(', ') },
-      { key: 'publishedAt', label: '게시', cls: 'mono', get: (r) => r.publishedAt || '' },
+      { key: 'hasImage', label: '이미지', get: (r) => (hasImage(r) ? '○' : '') },
+      { key: 'hasYoutube', label: '유튜브', get: (r) => (hasYoutube(r) ? '○' : '') },
+      { key: 'createdAt', label: '작성', cls: 'mono', get: (r) => String(r.createdAt || '').slice(0, 10) },
+      { key: 'publishedAt', label: '게시', cls: 'mono', get: (r) => String(r.publishedAt || '').slice(0, 10) },
     ],
     rows: [], // 실제 데이터는 API(/api/articles?type=article)에서 로드
   },

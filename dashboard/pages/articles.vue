@@ -22,7 +22,9 @@ const load = async () => {
     const params: Record<string, any> = { type: TYPE }
     if (category.value) params.category = category.value
     if (q.value.trim()) params.q = q.value.trim()
-    rows.value = await $fetch(api(), { params })
+    const data = await $fetch<any[]>(api(), { params })
+    // 작성일(createdAt) 최근순
+    rows.value = (data || []).slice().sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
   } catch (err: any) {
     rows.value = []
     errorMsg.value = err?.data?.error || err?.message || '불러오기 실패'
@@ -34,24 +36,72 @@ const selected = ref<Record<string, any> | null>(null)
 const open = ref(false)
 const isNew = ref(false)
 
+// ── 체크박스 선택 + 일괄 게시 ──
+const checked = ref<Record<string, any>[]>([])
+const publishing = ref(false)
+const publishSelected = async () => {
+  const ids = checked.value.map((r) => r._id).filter(Boolean)
+  if (!ids.length) return
+  if (!confirm(`선택한 ${ids.length}건을 게시하시겠습니까?`)) return
+  publishing.value = true
+  try {
+    await $fetch(api('/publish'), { method: 'POST', body: { ids } })
+    checked.value = []
+    await load()
+  } catch (err: any) {
+    alert('게시 실패: ' + (err?.data?.error || err?.message || ''))
+  } finally {
+    publishing.value = false
+  }
+}
+
 const splitList = (v: string) => (v || '').split(',').map((s) => s.trim()).filter(Boolean)
 
 // docs/schema.md 매핑 — 드로어 편집 필드 (get/set)
 const fields: Field[] = [
   {
-    key: 'title', label: '제목', type: 'text',
+    key: 'type', label: '기사 유형', type: 'select', options: ['기사', '속보'], span: 1,
+    get: (r) => (r.type === 'breaking_news' ? '속보' : '기사'),
+    set: (r, v) => { r.type = v === '속보' ? 'breaking_news' : 'article' },
+  },
+  {
+    key: 'title', label: '제목', type: 'text', span: 3,
     get: (r) => r.translations?.ko?.title ?? '',
     set: (r, v) => { r.translations.ko.title = v; r.slug = slugify(v); r.translations.ko.seoTitle = v },
   },
+  // 이미지 썸네일 줄 (읽기전용)
   {
-    key: 'content', label: '내용', type: 'textarea',
-    get: (r) => (r.translations?.ko?.content?.blocks || []).filter((b: any) => b.type === 'paragraph').map((b: any) => b.text).join('\n\n'),
-    set: (r, v) => { r.translations.ko.content.blocks = String(v).split(/\n\s*\n/).map((t) => ({ type: 'paragraph', text: t.trim() })).filter((b) => b.text) },
+    key: 'images', label: '이미지', type: 'thumbs',
+    get: (r) => {
+      const urls = (r.media?.images || []).map((im: any) => im?.url).filter(Boolean)
+      if (!urls.length && r.media?.thumb) urls.push(r.media.thumb)
+      return urls
+    },
+    set: () => {},
+  },
+  // 유튜브 URL (읽기전용) — content 블록에서 추출
+  {
+    key: 'youtube', label: '유튜브', type: 'link',
+    get: (r) => {
+      const b = (r.translations?.ko?.content?.blocks || []).find((x: any) => x?.provider === 'youtube' || /youtu\.?be/i.test(String(x?.url || '')))
+      return b?.url || ''
+    },
+    set: () => {},
   },
   {
-    key: 'reporter', label: '출처', type: 'text',
+    key: 'reporter', label: '출처', type: 'text', span: 2,
     get: (r) => r.reporter?.name ?? '',
     set: (r, v) => { r.reporter.name = v; r.reporter.nameEng = v === '편집부' ? 'Editorial Team' : v },
+  },
+  {
+    key: 'status', label: '상태', type: 'checkbox', options: ['게시됨', '초안'], span: 1,
+    get: (r) => r.status === 'published',
+    set: (r, v) => { r.status = v ? 'published' : 'draft' },
+  },
+  {
+    key: 'publishedAt', label: '게시 (publishedAt)', type: 'text', span: 1,
+    get: (r) => r.publishedAt ?? '',
+    set: (r, v) => { r.publishedAt = v },
   },
   {
     key: 'categories', label: '분류 (searchCategories)', type: 'text',
@@ -63,10 +113,16 @@ const fields: Field[] = [
     get: (r) => (r.searchTags || []).join(', '),
     set: (r, v) => { const a = splitList(v); r.searchTags = a; r.translations.ko.tags = a },
   },
+  // 맨 아래: 기사 내용 (translations JSON 통째)
   {
-    key: 'publishedAt', label: '게시 (publishedAt)', type: 'text',
-    get: (r) => r.publishedAt ?? '',
-    set: (r, v) => { r.publishedAt = v },
+    key: 'content', label: '기사 내용 (translations JSON)', type: 'textarea', rows: 20,
+    get: (r) => JSON.stringify(r.translations ?? {}, null, 2),
+    set: (r, v) => {
+      const s = String(v).trim()
+      if (!s) return
+      try { r.translations = JSON.parse(s) } // 유효한 JSON 이면 통째로 교체
+      catch { /* 파싱 실패 시 기존 translations 유지 */ }
+    },
   },
 ]
 
@@ -81,7 +137,9 @@ const nowStamp = () => {
 
 const onSave = async (v: Record<string, any>) => {
   const base = isNew.value ? blankArticle(TYPE) : JSON.parse(JSON.stringify(selected.value))
-  fields.forEach((f) => f.set(base, v[f.key]))
+  // 'content'(translations JSON 통째 교체)를 먼저 적용한 뒤, 제목·분류·태그 등 세부 필드가 덮어쓰도록.
+  const ordered = [...fields].sort((a, b) => (a.key === 'content' ? -1 : b.key === 'content' ? 1 : 0))
+  ordered.forEach((f) => f.set(base, v[f.key]))
   try {
     if (isNew.value) {
       if (!base.publishedAt) base.publishedAt = nowStamp()
@@ -127,6 +185,10 @@ const onDrawerDelete = async () => {
       <input v-model="q" class="filter-input" type="search" placeholder="제목 검색…" @keydown.enter="load">
       <button class="btn btn-ghost" type="button" @click="load">검색</button>
       <span class="filter-spacer" />
+      <button
+        class="btn btn-ghost" type="button"
+        :disabled="!checked.length || publishing" @click="publishSelected"
+      >{{ publishing ? '게시 중…' : (checked.length ? `게시 (${checked.length})` : '게시') }}</button>
       <button class="btn btn-primary" type="button" @click="openNew">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
         기사 등록
@@ -137,6 +199,7 @@ const onDrawerDelete = async () => {
 
     <DataTable
       :columns="e.columns" :rows="rows" clickable hide-search
+      selectable :selected="checked" @update:selected="checked = $event"
       @row-click="openRow" @delete-row="onDelete"
     />
 

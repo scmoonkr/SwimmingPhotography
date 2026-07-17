@@ -20,9 +20,12 @@ export default defineNuxtConfig({
   },
 
   // /api/** 요청을 로컬 Express API 로 프록시 (dev·프로덕션 공통)
+  // /images/** 는 클라이언트(6641) 정적 이미지로 프록시 → 드로어 썸네일 미리보기가
+  // 대시보드에서도 상대경로(/images/temp/...)로 그대로 로드된다.
   nitro: {
     routeRules: {
       '/api/**': { proxy: 'http://127.0.0.1:6640/api/**' },
+      '/images/temp/**': { proxy: 'http://localhost:6641/images/temp/**' },
     },
   },
 

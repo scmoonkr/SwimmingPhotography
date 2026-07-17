@@ -70,6 +70,34 @@ router.post('/', async (req, res) => {
   }
 })
 
+// 일괄 게시 — { ids: [...] } → status:'published', publishedAt(없으면 현재시각) 설정
+router.post('/publish', async (req, res) => {
+  try {
+    const ids = (req.body && req.body.ids) || []
+    const oids = ids.map(toId).filter(Boolean)
+    if (!oids.length) return res.status(400).json({ error: 'ids 가 비어 있습니다.' })
+    const now = new Date()
+    const c = await coll()
+    // publishedAt 이 이미 있으면 유지, 없거나 비어 있으면 now 로 채움
+    await c.updateMany(
+      { _id: { $in: oids }, $or: [{ publishedAt: null }, { publishedAt: '' }, { publishedAt: { $exists: false } }] },
+      { $set: { publishedAt: now } },
+    )
+    const r = await c.updateMany(
+      { _id: { $in: oids } },
+      { $set: { status: 'published', updatedAt: now } },
+    )
+    // 속보는 게시 즉시 실시간 push
+    const pubDocs = await c.find({ _id: { $in: oids }, type: 'breaking_news' }).toArray()
+    for (const d of pubDocs) {
+      broadcast('breaking', { _id: String(d._id), title: d.translations?.ko?.title || '', publishedAt: d.publishedAt || '' })
+    }
+    res.json({ matched: r.matchedCount, modified: r.modifiedCount })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
 // 수정
 router.put('/:id', async (req, res) => {
   try {

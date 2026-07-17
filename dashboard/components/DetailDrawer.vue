@@ -38,12 +38,31 @@ const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') emit('close') }
 
       <div class="drawer-body">
         <slot name="body-top" />
-        <label v-for="f in fields" :key="f.key" class="field" :class="{ half: f.half }">
+        <label
+          v-for="f in fields" :key="f.key" class="field" :class="{ half: f.half }"
+          :style="f.span ? { gridColumn: `span ${f.span}` } : undefined"
+        >
           <span class="field-label">{{ f.label }}</span>
           <select v-if="f.type === 'select'" v-model="form[f.key]" class="field-input">
             <option v-for="o in f.options || []" :key="o" :value="o">{{ o }}</option>
           </select>
           <textarea v-else-if="f.type === 'textarea'" v-model="form[f.key]" class="field-input field-area" :rows="f.rows || 7" />
+          <!-- 체크박스 (불리언) -->
+          <span v-else-if="f.type === 'checkbox'" class="field-check">
+            <input type="checkbox" v-model="form[f.key]">
+            <span class="field-check-on">{{ form[f.key] ? (f.options?.[0] || '켜짐') : (f.options?.[1] || '꺼짐') }}</span>
+          </span>
+          <!-- 표시전용: 읽기 텍스트 -->
+          <div v-else-if="f.type === 'meta'" class="field-meta">{{ form[f.key] || '—' }}</div>
+          <!-- 표시전용: 이미지 썸네일 줄 -->
+          <div v-else-if="f.type === 'thumbs'" class="field-thumbs">
+            <template v-if="(form[f.key] || []).length">
+              <img v-for="(u, i) in form[f.key]" :key="i" :src="'/' + String(u).replace(/^\/?/, '')" class="thumb-img" alt="">
+            </template>
+            <span v-else class="field-meta">—</span>
+          </div>
+          <!-- 표시전용: URL -->
+          <a v-else-if="f.type === 'link'" class="field-link" :href="form[f.key] || undefined" target="_blank" rel="noopener">{{ form[f.key] || '—' }}</a>
           <input v-else v-model="form[f.key]" class="field-input" type="text">
         </label>
       </div>
@@ -70,7 +89,7 @@ const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') emit('close') }
 }
 .drawer {
   position: absolute; top: 0; right: 0; height: 100%;
-  width: min(460px, 92vw); background: var(--paper);
+  width: min(920px, 96vw); background: var(--paper);
   border-left: 1px solid var(--line); box-shadow: -18px 0 50px rgba(26, 26, 26, .12);
   display: flex; flex-direction: column;
   transform: translateX(100%); transition: transform .26s cubic-bezier(.4, 0, .2, 1);
@@ -87,10 +106,10 @@ const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') emit('close') }
 .drawer-x { border: none; background: none; cursor: pointer; font-size: 22px; line-height: 1; color: var(--ink-light); padding: 0; }
 .drawer-x:hover { color: var(--ink); }
 
-/* 2열 그리드 — 기본은 한 줄 전체(span 2), half 필드만 반 줄(span 1)로 나란히 */
-.drawer-body { flex: 1; overflow-y: auto; padding: 20px 22px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-content: start; }
-.field { grid-column: span 2; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.field.half { grid-column: span 1; }
+/* 4열 그리드 — 기본은 한 줄 전체(span 4), half 는 반 줄(span 2). 세밀 배치는 field.span(1~4). */
+.drawer-body { flex: 1; overflow-y: auto; padding: 20px 22px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; align-content: start; }
+.field { grid-column: span 4; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.field.half { grid-column: span 2; }
 .field-label { font-size: 12px; font-weight: 700; color: var(--ink-mute); }
 .field-input {
   font-family: var(--sans); font-size: 13.5px; color: var(--ink);
@@ -99,6 +118,19 @@ const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') emit('close') }
 }
 .field-input:focus { outline: none; border-color: var(--orange); background: var(--paper); }
 .field-area { resize: vertical; line-height: 1.6; }
+
+/* 표시전용 필드 */
+.field-meta { font-size: 13.5px; color: var(--ink); padding: 2px 0; }
+.field-thumbs { display: flex; flex-wrap: wrap; gap: 8px; }
+.field-thumbs .thumb-img {
+  width: 96px; height: 72px; object-fit: cover; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--paper-deep);
+}
+.field-link { font-size: 13px; color: var(--orange); word-break: break-all; text-decoration: none; }
+.field-link:hover { text-decoration: underline; }
+.field-check { display: flex; align-items: center; gap: 8px; padding: 9px 0; }
+.field-check input { width: 16px; height: 16px; cursor: pointer; accent-color: var(--orange); }
+.field-check-on { font-size: 13.5px; color: var(--ink); }
 
 .drawer-foot {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
