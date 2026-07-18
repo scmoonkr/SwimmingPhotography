@@ -10,6 +10,19 @@ export default defineNuxtConfig({
   // 사이트 전역 스타일 (디자인 토큰 + 리셋 + 본문 타이포)
   css: ['~/assets/css/main.css'],
 
+  // 관리자(대시보드) 링크 URL — 환경별로 다름.
+  //   dev : http://localhost:6642
+  //   prod: https://backend.swimmingphotography.com (nginx 가 backend 서브도메인 → 6642 프록시)
+  // 런타임에 NUXT_PUBLIC_ADMIN_URL 로 덮어쓸 수 있음.
+  runtimeConfig: {
+    public: {
+      adminUrl: process.env.NUXT_PUBLIC_ADMIN_URL
+        || (process.env.NODE_ENV === 'production'
+          ? 'https://backend.swimmingphotography.com'
+          : 'http://localhost:6642'),
+    },
+  },
+
   app: {
     head: {
       htmlAttrs: { lang: 'ko' },
