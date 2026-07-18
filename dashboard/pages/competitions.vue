@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 대회 — SwimmingPhotography DB(competitions). 연도·대회명 필터는 서버로 전달.
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useEntity, blankCompetition, SIDO_LIST } from '~/composables/useMock'
 import type { Field } from '~/composables/useMock'
 
@@ -71,6 +71,59 @@ const selected = ref<Record<string, any> | null>(null)
 const open = ref(false)
 const isNew = ref(false)
 
+// ── 이미지 업로드 (multipart → /api/competitions/:id/images) ──
+const fileInput = ref<HTMLInputElement | null>(null)
+const queue = ref<{ file: File; preview: string }[]>([])
+const uploading = ref(false)
+const uploadMsg = ref('')
+const IMAGE_RE = /\.(jpe?g|png|gif|webp|avif)$/i
+// 저장된(서버) 이미지 목록 — 드로어 대상 대회의 images
+const savedImages = computed<any[]>(() => (selected.value?.images || []))
+
+const addFiles = (files: FileList | null) => {
+  if (!files) return
+  for (const f of Array.from(files)) {
+    if (!IMAGE_RE.test(f.name)) continue
+    queue.value.push({ file: f, preview: URL.createObjectURL(f) })
+  }
+}
+const onFileChange = (e: Event) => { addFiles((e.target as HTMLInputElement).files); if (fileInput.value) fileInput.value.value = '' }
+const onDrop = (e: DragEvent) => addFiles(e.dataTransfer?.files ?? null)
+const removeQueued = (i: number) => { URL.revokeObjectURL(queue.value[i].preview); queue.value.splice(i, 1) }
+
+const doUpload = async () => {
+  const id = selected.value?._id
+  if (!id) { uploadMsg.value = '먼저 대회를 저장하세요.'; return }
+  if (!queue.value.length || uploading.value) return
+  uploading.value = true; uploadMsg.value = ''
+  try {
+    const fd = new FormData()
+    for (const { file } of queue.value) fd.append('files', file)
+    const r = await $fetch<any>(api(`/${id}/images`), { method: 'POST', body: fd })
+    if (selected.value) selected.value.images = r.images // 드로어 즉시 반영
+    queue.value.forEach((q) => URL.revokeObjectURL(q.preview))
+    queue.value = []
+    uploadMsg.value = `${r.added}장 업로드 완료`
+    await load()
+  } catch (err: any) {
+    uploadMsg.value = '업로드 실패: ' + (err?.data?.error || err?.message || '')
+  } finally {
+    uploading.value = false
+  }
+}
+
+const removeSaved = async (url: string) => {
+  const id = selected.value?._id
+  if (!id || !confirm('이 이미지를 삭제하시겠습니까?')) return
+  try {
+    const r = await $fetch<any>(api(`/${id}/images`), { method: 'DELETE', body: { url } })
+    if (selected.value) selected.value.images = r.images
+    await load()
+  } catch (err: any) {
+    alert('삭제 실패: ' + (err?.data?.error || err?.message || ''))
+  }
+}
+
 // ── 원본(Breaststroke) 대회 검색 모달 (필터 바의 연도·대회명 사용) ──
 const pickerOpen = ref(false)
 const pickerRows = ref<any[]>([])
@@ -128,8 +181,9 @@ const fields: Field[] = [
   { key: 'poolSketch', label: '수영장 스케치', type: 'textarea', rows: 4, get: (r) => r.poolSketch ?? '', set: (r, v) => { r.poolSketch = v } },
 ]
 
-const openRow = (r: Record<string, any>) => { isNew.value = false; selected.value = r; open.value = true; importMsg.value = '' }
-const openNew = () => { isNew.value = true; selected.value = blankCompetition(); open.value = true; importMsg.value = '' }
+const resetUpload = () => { queue.value.forEach((q) => URL.revokeObjectURL(q.preview)); queue.value = []; uploadMsg.value = '' }
+const openRow = (r: Record<string, any>) => { isNew.value = false; selected.value = r; open.value = true; importMsg.value = ''; resetUpload() }
+const openNew = () => { isNew.value = true; selected.value = blankCompetition(); open.value = true; importMsg.value = ''; resetUpload() }
 
 const onSave = async (v: Record<string, any>) => {
   const base = isNew.value ? blankCompetition() : JSON.parse(JSON.stringify(selected.value))
@@ -208,6 +262,45 @@ const onDrawerDelete = async () => {
           <div class="stat"><span class="stat-n">{{ selected?.startCount ?? '—' }}</span><span class="stat-l">start</span></div>
         </div>
       </template>
+      <template #body-bottom>
+        <div class="up-sec">
+          <div class="up-head">
+            <span class="field-label">이미지</span>
+            <span v-if="savedImages.length" class="up-count">{{ savedImages.length }}장</span>
+          </div>
+
+          <!-- 저장된 이미지 -->
+          <div v-if="savedImages.length" class="up-grid">
+            <div v-for="(im, i) in savedImages" :key="i" class="up-cell">
+              <img :src="im.url" class="up-thumb" alt="">
+              <button class="up-del" type="button" title="삭제" @click="removeSaved(im.url)">✕</button>
+            </div>
+          </div>
+
+          <!-- 업로드 대기 큐 (미리보기) -->
+          <div v-if="queue.length" class="up-grid">
+            <div v-for="(q, i) in queue" :key="'q' + i" class="up-cell pending">
+              <img :src="q.preview" class="up-thumb" alt="">
+              <button class="up-del" type="button" title="빼기" @click="removeQueued(i)">✕</button>
+            </div>
+          </div>
+
+          <!-- 업로드 컨트롤 -->
+          <div class="up-area" @dragover.prevent @drop.prevent="onDrop">
+            <input ref="fileInput" type="file" accept="image/*" multiple hidden @change="onFileChange">
+            <button class="btn btn-ghost" type="button" :disabled="isNew || uploading" @click="fileInput?.click()">파일 선택</button>
+            <span class="up-hint">또는 드래그</span>
+            <span class="filter-spacer" />
+            <button
+              v-if="queue.length" class="btn btn-primary" type="button"
+              :disabled="isNew || uploading" @click="doUpload"
+            >{{ uploading ? '업로드 중…' : `${queue.length}장 업로드` }}</button>
+          </div>
+          <p v-if="isNew" class="up-note">대회를 먼저 저장하면 이미지를 올릴 수 있습니다.</p>
+          <p v-else-if="uploadMsg" class="up-note">{{ uploadMsg }}</p>
+        </div>
+      </template>
+
       <template #foot-actions>
         <button
           v-if="!isNew && selected?.competitionID != null && selected?.competitionID !== ''"
@@ -246,12 +339,36 @@ const onDrawerDelete = async () => {
   background: var(--bad-bg); color: var(--bad); font-size: 13px;
 }
 .imp-msg { font-size: 12px; color: var(--ink-mute); line-height: 1.4; flex-basis: 100%; }
-/* 드로어 상단 참가규모 (팀·선수·start) — grid 2열을 가득 채움 */
-.comp-stats { grid-column: span 2; display: flex; gap: 2px; }
+/* 드로어 상단 참가규모 (팀·선수·start) — grid 4열을 가득 채움 */
+.comp-stats { grid-column: 1 / -1; display: flex; gap: 2px; }
 .comp-stats .stat {
   flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px;
   padding: 3px 2cqmin; background: var(--paper-deep); border-radius: 8px;
 }
 .comp-stats .stat-n { font-size: 20px; font-weight: 800; color: var(--ink); font-variant-numeric: tabular-nums; }
 .comp-stats .stat-l { font-size: 11.5px; font-weight: 700; color: var(--ink-mute); }
+
+/* 드로어 이미지 업로드 섹션 — grid 전체 폭 */
+.up-sec { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 10px; }
+.up-head { display: flex; align-items: center; gap: 8px; }
+.up-count { font-size: 12px; color: var(--ink-mute); }
+.up-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+.up-cell { position: relative; width: 104px; height: 78px; }
+.up-thumb {
+  width: 100%; height: 100%; object-fit: cover; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--paper-deep);
+}
+.up-cell.pending .up-thumb { opacity: .7; border-style: dashed; }
+.up-del {
+  position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 50%;
+  border: none; background: var(--ink); color: #fff; font-size: 12px; line-height: 1; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.up-del:hover { background: var(--bad); }
+.up-area {
+  display: flex; align-items: center; gap: 10px; padding: 12px;
+  border: 1px dashed var(--line); border-radius: 8px; background: var(--paper-deep);
+}
+.up-hint { font-size: 12px; color: var(--ink-mute); }
+.up-note { font-size: 12px; color: var(--ink-mute); }
 </style>

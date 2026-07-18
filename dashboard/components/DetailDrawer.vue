@@ -65,6 +65,7 @@ const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') emit('close') }
           <a v-else-if="f.type === 'link'" class="field-link" :href="form[f.key] || undefined" target="_blank" rel="noopener">{{ form[f.key] || '—' }}</a>
           <input v-else v-model="form[f.key]" class="field-input" type="text">
         </label>
+        <slot name="body-bottom" :row="row" />
       </div>
 
       <footer class="drawer-foot">
