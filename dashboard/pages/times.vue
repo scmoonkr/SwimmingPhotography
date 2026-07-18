@@ -24,7 +24,6 @@ const gender = ref('')
 const discipline = ref('')
 const distance = ref('')
 const competitionID = ref<number | ''>('')
-const date = ref('')
 
 // ── 대회 select 옵션 (SP.competitions) ──
 const competitions = ref<any[]>([])
@@ -33,18 +32,19 @@ const loadCompetitions = async () => {
 }
 
 // ── 결과 테이블 컬럼 ──
+const imageNames = (r: any) => (r.images || []).slice(0, 5).map((im: any) => (im && (im.filename || im.name)) || im).filter(Boolean).join('|')
 const columns: Column[] = [
+  { key: 'timeID', label: 'timeID', cls: 'mono' },
   { key: 'name', label: '선수명', cls: 'strong' },
   { key: 'gender', label: '성별', cls: 'muted', get: (r) => genderLabel(r.gender) },
+  { key: 'ageGroup', label: '부', cls: 'muted' },
+  { key: 'team', label: '소속', cls: 'muted' },
   { key: 'discipline', label: '영법', get: (r) => disciplineLabel(r.discipline).replace(/ \(.*\)$/, '') },
   { key: 'distance', label: '거리' },
-  { key: 'competitionName', label: '대회명', cls: 'strong' },
-  { key: 'datetime', label: '일자', cls: 'mono' },
-  { key: 'rank', label: '순위', cls: 'num' },
+  { key: 'round', label: '라운드', cls: 'muted' },
   { key: 'time', label: '기록', cls: 'mono' },
-  { key: 'team', label: '소속', cls: 'muted' },
-  { key: 'ageGroup', label: '부', cls: 'muted' },
-  { key: 'course', label: '코스', cls: 'muted' },
+  { key: 'rank', label: '순위', cls: 'num' },
+  { key: 'images', label: '이미지', cls: 'muted', get: imageNames },
 ]
 
 // ── 목록 (SP.times) ──
@@ -63,7 +63,6 @@ const load = async () => {
     if (gender.value) params.gender = gender.value
     if (discipline.value) params.discipline = discipline.value
     if (distance.value) params.distance = distance.value
-    if (date.value.trim()) params.date = date.value.trim()
     const data = await $fetch<any[]>(api(), { params })
     rows.value = (data || []).slice().sort((a, b) => (a.timeStamp || Infinity) - (b.timeStamp || Infinity))
     selectedRows.value = []
@@ -96,26 +95,100 @@ const deleteSelected = async () => {
 const blankTime = () => ({
   competitionName: '', competitionID: null as number | null, datetime: '', discipline: '', distance: '',
   course: 'LCM', gender: '', ageGroup: '', round: 'finals', name: '', team: '', sido: '',
-  lane: null as number | null, rank: null as number | null, time: '',
+  lane: null as number | null, rank: null as number | null, time: '', timeID: null as number | null,
+  heat: null as number | null,
 })
 const numOrNull = (v: any) => (v === '' || v == null ? null : Number(v))
 const fields: Field[] = [
-  { key: 'competitionName', label: '대회', get: (r) => r.competitionName ?? '', set: (r, v) => { r.competitionName = v } },
-  { key: 'competitionID', label: '대회 ID', get: (r) => r.competitionID ?? '', set: (r, v) => { r.competitionID = numOrNull(v) } },
-  { key: 'datetime', label: '일자', get: (r) => r.datetime ?? '', set: (r, v) => { r.datetime = v } },
-  { key: 'discipline', label: '영법', type: 'select', options: DISCIPLINES, get: (r) => r.discipline ?? '', set: (r, v) => { r.discipline = v } },
-  { key: 'distance', label: '거리', type: 'select', options: DISTANCES, get: (r) => r.distance ?? '', set: (r, v) => { r.distance = v } },
-  { key: 'course', label: '코스', type: 'select', options: ['LCM', 'SCM'], get: (r) => r.course ?? '', set: (r, v) => { r.course = v } },
-  { key: 'gender', label: '성별', type: 'select', options: ['', 'men', 'women', 'mixed'], get: (r) => r.gender ?? '', set: (r, v) => { r.gender = v } },
-  { key: 'ageGroup', label: '부(ageGroup)', get: (r) => r.ageGroup ?? '', set: (r, v) => { r.ageGroup = v } },
-  { key: 'round', label: '라운드', get: (r) => r.round ?? '', set: (r, v) => { r.round = v } },
-  { key: 'name', label: '선수', get: (r) => r.name ?? '', set: (r, v) => { r.name = v } },
-  { key: 'team', label: '소속', get: (r) => r.team ?? '', set: (r, v) => { r.team = v } },
-  { key: 'sido', label: '시도', get: (r) => r.sido ?? '', set: (r, v) => { r.sido = v } },
-  { key: 'lane', label: '레인', get: (r) => r.lane ?? '', set: (r, v) => { r.lane = numOrNull(v) } },
-  { key: 'rank', label: '순위', get: (r) => r.rank ?? '', set: (r, v) => { r.rank = numOrNull(v) } },
-  { key: 'time', label: '기록', get: (r) => r.time ?? '', set: (r, v) => { r.time = v } },
+  // 1행: 선수(2/4) · 성별(1/4) · timeID(1/4)
+  { key: 'name', label: '선수', span: 2, get: (r) => r.name ?? '', set: (r, v) => { r.name = v } },
+  { key: 'gender', label: '성별', type: 'select', options: ['', 'men', 'women', 'mixed'], span: 1, get: (r) => r.gender ?? '', set: (r, v) => { r.gender = v } },
+  { key: 'timeID', label: 'timeID', span: 1, get: (r) => r.timeID ?? '', set: (r, v) => { r.timeID = numOrNull(v) } },
+  // 2행: 부(1/4) · 영법(1/4) · 코스(1/4) · 거리(1/4)
+  { key: 'ageGroup', label: '부(ageGroup)', span: 1, get: (r) => r.ageGroup ?? '', set: (r, v) => { r.ageGroup = v } },
+  { key: 'discipline', label: '영법', type: 'select', options: DISCIPLINES, span: 1, get: (r) => r.discipline ?? '', set: (r, v) => { r.discipline = v } },
+  { key: 'course', label: '코스', type: 'select', options: ['LCM', 'SCM'], span: 1, get: (r) => r.course ?? '', set: (r, v) => { r.course = v } },
+  { key: 'distance', label: '거리', type: 'select', options: DISTANCES, span: 1, get: (r) => r.distance ?? '', set: (r, v) => { r.distance = v } },
+  // 3행: 기록(1/4) · 순위(1/4) · 일자(1/4) · heat(1/4)
+  { key: 'time', label: '기록', span: 1, get: (r) => r.time ?? '', set: (r, v) => { r.time = v } },
+  { key: 'rank', label: '순위', span: 1, get: (r) => r.rank ?? '', set: (r, v) => { r.rank = numOrNull(v) } },
+  { key: 'datetime', label: '일자', span: 1, get: (r) => r.datetime ?? '', set: (r, v) => { r.datetime = v } },
+  { key: 'heat', label: 'heat', span: 1, get: (r) => r.heat ?? '', set: (r, v) => { r.heat = numOrNull(v) } },
+  // 4행: 대회 ID(1/4) · 대회명(3/4)
+  { key: 'competitionID', label: '대회 ID', span: 1, get: (r) => r.competitionID ?? '', set: (r, v) => { r.competitionID = numOrNull(v) } },
+  { key: 'competitionName', label: '대회', span: 3, get: (r) => r.competitionName ?? '', set: (r, v) => { r.competitionName = v } },
+  // 5행: 소속·시도·라운드·레인 (요청 외 필드 — 편집 유지)
+  { key: 'team', label: '소속', span: 1, get: (r) => r.team ?? '', set: (r, v) => { r.team = v } },
+  { key: 'sido', label: '시도', span: 1, get: (r) => r.sido ?? '', set: (r, v) => { r.sido = v } },
+  { key: 'round', label: '라운드', span: 1, get: (r) => r.round ?? '', set: (r, v) => { r.round = v } },
+  { key: 'lane', label: '레인', span: 1, get: (r) => r.lane ?? '', set: (r, v) => { r.lane = numOrNull(v) } },
+  // 이미지 — 썸네일 + 이미지명 (최대 5)
+  { key: 'images', label: '이미지', type: 'imagelist', span: 4, get: (r) => r.images ?? [], set: () => {} },
 ]
+
+// ── CSV 내보내기/가져오기 ──
+// 내보내기 컬럼(11) / 가져오기 컬럼(+image1~5)
+const EXPORT_COLS = ['timeID', 'name', 'gender', 'heat', 'ageGroup', 'team', 'discipline', 'distance', 'round', 'time', 'rank']
+const IMPORT_COLS = [...EXPORT_COLS, 'image1', 'image2', 'image3', 'image4', 'image5']
+
+const csvCell = (v: any) => {
+  const s = v == null ? '' : String(v)
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+}
+const exportCSV = () => {
+  const header = EXPORT_COLS.join(',')
+  const body = rows.value.map((r) => EXPORT_COLS.map((c) => csvCell(r[c])).join(',')).join('\r\n')
+  const blob = new Blob(['﻿' + header + '\r\n' + body], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url; a.download = 'times.csv'; a.click()
+  URL.revokeObjectURL(url)
+}
+
+// 따옴표·쉼표·개행을 처리하는 최소 CSV 파서
+const parseCSV = (text: string): string[][] => {
+  const out: string[][] = []
+  let field = '', rec: string[] = [], q = false
+  const t = text.replace(/^﻿/, '')
+  for (let i = 0; i < t.length; i++) {
+    const ch = t[i]
+    if (q) {
+      if (ch === '"') { if (t[i + 1] === '"') { field += '"'; i++ } else q = false }
+      else field += ch
+    } else if (ch === '"') q = true
+    else if (ch === ',') { rec.push(field); field = '' }
+    else if (ch === '\n') { rec.push(field); out.push(rec); rec = []; field = '' }
+    else if (ch !== '\r') field += ch
+  }
+  if (field.length || rec.length) { rec.push(field); out.push(rec) }
+  return out
+}
+
+const importInput = ref<HTMLInputElement | null>(null)
+const importing = ref(false)
+const onImportFile = async (e: Event) => {
+  const file = (e.target as HTMLInputElement).files?.[0]
+  if (importInput.value) importInput.value.value = ''
+  if (!file) return
+  importing.value = true; notice.value = ''; errorMsg.value = ''
+  try {
+    const grid = parseCSV(await file.text()).filter((r) => r.some((c) => c.trim() !== ''))
+    if (grid.length < 2) throw new Error('데이터 행이 없습니다.')
+    const header = grid[0].map((h) => h.trim())
+    const objs = grid.slice(1).map((cells) => {
+      const o: Record<string, string> = {}
+      header.forEach((h, i) => { if (IMPORT_COLS.includes(h)) o[h] = (cells[i] ?? '').trim() })
+      return o
+    })
+    const r = await $fetch<any>(api('/import-rows'), { method: 'POST', body: { rows: objs } })
+    notice.value = `가져오기 완료 — ${r.received}건 (신규 ${r.upserted + r.inserted} · 수정 ${r.modified})`
+    await load()
+  } catch (err: any) {
+    errorMsg.value = '가져오기 실패: ' + (err?.data?.error || err?.message || '')
+  } finally {
+    importing.value = false
+  }
+}
 
 const selected = ref<Record<string, any> | null>(null)
 const open = ref(false)
@@ -152,7 +225,12 @@ const onDelete = async (r: Record<string, any>) => {
 }
 const onDrawerDelete = async () => { if (selected.value && (await onDelete(selected.value))) open.value = false }
 
-onMounted(() => { loadCompetitions(); load() })
+onMounted(async () => {
+  await loadCompetitions()
+  // 처음에는 최근 대회(competitionID 내림차순 첫 항목)를 자동 선택 → watch 가 load 실행
+  if (competitions.value.length) competitionID.value = competitions.value[0].competitionID
+  else load()
+})
 </script>
 
 <template>
@@ -175,7 +253,6 @@ onMounted(() => { loadCompetitions(); load() })
           {{ c.competitionName }}<span v-if="c.datetime"> ({{ c.datetime }})</span>
         </option>
       </select>
-      <input v-model="date" class="filter-input filter-date" type="search" placeholder="일자 (예: 2022 또는 2022-03)" @keydown.enter="load">
       <button class="btn btn-ghost" type="button" @click="load">검색</button>
       <button class="btn btn-danger" type="button" :disabled="!selectedRows.length" @click="deleteSelected">
         삭제<span v-if="selectedRows.length"> ({{ selectedRows.length }})</span>
@@ -184,6 +261,11 @@ onMounted(() => { loadCompetitions(); load() })
       <button class="btn btn-ghost t-add" type="button" @click="openNew">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
         기록추가
+      </button>
+      <button class="btn btn-ghost" type="button" :disabled="!rows.length" @click="exportCSV">내보내기</button>
+      <input ref="importInput" type="file" accept=".csv,text/csv" hidden @change="onImportFile">
+      <button class="btn btn-ghost" type="button" :disabled="importing" @click="importInput?.click()">
+        {{ importing ? '가져오는 중…' : '가져오기' }}
       </button>
     </div>
 

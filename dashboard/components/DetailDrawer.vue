@@ -63,6 +63,16 @@ const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') emit('close') }
           </div>
           <!-- 표시전용: URL -->
           <a v-else-if="f.type === 'link'" class="field-link" :href="form[f.key] || undefined" target="_blank" rel="noopener">{{ form[f.key] || '—' }}</a>
+          <!-- 표시전용: 이미지 목록 (썸네일 + 이미지명, 최대 5) -->
+          <div v-else-if="f.type === 'imagelist'" class="field-imagelist">
+            <template v-if="(form[f.key] || []).length">
+              <div v-for="(im, i) in (form[f.key] || []).slice(0, 5)" :key="i" class="il-item">
+                <img v-if="im && im.url" :src="im.url" class="il-thumb" alt="">
+                <span class="il-name">{{ (im && (im.filename || im.name)) || im }}</span>
+              </div>
+            </template>
+            <span v-else class="field-meta">—</span>
+          </div>
           <input v-else v-model="form[f.key]" class="field-input" type="text">
         </label>
         <slot name="body-bottom" :row="row" />
@@ -129,6 +139,10 @@ const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') emit('close') }
 }
 .field-link { font-size: 13px; color: var(--orange); word-break: break-all; text-decoration: none; }
 .field-link:hover { text-decoration: underline; }
+.field-imagelist { display: flex; flex-direction: column; gap: 6px; }
+.il-item { display: flex; align-items: center; gap: 8px; }
+.il-thumb { width: 40px; height: 30px; object-fit: cover; border-radius: 4px; border: 1px solid var(--line); background: var(--paper-deep); flex: 0 0 auto; }
+.il-name { font-size: 13px; color: var(--ink); word-break: break-all; }
 .field-check { display: flex; align-items: center; gap: 8px; padding: 9px 0; }
 .field-check input { width: 16px; height: 16px; cursor: pointer; accent-color: var(--orange); }
 .field-check-on { font-size: 13.5px; color: var(--ink); }

@@ -23,8 +23,9 @@ export interface Entity {
 export interface Field {
   key: string
   label: string
-  // 입력형: text | textarea | select. 표시전용: meta(읽기전용 텍스트) | thumbs(이미지 썸네일 줄) | link(URL)
-  type?: 'text' | 'textarea' | 'select' | 'checkbox' | 'meta' | 'thumbs' | 'link'
+  // 입력형: text | textarea | select | checkbox
+  // 표시전용: meta(읽기텍스트) | thumbs(썸네일 줄) | link(URL) | imagelist(썸네일+이미지명, 최대 5)
+  type?: 'text' | 'textarea' | 'select' | 'checkbox' | 'meta' | 'thumbs' | 'link' | 'imagelist'
   options?: string[]
   half?: boolean   // 한 줄에 둘씩 배치 (span 2 = 반 줄). 기본: 한 줄 전체(span 4)
   span?: 1 | 2 | 3 | 4  // 4열 그리드에서 차지할 칸 수 (half 보다 우선, 세밀 배치용)

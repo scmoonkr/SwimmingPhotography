@@ -223,6 +223,46 @@ router.post('/delete-many', async (req, res) => {
   }
 })
 
+// 파일(CSV) 행 업서트 — { rows: [{ timeID, name, gender, heat, ageGroup, team,
+//   discipline, distance, round, time, rank, image1..image5 }] }
+// timeID 있으면 그 키로 upsert, 없으면 insert. image1~5 → images:[{filename}].
+router.post('/import-rows', async (req, res) => {
+  try {
+    const rows = (req.body && req.body.rows) || []
+    if (!Array.isArray(rows) || !rows.length) return res.status(400).json({ error: 'rows 가 비어 있습니다.' })
+    const num = (v) => (v === '' || v == null ? null : Number(v))
+    const str = (v) => (v == null ? '' : String(v).trim())
+    const c = await coll()
+    const ops = []
+    for (const r of rows) {
+      const images = [r.image1, r.image2, r.image3, r.image4, r.image5]
+        .map(str).filter(Boolean).map((filename) => ({ filename }))
+      const doc = {
+        name: str(r.name), gender: str(r.gender), heat: num(r.heat), ageGroup: str(r.ageGroup),
+        team: str(r.team), discipline: str(r.discipline), distance: str(r.distance),
+        round: str(r.round), time: str(r.time), rank: num(r.rank),
+      }
+      if (images.length) doc.images = images
+      const timeID = num(r.timeID)
+      if (timeID != null && !Number.isNaN(timeID)) {
+        doc.timeID = timeID
+        ops.push({ updateOne: { filter: { timeID }, update: { $set: doc }, upsert: true } })
+      } else {
+        ops.push({ insertOne: { document: doc } })
+      }
+    }
+    const rw = await c.bulkWrite(ops, { ordered: false })
+    res.json({
+      received: rows.length,
+      upserted: rw.upsertedCount || 0,
+      modified: rw.modifiedCount || 0,
+      inserted: rw.insertedCount || 0,
+    })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
 // 생성 (수동 기록추가)
 router.post('/', async (req, res) => {
   try {
