@@ -65,7 +65,13 @@ const load = async () => {
     if (discipline.value) params.discipline = discipline.value
     if (distance.value) params.distance = distance.value
     const data = await $fetch<any[]>(api(), { params })
-    rows.value = (data || []).slice().sort((a, b) => (a.timeStamp || Infinity) - (b.timeStamp || Infinity))
+    // 정렬: heat → ageGroup(부, 숫자 인식) → rank
+    const toN = (v: any) => { const n = Number(v); return Number.isFinite(n) ? n : Infinity }
+    rows.value = (data || []).slice().sort((a, b) =>
+      (toN(a.heat) - toN(b.heat))
+      || String(a.ageGroup || '').localeCompare(String(b.ageGroup || ''), 'ko', { numeric: true })
+      || (toN(a.rank) - toN(b.rank)),
+    )
     selectedRows.value = []
   } catch (err: any) {
     rows.value = []
@@ -280,7 +286,7 @@ onMounted(async () => {
 
     <p v-if="errorMsg" class="load-error">{{ errorMsg }}</p>
     <p v-if="notice" class="notice">{{ notice }}</p>
-    <p v-if="!loading" class="result-note">총 {{ rows.length }}건 · 기록 빠른순</p>
+    <p v-if="!loading" class="result-note">총 {{ rows.length }}건 · heat · 부 · 순위 순</p>
 
     <DataTable
       :columns="columns" :rows="rows" clickable hide-search hide-actions selectable

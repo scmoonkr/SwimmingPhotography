@@ -15,17 +15,22 @@ const toId = (id) => { try { return new ObjectId(id) } catch { return null } }
 const imgUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024, files: 1000 } })
 const safeName = (s) => String(s).replace(/[^\w.\-가-힣]/g, '_')
 
-// 대회 select 옵션 (필터용) — SwimmingPhotography DB 의 competitions(가져온 대회들), 최신순
+// 대회 select 옵션 (필터용) — times 컬렉션에 실제로 존재하는 대회(distinct), 최신순
 router.get('/competitions', async (req, res) => {
   try {
-    const { q, limit = 2000 } = req.query
-    const filter = {}
-    if (q) filter.competitionName = { $regex: String(q), $options: 'i' }
-    const docs = await (await SP()).collection('competitions')
-      .find(filter, { projection: { competitionID: 1, competitionName: 1, datetime: 1 } })
-      .sort({ competitionID: -1 })
-      .limit(Math.min(Number(limit) || 2000, 5000))
-      .toArray()
+    const docs = await (await coll()).aggregate([
+      { $match: { competitionID: { $ne: null } } },
+      {
+        $group: {
+          _id: '$competitionID',
+          competitionID: { $first: '$competitionID' },
+          competitionName: { $first: '$competitionName' },
+          datetime: { $first: '$datetime' },
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { competitionID: -1 } },
+    ]).toArray()
     res.json(docs)
   } catch (e) {
     res.status(500).json({ error: e.message })
@@ -286,23 +291,44 @@ router.post('/images-import', imgUpload.fields([{ name: 'files', maxCount: 1000 
     const competition = req.body.competitionName || ''
     const folder = `SP-images-${competitionID ?? 'unknown'}`
     const im = await imagesColl()
+
+    // timeID 별 times 레코드 조회 → 선수 정보(name·gender·부·소속·영법·코스·거리) 채우기
+    const tIds = [...new Set(meta.map((m) => Number(m.timeID)).filter((n) => Number.isFinite(n)))]
+    const tMap = new Map()
+    if (tIds.length) {
+      const tdocs = await (await coll())
+        .find({ timeID: { $in: tIds } }, { projection: { timeID: 1, name: 1, gender: 1, ageGroup: 1, team: 1, discipline: 1, course: 1, distance: 1 } })
+        .toArray()
+      for (const d of tdocs) tMap.set(d.timeID, d)
+    }
+
     const ops = []
     for (let i = 0; i < files.length; i++) {
       const m = meta[i] || {}
       const fname = safeName(m.filename || files[i].originalname)
-      const key = `${folder}/${fname}`
+      const key = `${folder}/${fname}`         // 상대경로 (CLOUD_PUBLIC_URL 제외)
       const thumbKey = `${folder}/thumb/${fname}`
-      const { url } = await putObject(key, files[i].buffer, files[i].mimetype)
-      let thumbnail = url
+      await putObject(key, files[i].buffer, files[i].mimetype)
+      let thumbnail = key
       if (thumbs[i] && thumbs[i].buffer) {
-        const t = await putObject(thumbKey, thumbs[i].buffer, thumbs[i].mimetype || 'image/jpeg')
-        thumbnail = t.url
+        await putObject(thumbKey, thumbs[i].buffer, thumbs[i].mimetype || 'image/jpeg')
+        thumbnail = thumbKey
       }
       const timeID = m.timeID != null && m.timeID !== '' ? Number(m.timeID) : null
+      const t = tMap.get(timeID) || {}
       ops.push({
         updateOne: {
           filter: { timeID, filename: fname },
-          update: { $set: { timeID, filename: fname, competition, competitionID, type: m.type || '', url, thumbnail, updatedAt: new Date() } },
+          update: {
+            $set: {
+              timeID, filename: fname, competition, competitionID, type: m.type || '',
+              // url·thumbnail 은 CLOUD_PUBLIC_URL 을 제외한 상대경로로 저장. 조회 시 CLOUD_PUBLIC_URL 을 붙임.
+              url: key, thumbnail,
+              name: t.name || '', gender: t.gender || '', ageGroup: t.ageGroup || '',
+              team: t.team || '', discipline: t.discipline || '', course: t.course || '', distance: t.distance || '',
+              updatedAt: new Date(),
+            },
+          },
           upsert: true,
         },
       })

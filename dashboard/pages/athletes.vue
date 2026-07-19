@@ -91,10 +91,16 @@ const teamStats = ref<{ athletes: number; times: number } | null>(null)
 const teamData = ref<any>(null) // 소속팀 성적 { total, events }(선수 출전종목 coarse/fine)
 const recordsByEvent = ref<Record<string, any[]>>({})
 const pbByEvent = ref<Record<string, any>>({})
+const athleteImages = ref<{ type: string; url: string; thumbnail?: string; filename?: string }[]>([])
 
 const openRow = async (r: any) => {
   selected.value = r; open.value = true
   teamStats.value = null; teamData.value = null; recordsByEvent.value = {}; pbByEvent.value = {}; activeTab.value = 0; genJson.value = ''; note.value = ''
+  athleteImages.value = []
+  // 선수 이미지 (images 컬렉션: name·gender·team·ageGroup 매칭)
+  try {
+    athleteImages.value = await $fetch(api('/images'), { params: { name: r.name, gender: r.gender, team: r.team, ageGroup: r.ageGroup } })
+  } catch {}
   // 저장분(SP.athletes) 있으면 llm(생성기사)·note 표시
   try {
     const saved = await $fetch<any>(api('/saved'), { params: { name: r.name, gender: r.gender, group: r.group } })
@@ -233,6 +239,7 @@ const buildPayload = () => {
   return {
     athlete: { name: a.name, gender: genderLabel(a.gender), group: a.group, ageGroup: a.ageGroup, team: a.team, sido: a.sido },
     note: note.value || '',
+    images: athleteImages.value.map((im: any) => ({ type: im.type, url: im.path ?? im.url })),
     events,
     competitionInfo: c ? {
       competitionName: c.competitionName || '',
@@ -457,6 +464,14 @@ onMounted(async () => {
             <div v-if="fmtDisciplines(selectedComp.disciplines)" class="comp-disc">{{ fmtDisciplines(selectedComp.disciplines) }}</div>
           </div>
 
+          <!-- 선수 이미지 (images 컬렉션) -->
+          <div v-if="athleteImages.length" class="ath-images">
+            <a v-for="(im, i) in athleteImages" :key="i" class="ath-img" :href="im.url" target="_blank" rel="noopener">
+              <img :src="im.thumbnail || im.url" alt="">
+              <span v-if="im.type" class="ath-img-type">{{ im.type }}</span>
+            </a>
+          </div>
+
           <div class="times-head">기록 ({{ timeTabs.length }})</div>
           <div v-if="timeTabs.length" class="rec-tabs">
             <button
@@ -568,6 +583,12 @@ onMounted(async () => {
 .comp-counts { margin-top: 8px; display: flex; gap: 14px; font-size: 12.5px; color: var(--ink-mute); }
 .comp-counts b { color: var(--ink); font-weight: 800; font-variant-numeric: tabular-nums; }
 .comp-disc { margin-top: 8px; font-size: 12px; color: var(--ink-mute); line-height: 1.6; }
+
+/* 선수 이미지 스트립 */
+.ath-images { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 4px; }
+.ath-img { position: relative; width: 92px; height: 68px; border-radius: 6px; overflow: hidden; border: 1px solid var(--line); background: var(--paper-deep); }
+.ath-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ath-img-type { position: absolute; left: 0; bottom: 0; padding: 1px 5px; font-size: 10px; font-weight: 700; color: #fff; background: rgba(26, 26, 26, .66); border-top-right-radius: 4px; }
 .times-head { font-size: 12px; font-weight: 700; color: var(--ink-mute); margin: 18px 0 4px; }
 .rec-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 12px; }
 .rec-tab { font-family: var(--sans); font-size: 12.5px; color: var(--ink-mute); background: var(--paper-deep); border: 1px solid transparent; border-radius: 6px; padding: 6px 12px; cursor: pointer; }

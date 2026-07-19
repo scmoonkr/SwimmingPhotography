@@ -50,6 +50,7 @@ const html = computed(() => {
     related: data.value?.related || [],
     relatedHeading: '같은 대회 최근 기사',
     moreHref: comp ? '/search?competition=' + encodeURIComponent(comp) : '/search',
+    cloudPublicUrl: useRuntimeConfig().public.cloudPublicUrl,
   })
 })
 

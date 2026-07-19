@@ -20,6 +20,9 @@ export default defineNuxtConfig({
         || (process.env.NODE_ENV === 'production'
           ? 'https://backend.swimmingphotography.com'
           : 'http://localhost:6642'),
+      // 이미지 스토리지(R2/iDrive) 공개 베이스 — 기사 이미지 url 이 http 가 아니면 이 값을 앞에 붙인다.
+      cloudPublicUrl: process.env.NUXT_PUBLIC_CLOUD_PUBLIC_URL
+        || 'https://f3t1.c6.e2-9.dev/swimmingphotography-bucket',
     },
   },
 

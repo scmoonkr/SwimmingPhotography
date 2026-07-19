@@ -47,11 +47,16 @@ const enDate = (iso: string) => {
 // 사이드바 기록 표기: 끝 두 자리(센티초)의 앞 0 제거 — "32초 01" → "32초 1"
 const recKo = (r: string) => String(r || '').replace(/0(\d)\s*$/, '$1')
 
-// public 루트 기준 절대경로로 정규화
+// 이미지 스토리지 공개 베이스 (buildArticleLayout 호출 시 opts.cloudPublicUrl 로 주입)
+let CLOUD_BASE = ''
+// 이미지 URL 정규화 — http 면 그대로, '/' 나 로컬 'images/' 는 로컬 절대경로,
+// 그 외(R2 상대경로 등)는 CLOUD_PUBLIC_URL 을 앞에 붙인다.
 const imgUrl = (u: string) => {
   const s = String(u || '')
   if (!s) return ''
   if (/^https?:\/\//.test(s) || s.startsWith('/')) return s
+  if (/^images\//i.test(s)) return '/' + s                              // 로컬 public 이미지
+  if (CLOUD_BASE) return CLOUD_BASE.replace(/\/+$/, '') + '/' + s        // R2 상대경로
   return '/' + s
 }
 
@@ -82,9 +87,11 @@ export interface BuildOpts {
   related?: RelatedItem[]     // "같은 대회 최근 기사" / "같은 날의 다른 기사"
   relatedHeading?: string     // 기본 "같은 대회 최근 기사"
   moreHref?: string           // "더 보기" 링크
+  cloudPublicUrl?: string     // 이미지 스토리지 공개 베이스 (http 아닌 url 앞에 붙임)
 }
 
 export function buildArticleLayout(doc: any, opts: BuildOpts = {}): string {
+  CLOUD_BASE = opts.cloudPublicUrl || ''
   const ko = doc?.translations?.ko || {}
   const en = doc?.translations?.en || {}
   const pd = doc?.payload?.data || {}

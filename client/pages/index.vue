@@ -6,8 +6,16 @@ import { normArticle } from '~/utils/articleList'
 
 const { isEN, t } = useLang()
 
-// public 기준 이미지 경로 (DB 이미지 경로는 'images/…' 상대경로)
-const img = (p: string) => (p ? '/' + p.replace(/^\/?/, '') : '')
+// 이미지 URL 정규화 — http 면 그대로, '/' 나 로컬 'images/' 는 로컬 절대경로,
+// 그 외(R2 상대경로 등)는 CLOUD_PUBLIC_URL 을 앞에 붙인다.
+const cloudBase = (useRuntimeConfig().public.cloudPublicUrl as string) || ''
+const img = (p: string) => {
+  const s = String(p || '')
+  if (!s) return ''
+  if (/^https?:\/\//.test(s) || s.startsWith('/')) return s
+  if (/^images\//i.test(s)) return '/' + s
+  return cloudBase ? cloudBase.replace(/\/+$/, '') + '/' + s : '/' + s
+}
 
 // ── 뷰(grid/list) ──
 const view = ref<'grid' | 'list'>('grid')

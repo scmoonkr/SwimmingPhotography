@@ -21,11 +21,12 @@ const IMAGE_RE = /\.(jpe?g|png|gif|webp|avif)$/i
 // 엑셀 각 행의 이미지 파일명 (image1~image5)
 const expectedFor = (r: any) => [r.image1, r.image2, r.image3, r.image4, r.image5]
   .map((v) => String(v ?? '').trim()).filter(Boolean)
-// type: 파일명 접미(_enter 등) → ENTER…
+// type: 파일명 접미(예 7R500132-ENTER.jpg, 123_enter.jpg) → ENTER…
+// 구분자는 '-' 또는 '_', 대소문자 무관.
 const typeOf = (filename: string) => {
   const base = filename.replace(/\.[^.]+$/, '')
-  const us = base.lastIndexOf('_')
-  return us < 0 ? '' : (TYPE_MAP[base.slice(us + 1).toLowerCase()] || '')
+  const m = base.match(/[-_]([A-Za-z]+)$/)
+  return m ? (TYPE_MAP[m[1].toLowerCase()] || '') : ''
 }
 
 // 디렉터리 선택 → 엑셀 image1~5 파일명'만' 폴더에서 읽어옴 (폴더 전체를 읽지 않음)

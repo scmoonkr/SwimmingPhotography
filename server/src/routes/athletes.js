@@ -5,6 +5,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Router } from 'express'
 import { SP, BR } from '../db.js'
+import { publicUrl } from '../r2.js'
 
 const router = Router()
 const coll = async () => (await SP()).collection('times')
@@ -48,6 +49,37 @@ router.get('/competitions', async (req, res) => {
       .limit(2000)
       .toArray()
     res.json(docs)
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// 선수 이미지 — images 컬렉션에서 name·gender·team·ageGroup 매칭 → [{ type, url, thumbnail, filename }]
+router.get('/images', async (req, res) => {
+  try {
+    const { name, gender, team, ageGroup } = req.query
+    if (!name) return res.json([])
+    const filter = { name: String(name) }
+    if (gender) filter.gender = String(gender)
+    if (team) filter.team = String(team)
+    if (ageGroup) filter.ageGroup = String(ageGroup)
+    const docs = await (await SP()).collection('images')
+      .find(filter, { projection: { _id: 0, type: 1, url: 1, thumbnail: 1, filename: 1 } })
+      .toArray()
+    // 저장은 상대경로 → 표시용 url·thumbnail 은 CLOUD_PUBLIC_URL 붙인 전체 URL,
+    // path·thumbPath 는 CLOUD_PUBLIC_URL 제외한 상대경로(JSON payload 용).
+    const base = (process.env.CLOUD_PUBLIC_URL || '').replace(/\/+$/, '')
+    const abs = (p) => (!p ? '' : (/^https?:\/\//.test(p) ? p : publicUrl(p)))
+    const rel = (p) => (!p ? '' : (base && p.startsWith(base + '/') ? p.slice(base.length + 1) : p))
+    const out = docs.map((d) => ({
+      type: d.type || '',
+      filename: d.filename || '',
+      url: abs(d.url),
+      thumbnail: abs(d.thumbnail || d.url),
+      path: rel(d.url),
+      thumbPath: rel(d.thumbnail || d.url),
+    }))
+    res.json(out)
   } catch (e) {
     res.status(500).json({ error: e.message })
   }
