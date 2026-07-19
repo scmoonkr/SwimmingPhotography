@@ -1,12 +1,19 @@
 // 기록(times) — 대상: SwimmingPhotography DB 의 times 컬렉션.
 // 원본 Breaststroke DB 의 mergedTimes 에서 대회·일자로 '가져와(upsert)' 관리하고, 수동 추가/편집/삭제도 지원.
 import { Router } from 'express'
+import multer from 'multer'
 import { ObjectId } from 'mongodb'
 import { SP, BR } from '../db.js'
+import { putObject } from '../r2.js'
 
 const router = Router()
 const coll = async () => (await SP()).collection('times')          // 대상
+const imagesColl = async () => (await SP()).collection('images')   // 이미지 메타
 const toId = (id) => { try { return new ObjectId(id) } catch { return null } }
+
+// 이미지 업로드용 multer (메모리) — 원본 files[] + 썸네일 thumbs[]
+const imgUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024, files: 1000 } })
+const safeName = (s) => String(s).replace(/[^\w.\-가-힣]/g, '_')
 
 // 대회 select 옵션 (필터용) — SwimmingPhotography DB 의 competitions(가져온 대회들), 최신순
 router.get('/competitions', async (req, res) => {
@@ -240,7 +247,7 @@ router.post('/import-rows', async (req, res) => {
       const doc = {
         name: str(r.name), gender: str(r.gender), heat: num(r.heat), ageGroup: str(r.ageGroup),
         team: str(r.team), discipline: str(r.discipline), distance: str(r.distance),
-        round: str(r.round), time: str(r.time), rank: num(r.rank),
+        round: str(r.round), time: str(r.time).replace(/^'/, ''), rank: num(r.rank),
       }
       if (images.length) doc.images = images
       const timeID = num(r.timeID)
@@ -258,6 +265,50 @@ router.post('/import-rows', async (req, res) => {
       modified: rw.modifiedCount || 0,
       inserted: rw.insertedCount || 0,
     })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// 이미지 가져오기 — 디렉터리 이미지들을 R2 업로드 후 images 컬렉션 upsert.
+// multipart: files[](원본) · thumbs[](썸네일, files 와 동일 순서) ·
+//   meta(JSON: [{ filename, timeID, type }]) · competitionID · competitionName
+router.post('/images-import', imgUpload.fields([{ name: 'files', maxCount: 1000 }, { name: 'thumbs', maxCount: 1000 }]), async (req, res) => {
+  try {
+    const files = (req.files && req.files.files) || []
+    const thumbs = (req.files && req.files.thumbs) || []
+    let meta = []
+    try { meta = JSON.parse(req.body.meta || '[]') } catch { meta = [] }
+    if (!files.length || meta.length !== files.length) {
+      return res.status(400).json({ error: 'files 와 meta 개수가 맞지 않습니다.' })
+    }
+    const competitionID = req.body.competitionID != null && req.body.competitionID !== '' ? Number(req.body.competitionID) : null
+    const competition = req.body.competitionName || ''
+    const folder = `SP-images-${competitionID ?? 'unknown'}`
+    const im = await imagesColl()
+    const ops = []
+    for (let i = 0; i < files.length; i++) {
+      const m = meta[i] || {}
+      const fname = safeName(m.filename || files[i].originalname)
+      const key = `${folder}/${fname}`
+      const thumbKey = `${folder}/thumb/${fname}`
+      const { url } = await putObject(key, files[i].buffer, files[i].mimetype)
+      let thumbnail = url
+      if (thumbs[i] && thumbs[i].buffer) {
+        const t = await putObject(thumbKey, thumbs[i].buffer, thumbs[i].mimetype || 'image/jpeg')
+        thumbnail = t.url
+      }
+      const timeID = m.timeID != null && m.timeID !== '' ? Number(m.timeID) : null
+      ops.push({
+        updateOne: {
+          filter: { timeID, filename: fname },
+          update: { $set: { timeID, filename: fname, competition, competitionID, type: m.type || '', url, thumbnail, updatedAt: new Date() } },
+          upsert: true,
+        },
+      })
+    }
+    const rw = await im.bulkWrite(ops, { ordered: false })
+    res.json({ count: files.length, upserted: rw.upsertedCount || 0, modified: rw.modifiedCount || 0 })
   } catch (e) {
     res.status(500).json({ error: e.message })
   }

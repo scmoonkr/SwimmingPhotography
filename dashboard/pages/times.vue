@@ -3,7 +3,7 @@
 // 필터: 대회(SP.competitions)·일자·성별·영법·거리 + 검색. row 클릭 편집/삭제, 기록추가(수동).
 // 기록가져오기(모달): 원본 Breaststroke.competitions 를 검색해 선택 → 가져오기
 //   (대회정보가 SP 에 없으면 추가 + mergedTimes → SP.times upsert).
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import type { Column, Field } from '~/composables/useMock'
 
 const api = (p = '') => `${useRuntimeConfig().public.apiBase}/api/times${p}`
@@ -32,16 +32,17 @@ const loadCompetitions = async () => {
 }
 
 // ── 결과 테이블 컬럼 ──
+const ROUND_KO: Record<string, string> = { preliminaries: '예선', finals: '결선', semiFinals: '준결선' }
+const roundLabel = (v: string) => ROUND_KO[v] || v || ''
 const imageNames = (r: any) => (r.images || []).slice(0, 5).map((im: any) => (im && (im.filename || im.name)) || im).filter(Boolean).join('|')
 const columns: Column[] = [
   { key: 'timeID', label: 'timeID', cls: 'mono' },
   { key: 'name', label: '선수명', cls: 'strong' },
-  { key: 'gender', label: '성별', cls: 'muted', get: (r) => genderLabel(r.gender) },
-  { key: 'ageGroup', label: '부', cls: 'muted' },
+  // 성별 · 부
+  { key: 'genderAge', label: '성별·부', cls: 'muted', get: (r) => [genderLabel(r.gender), r.ageGroup].filter(Boolean).join(' · ') },
   { key: 'team', label: '소속', cls: 'muted' },
-  { key: 'discipline', label: '영법', get: (r) => disciplineLabel(r.discipline).replace(/ \(.*\)$/, '') },
-  { key: 'distance', label: '거리' },
-  { key: 'round', label: '라운드', cls: 'muted' },
+  // 영법 · 거리 · 라운드
+  { key: 'event', label: '종목', get: (r) => [disciplineLabel(r.discipline).replace(/ \(.*\)$/, ''), r.distance, roundLabel(r.round)].filter(Boolean).join(' ') },
   { key: 'time', label: '기록', cls: 'mono' },
   { key: 'rank', label: '순위', cls: 'num' },
   { key: 'images', label: '이미지', cls: 'muted', get: imageNames },
@@ -135,9 +136,11 @@ const csvCell = (v: any) => {
   const s = v == null ? '' : String(v)
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
 }
+// time(예: 00:23.78)은 Excel 이 시간/숫자로 바꾸지 않도록 아포스트로피 접두 → 문자열 강제
+const cellFor = (r: any, c: string) => (c === 'time' && r[c] ? `'${r[c]}` : r[c])
 const exportCSV = () => {
   const header = EXPORT_COLS.join(',')
-  const body = rows.value.map((r) => EXPORT_COLS.map((c) => csvCell(r[c])).join(',')).join('\r\n')
+  const body = rows.value.map((r) => EXPORT_COLS.map((c) => csvCell(cellFor(r, c))).join(',')).join('\r\n')
   const blob = new Blob(['﻿' + header + '\r\n' + body], { type: 'text/csv;charset=utf-8' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
@@ -164,30 +167,38 @@ const parseCSV = (text: string): string[][] => {
   return out
 }
 
+// 가져오기: 엑셀(CSV) 선택 → 파싱 → 이미지 가져오기 드로어 열기
 const importInput = ref<HTMLInputElement | null>(null)
-const importing = ref(false)
+const importRows = ref<any[]>([])
+const importDrawerOpen = ref(false)
 const onImportFile = async (e: Event) => {
   const file = (e.target as HTMLInputElement).files?.[0]
   if (importInput.value) importInput.value.value = ''
   if (!file) return
-  importing.value = true; notice.value = ''; errorMsg.value = ''
+  notice.value = ''; errorMsg.value = ''
   try {
     const grid = parseCSV(await file.text()).filter((r) => r.some((c) => c.trim() !== ''))
     if (grid.length < 2) throw new Error('데이터 행이 없습니다.')
     const header = grid[0].map((h) => h.trim())
-    const objs = grid.slice(1).map((cells) => {
+    importRows.value = grid.slice(1).map((cells) => {
       const o: Record<string, string> = {}
-      header.forEach((h, i) => { if (IMPORT_COLS.includes(h)) o[h] = (cells[i] ?? '').trim() })
+      header.forEach((h, i) => { o[h] = (cells[i] ?? '').trim() })
       return o
     })
-    const r = await $fetch<any>(api('/import-rows'), { method: 'POST', body: { rows: objs } })
-    notice.value = `가져오기 완료 — ${r.received}건 (신규 ${r.upserted + r.inserted} · 수정 ${r.modified})`
-    await load()
+    importDrawerOpen.value = true
   } catch (err: any) {
-    errorMsg.value = '가져오기 실패: ' + (err?.data?.error || err?.message || '')
-  } finally {
-    importing.value = false
+    errorMsg.value = '파일 읽기 실패: ' + (err?.data?.error || err?.message || '')
   }
+}
+// 드로어에서 선택할 대회 (현재 필터에서 선택된 대회)
+const selectedComp = computed(() => {
+  const c = competitions.value.find((x) => x.competitionID === competitionID.value)
+  return { id: (competitionID.value || null) as number | null, name: c?.competitionName || '' }
+})
+const onImportDone = (r: any) => {
+  importDrawerOpen.value = false
+  notice.value = `이미지 ${r.count}장 업로드 완료 (신규 ${r.upserted} · 수정 ${r.modified})`
+  load()
 }
 
 const selected = ref<Record<string, any> | null>(null)
@@ -264,9 +275,7 @@ onMounted(async () => {
       </button>
       <button class="btn btn-ghost" type="button" :disabled="!rows.length" @click="exportCSV">내보내기</button>
       <input ref="importInput" type="file" accept=".csv,text/csv" hidden @change="onImportFile">
-      <button class="btn btn-ghost" type="button" :disabled="importing" @click="importInput?.click()">
-        {{ importing ? '가져오는 중…' : '가져오기' }}
-      </button>
+      <button class="btn btn-ghost" type="button" @click="importInput?.click()">가져오기</button>
     </div>
 
     <p v-if="errorMsg" class="load-error">{{ errorMsg }}</p>
@@ -283,6 +292,11 @@ onMounted(async () => {
       :open="open" :title="isNew ? '기록추가' : '기록 편집'"
       :fields="fields" :row="selected"
       @close="open = false" @save="onSave" @delete="onDrawerDelete"
+    />
+
+    <ImportImagesDrawer
+      :open="importDrawerOpen" :rows="importRows" :competition="selectedComp"
+      @close="importDrawerOpen = false" @done="onImportDone"
     />
   </div>
 </template>
