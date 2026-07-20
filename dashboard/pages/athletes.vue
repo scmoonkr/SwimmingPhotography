@@ -92,15 +92,23 @@ const teamData = ref<any>(null) // 소속팀 성적 { total, events }(선수 출
 const recordsByEvent = ref<Record<string, any[]>>({})
 const pbByEvent = ref<Record<string, any>>({})
 const athleteImages = ref<{ type: string; url: string; thumbnail?: string; filename?: string }[]>([])
+const eventStats = ref<{ events: Record<string, any>; heats: any[] }>({ events: {}, heats: [] })
 
 const openRow = async (r: any) => {
   selected.value = r; open.value = true
   teamStats.value = null; teamData.value = null; recordsByEvent.value = {}; pbByEvent.value = {}; activeTab.value = 0; genJson.value = ''; note.value = ''
   athleteImages.value = []
+  eventStats.value = { events: {}, heats: [] }
   // 선수 이미지 (images 컬렉션: name·gender·team·ageGroup 매칭)
   try {
     athleteImages.value = await $fetch(api('/images'), { params: { name: r.name, gender: r.gender, team: r.team, ageGroup: r.ageGroup } })
   } catch {}
+  // 종목·heat 통계 (선택 대회 기준)
+  if (competitionID.value) {
+    try {
+      eventStats.value = await $fetch(api('/event-stats'), { params: { competitionID: competitionID.value, name: r.name, team: r.team } })
+    } catch {}
+  }
   // 저장분(SP.athletes) 있으면 llm(생성기사)·note 표시
   try {
     const saved = await $fetch<any>(api('/saved'), { params: { name: r.name, gender: r.gender, group: r.group } })
@@ -224,16 +232,24 @@ const note = ref('') // LLM 참고 메모 (payload 에 포함)
 const buildPayload = () => {
   const a = selected.value
   if (!a) return null
-  const events = timeTabs.value.map((t) => ({
-    discipline: disc(t.discipline),
-    distance: t.distance || '',
-    course: t.course || '',
-    time: fmtRec(t.time),
-    rank: t.eventRank ?? t.rank,   // 종목순위(eventRank) 우선, 없으면 heat 순위
-    records: compRows(t)
-      .filter((cr) => cr.label !== '이번 대회')
-      .map((cr) => ({ category: cr.label, time: cr.time, diff: cr.diff, holder: cr.note })),
-  }))
+  const events = timeTabs.value.map((t) => {
+    const st = eventStats.value.events[`${t.discipline}|${t.distance}|${t.course}`] || {}
+    return {
+      discipline: disc(t.discipline),
+      distance: t.distance || '',
+      course: t.course || '',
+      time: fmtRec(t.time),
+      rank: t.eventRank ?? t.rank,   // 종목순위(eventRank) 우선, 없으면 heat 순위
+      athleteCount: st.athleteCount ?? null,   // 종목 전체 출전 선수수
+      startCount: st.startCount ?? null,       // 종목 전체 완주 기록수
+      best: st.best || null,                   // round 무관 최고기록 {name,team,time,diff}
+      gold: st.gold || null,                   // 결승 1등 (결승 없으면 best 와 동일)
+      team: st.team || null,                   // 이 종목 선수 소속팀 성적
+      records: compRows(t)
+        .filter((cr) => cr.label !== '이번 대회')
+        .map((cr) => ({ category: cr.label, time: cr.time, diff: cr.diff, holder: cr.note })),
+    }
+  })
   // 대회 정보는 필터에서 "선택한 대회" 기준. (competitionInfo·poolInfo 에 담음)
   const c = selectedComp.value
   return {
@@ -241,6 +257,12 @@ const buildPayload = () => {
     note: note.value || '',
     images: athleteImages.value.map((im: any) => ({ type: im.type, url: im.path ?? im.url })),
     events,
+    // 선수가 뛴 heat 의 전체 출전선수·start (성별·영법 한글)
+    heats: (eventStats.value.heats || []).map((h: any) => ({
+      gender: genderLabel(h.gender), discipline: disc(h.discipline), distance: h.distance,
+      ageGroup: h.ageGroup, round: h.round || '', heat: h.heat || '',
+      athleteCount: h.athleteCount, startCount: h.startCount,
+    })),
     competitionInfo: c ? {
       competitionName: c.competitionName || '',
       sido: c.sido || '',
@@ -257,7 +279,7 @@ const buildPayload = () => {
       quotesWeather: c.quotesWeather || '',
     } : null,
     poolInfo: c ? { pool: c.pool || '', notesPool: c.notesPool || '', quotesPool: c.quotesPool || '' } : null,
-    // 소속팀의 이 대회 성적 — 팀 합계 + 선수가 출전한 종목(coarse: 성별·영법·거리, fine: +부·라운드)
+    // 소속팀의 이 대회 성적 — 팀 합계 + 영법별 집계(종목별 성적은 events[].team 으로 이동)
     teamInfo: teamData.value?.total ? {
       team: a.team,
       athleteCount: teamData.value.total.athleteCount,
@@ -265,18 +287,8 @@ const buildPayload = () => {
       goldCount: teamData.value.total.goldCount,
       silverCount: teamData.value.total.silverCount,
       bronzeCount: teamData.value.total.bronzeCount,
-      events: (teamData.value.events || []).map((t: any) => ({
-        gender: genderLabel(t.gender), discipline: disc(t.discipline), distance: t.distance,
-        athleteCount: t.athleteCount, startCount: t.startCount,
-        goldCount: t.goldCount, silverCount: t.silverCount, bronzeCount: t.bronzeCount,
-      })),
-      // 선수 종목 & 같은 부(ageGroup)의 heat별
-      heats: (teamData.value.heats || []).map((t: any) => ({
-        gender: genderLabel(t.gender), discipline: disc(t.discipline), distance: t.distance,
-        ageGroup: t.ageGroup, round: t.round || '', heat: t.heat || '',
-        athleteCount: t.athleteCount, startCount: t.startCount,
-        goldCount: t.goldCount, silverCount: t.silverCount, bronzeCount: t.bronzeCount,
-      })),
+      // 팀 영법별 집계 (계영 포함) — [{ discipline, count }]
+      disciplines: teamData.value.disciplines || [],
     } : null,
   }
 }

@@ -207,6 +207,14 @@ router.get('/competition-teams', async (req, res) => {
     const inEvent = (r) => !coarseKeys || coarseKeys.has(`${r._id.gender}|${r._id.discipline}|${r._id.distance}`)
     const inAge = (r) => !ageKeys || ageKeys.has(`${r._id.gender}|${r._id.discipline}|${r._id.distance}|${r._id.ageGroup || ''}`)
 
+    // 팀 영법별 집계 (계영 FRR·혼계영 MR 포함), start 수 내림차순
+    const disciplines = await t.aggregate([
+      { $match: base },
+      { $group: { _id: '$discipline', count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+      { $project: { _id: 0, discipline: '$_id', count: 1 } },
+    ]).toArray()
+
     const coarse = await runAgg({ gender: '$gender', discipline: '$discipline', distance: '$distance' })
     const fine = await runAgg({ gender: '$gender', discipline: '$discipline', distance: '$distance', ageGroup: '$ageGroup', round: '$round', heat: '$heat' })
     const row = (r, detail) => ({
@@ -220,7 +228,94 @@ router.get('/competition-teams', async (req, res) => {
     const heats = fine.filter(inAge).map((r) => row(r, true))
       .sort((a, b) => evtCmp(a, b) || String(a.heat).localeCompare(String(b.heat)))
 
-    res.json({ total, events, heats })
+    res.json({ total, disciplines, events, heats })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// 종목·heat 통계 (선수 기사 payload 용) — 선수가 출전한 종목/heat 기준.
+//  events[key=discipline|distance|course]:
+//    athleteCount·startCount : 종목(성별·영법·거리) 전체(전 부·전 heat 합산)
+//    best : round 무관 최고기록 {name, team, time, diff(선수−best, 초)}
+//    gold : 결승(round 결승/결선/final) 1등. 결승 라운드 없으면 best 와 동일.
+//    team : 그 종목 선수 소속팀 성적 {athleteCount, startCount, gold/silver/bronzeCount(부별 eventRank)}
+//  heats[] : 선수가 뛴 heat 의 '전체' 출전선수·start 수.
+function fmtRecKo(t) {
+  const m = String(t || '').match(/^(\d+):(\d+)\.(\d+)/)
+  if (!m) return String(t || '')
+  return (+m[1] > 0) ? `${+m[1]}분 ${+m[2]}초 ${m[3]}` : `${+m[2]}초 ${m[3]}`
+}
+router.get('/event-stats', async (req, res) => {
+  try {
+    const { competitionID, name, team } = req.query
+    if (!competitionID || !name) return res.json({ events: {}, heats: [] })
+    const cid = Number(competitionID)
+    const t = await coll()
+    const OK = { time: { $type: 'string', $ne: '' }, status: { $nin: ['DQ', 'DNS'] } }
+    const mine = await t.find(
+      { competitionID: cid, name: String(name), ...OK },
+      { projection: { gender: 1, discipline: 1, distance: 1, course: 1, ageGroup: 1, round: 1, heat: 1, time: 1, timeStamp: 1 } },
+    ).toArray()
+
+    // 종목(gender·discipline·distance·course) 별
+    const evMap = new Map()
+    for (const m of mine) {
+      const key = `${m.discipline}|${m.distance}|${m.course}`
+      if (!evMap.has(key)) evMap.set(key, { gender: m.gender, discipline: m.discipline, distance: m.distance, course: m.course, myTs: m.timeStamp })
+      else if (m.timeStamp != null && m.timeStamp < evMap.get(key).myTs) evMap.get(key).myTs = m.timeStamp // 선수 최고기록 기준
+    }
+    const secDiff = (a, b) => (a != null && b != null && isFinite(a - b)) ? Math.abs((a - b) * 86400).toFixed(2) : ''
+    const events = {}
+    for (const [key, ev] of evMap) {
+      const evMatch = { competitionID: cid, gender: ev.gender, discipline: ev.discipline, distance: ev.distance, course: ev.course, ...OK }
+      const [agg] = await t.aggregate([
+        { $match: evMatch },
+        { $group: { _id: null, names: { $addToSet: '$name' }, starts: { $sum: 1 } } },
+      ]).toArray()
+      const [best] = await t.find(evMatch, { projection: { name: 1, team: 1, time: 1, timeStamp: 1 } }).sort({ timeStamp: 1 }).limit(1).toArray()
+      const [goldRec] = await t.find({ ...evMatch, round: { $regex: '결승|결선|final', $options: 'i' } }, { projection: { name: 1, team: 1, time: 1, timeStamp: 1 } }).sort({ timeStamp: 1 }).limit(1).toArray()
+      const gr = goldRec || best
+      const [tm] = await t.aggregate([
+        { $match: { ...evMatch, team: String(team || '') } },
+        {
+          $group: {
+            _id: null, names: { $addToSet: '$name' }, starts: { $sum: 1 },
+            gold: { $sum: { $cond: [{ $eq: ['$eventRank', 1] }, 1, 0] } },
+            silver: { $sum: { $cond: [{ $eq: ['$eventRank', 2] }, 1, 0] } },
+            bronze: { $sum: { $cond: [{ $eq: ['$eventRank', 3] }, 1, 0] } },
+          },
+        },
+      ]).toArray()
+      events[key] = {
+        athleteCount: agg ? agg.names.length : 0,
+        startCount: agg ? agg.starts : 0,
+        best: best ? { name: best.name, team: best.team, time: fmtRecKo(best.time), diff: secDiff(ev.myTs, best.timeStamp) } : null,
+        gold: gr ? { name: gr.name, team: gr.team, time: fmtRecKo(gr.time), diff: secDiff(ev.myTs, gr.timeStamp) } : null,
+        team: tm ? { athleteCount: tm.names.length, startCount: tm.starts, goldCount: tm.gold, silverCount: tm.silver, bronzeCount: tm.bronze }
+          : { athleteCount: 0, startCount: 0, goldCount: 0, silverCount: 0, bronzeCount: 0 },
+      }
+    }
+
+    // heat(gender·discipline·distance·course·round·heat) 전체 출전선수·start
+    const heatMap = new Map()
+    for (const m of mine) {
+      const hk = `${m.gender}|${m.discipline}|${m.distance}|${m.course}|${m.round || ''}|${m.heat || ''}`
+      if (!heatMap.has(hk)) heatMap.set(hk, m)
+    }
+    const heats = []
+    for (const m of heatMap.values()) {
+      const [agg] = await t.aggregate([
+        { $match: { competitionID: cid, gender: m.gender, discipline: m.discipline, distance: m.distance, course: m.course, round: m.round || '', heat: m.heat, ...OK } },
+        { $group: { _id: null, names: { $addToSet: '$name' }, starts: { $sum: 1 } } },
+      ]).toArray()
+      heats.push({
+        gender: m.gender, discipline: m.discipline, distance: m.distance, ageGroup: m.ageGroup || '',
+        round: m.round || '', heat: m.heat || '',
+        athleteCount: agg ? agg.names.length : 0, startCount: agg ? agg.starts : 0,
+      })
+    }
+    res.json({ events, heats })
   } catch (e) {
     res.status(500).json({ error: e.message })
   }

@@ -117,9 +117,10 @@ export function buildArticleLayout(doc: any, opts: BuildOpts = {}): string {
   let metaDates = `<time datetime="${escA(doc.publishedAt)}"${attrEn(enInput(doc.publishedAt))}>${esc(koInput(doc.publishedAt))}</time>`
   if (doc.updatedAt) metaDates += `<a class="revised" href="#corrections"><time datetime="${escA(doc.updatedAt)}">${esc(koUpdated(doc.updatedAt))}</time></a>`
 
-  // ── 갤러리 ──
+  // ── 갤러리 ── 본문에 인라인 image 블록이 있으면 중복되므로 상단 갤러리는 생략.
+  const hasInlineImages = blocks.some((b) => b && b.type === 'image')
   let gallery = ''
-  if (images.length) {
+  if (images.length && !hasInlineImages) {
     const slides = images.map((im) => {
       const cko = (im.translations && im.translations.ko && im.translations.ko.caption) || ''
       const cen = (im.translations && im.translations.en && im.translations.en.caption) || ''
@@ -195,10 +196,10 @@ export function buildArticleLayout(doc: any, opts: BuildOpts = {}): string {
       } else if (/^https?:\/\//.test(String(b.url || ''))) {
         bodyParts.push(`<p class="art-video-fallback"><a href="${escA(b.url)}" target="_blank" rel="noopener">${esc(b.url)}</a></p>`)
       }
-    } else if (b.type === 'highlight' || b.type === 'note') {
+    } else if (b.type === 'highlight' || /^note/.test(String(b.type))) {
       // 콜아웃(인용/인터뷰와 같은 좌측 보더 형식, 색만 구별) — highlight=강조, note=편집자 주
-      // 라벨은 label · title 어느 쪽이든 수용(생성 파이프라인은 note 에 title 사용)
-      const isNote = b.type === 'note'
+      // 라벨은 label · title 어느 쪽이든 수용(생성 파이프라인은 note 에 title 사용). notexx 등 note* 오타도 수용.
+      const isNote = /^note/.test(String(b.type))
       const tag = isNote ? (b.noteType === 'fact_check' ? 'FACT NOTE' : 'NOTE') : 'HIGHLIGHT'
       const label = b.label || b.title || (isNote ? '편집자 주' : '현장 인상')
       const enLabel = eb ? (eb.label || eb.title || '') : ''
@@ -224,6 +225,19 @@ export function buildArticleLayout(doc: any, opts: BuildOpts = {}): string {
           <p class="stat-value">${esc(value)}</p>
           ${desc ? `<p class="stat-desc"${attrEn(eb ? (eb.description || '') : '')}>${esc(desc)}</p>` : ''}
         </div>`)
+    } else if (b.type === 'image') {
+      // 본문 인라인 사진 — url(R2 상대경로/절대) → imgUrl 로 정규화, 캡션 병기
+      const u = imgUrl(b.url || (b.image && b.image.url) || '')
+      if (u) {
+        const cap = b.caption
+          ? `<figcaption class="art-caption"${attrEn(b.captionEn || '')}>${esc(b.caption)}</figcaption>`
+          : ''
+        bodyParts.push(`<figure class="art-figure"><img src="${escA(u)}" alt="${escA(b.alt || '')}" loading="lazy">${cap}</figure>`)
+      }
+    } else {
+      // 기타 블록(result·eventSummary 등) — title/text 있으면 표시 (버려지지 않도록)
+      if (b.title) bodyParts.push(`<h2${attrEn(eb ? (eb.title || '') : '')}>${esc(b.title)}</h2>`)
+      if (b.text) bodyParts.push(`<p${attrEn(eb ? (eb.text || '') : '')}>${esc(b.text)}</p>`)
     }
   })
   // 맺음말 — content.conclusion(문자열)을 본문 맨 끝에 표시

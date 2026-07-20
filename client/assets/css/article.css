@@ -220,6 +220,10 @@
   .art-video-fallback { margin: 22px 0 0; }
   .art-video-fallback a { color: var(--orange); word-break: break-all; }
 
+  /* 본문 인라인 사진 (image 블록) */
+  .art-figure { margin: 24px 0 0; }
+  .art-figure img { display: block; width: 100%; height: auto; border-radius: 3px; }
+
   /* 콜아웃 (highlight/note) — 인용과 같은 좌측 보더 형식, 색만 구별 */
   .art-callout { margin: 24px 0; padding: 15px 20px; border-left: 3px solid; border-radius: 0 3px 3px 0; }
   .art-callout .co-kicker { margin: 0 0 7px; font-family: var(--sans); font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
