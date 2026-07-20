@@ -177,8 +177,17 @@ const fields: Field[] = [
   { key: 'pool', label: '수영장', type: 'text', half: true, get: (r) => r.pool ?? '', set: (r, v) => { r.pool = v } },
   { key: 'course', label: 'Course', type: 'select', options: ['LCM', 'SCM'], half: true, get: (r) => r.course ?? 'LCM', set: (r, v) => { r.course = v } },
   { key: 'isMasters', label: '구분', type: 'select', options: ['일반', '마스터즈'], half: true, get: (r) => (r.isMasters ? '마스터즈' : '일반'), set: (r, v) => { r.isMasters = v === '마스터즈' } },
-  { key: 'sketch', label: '대회 스케치', type: 'textarea', rows: 6, get: (r) => r.sketch ?? '', set: (r, v) => { r.sketch = v } },
-  { key: 'poolSketch', label: '수영장 스케치', type: 'textarea', rows: 4, get: (r) => r.poolSketch ?? '', set: (r, v) => { r.poolSketch = v } },
+  // 대회 스케치
+  { key: 'notesCompetition', label: '대회 노트', type: 'textarea', rows: 3, half: true, get: (r) => r.notesCompetition ?? '', set: (r, v) => { r.notesCompetition = v } },
+  { key: 'notesParking', label: '주차 노트', type: 'textarea', rows: 3, half: true, get: (r) => r.notesParking ?? '', set: (r, v) => { r.notesParking = v } },
+  // 수영장 스케치
+  { key: 'notesPool', label: '수영장 노트', type: 'textarea', rows: 3, half: true, get: (r) => r.notesPool ?? '', set: (r, v) => { r.notesPool = v } },
+  { key: 'notesWeather', label: '날씨 노트', type: 'textarea', rows: 3, half: true, get: (r) => r.notesWeather ?? '', set: (r, v) => { r.notesWeather = v } },
+  // 인용(제보)
+  { key: 'quotesCompetition', label: '대회 인용', type: 'textarea', rows: 3, half: true, get: (r) => r.quotesCompetition ?? '', set: (r, v) => { r.quotesCompetition = v } },
+  { key: 'quotesParking', label: '주차 인용', type: 'textarea', rows: 3, half: true, get: (r) => r.quotesParking ?? '', set: (r, v) => { r.quotesParking = v } },
+  { key: 'quotesPool', label: '수영장 인용', type: 'textarea', rows: 3, half: true, get: (r) => r.quotesPool ?? '', set: (r, v) => { r.quotesPool = v } },
+  { key: 'quotesWeather', label: '날씨 인용', type: 'textarea', rows: 3, half: true, get: (r) => r.quotesWeather ?? '', set: (r, v) => { r.quotesWeather = v } },
 ]
 
 const resetUpload = () => { queue.value.forEach((q) => URL.revokeObjectURL(q.preview)); queue.value = []; uploadMsg.value = '' }
@@ -252,7 +261,7 @@ const onDrawerDelete = async () => {
 
     <DetailDrawer
       :open="open" :title="isNew ? '대회 추가' : '대회 상세 · 편집'"
-      :fields="fields" :row="selected" width="min(598px, 94vw)"
+      :fields="fields" :row="selected" width="min(897px, 96vw)"
       @close="open = false" @save="onSave" @delete="onDrawerDelete"
     >
       <template v-if="!isNew" #body-top>

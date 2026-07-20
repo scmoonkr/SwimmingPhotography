@@ -137,7 +137,7 @@ DB name: SwimmingPhotography
       title: "",
       subTitle: "",
       excerpt: "",
-      content: {},
+      content: "",
       categories: [],
       tags: [],
       seoTitle: "",
@@ -147,12 +147,17 @@ DB name: SwimmingPhotography
       title: "",
       subTitle: "",
       excerpt: "",
-      content: {},
+      content: "",
       categories: [],
       tags: [],
       seoTitle: "",
       seoDescription: ""
     }
+  },
+
+  payload: {
+    type: "athlete_story",
+    data: {}
   },
 
   editorial: {

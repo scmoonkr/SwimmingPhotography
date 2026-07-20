@@ -44,7 +44,7 @@ const getRules = () => {
 router.get('/competitions', async (req, res) => {
   try {
     const docs = await (await SP()).collection('competitions')
-      .find({}, { projection: { competitionID: 1, competitionName: 1, datetime: 1, pool: 1, sido: 1, teamCount: 1, athleteCount: 1, startCount: 1, disciplines: 1, sketch: 1, poolSketch: 1 } })
+      .find({}, { projection: { competitionID: 1, competitionName: 1, datetime: 1, pool: 1, sido: 1, teamCount: 1, athleteCount: 1, startCount: 1, disciplines: 1, notesCompetition: 1, notesParking: 1, notesWeather: 1, notesPool: 1, quotesCompetition: 1, quotesParking: 1, quotesWeather: 1, quotesPool: 1 } })
       .sort({ competitionID: -1 })
       .limit(2000)
       .toArray()
