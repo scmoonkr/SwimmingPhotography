@@ -266,6 +266,9 @@ sourceData: {
 
 
 content: {
+  "title": "",
+	"subtitle": "",
+	"excerpt": "",
 	// event.record: src.events
 	lead: "",
 	blocks: [
@@ -375,5 +378,12 @@ content: {
 			source: 'disciplines',
 			text: '영법별 참가자 수는 자유형이 551명으로 가장 많았고 평영 293명, 접영 285명, 배영 243명, 개인혼영 63명이 뒤를 이었으며, 계영에는 211명이 이름을 올렸다. 도약 수로 보면 자유형 599회, 평영 339회, 접영 297회, 배영 269회, 계영 67회, 개인혼영 63회였다.',
 		},
+	],	
+	"categories" : [
+			"경기"
 	],
+	"tags" : [
+	],
+	"seoTitle" : "",
+	"seoDescription" : ""
 }
