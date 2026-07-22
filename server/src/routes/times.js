@@ -49,7 +49,26 @@ router.get('/', async (req, res) => {
     if (course) filter.course = String(course)
     if (date) filter.datetime = { $regex: `^${String(date)}` }
     if (name) filter.name = { $regex: String(name), $options: 'i' }
-    const docs = await (await coll()).find(filter).limit(Math.min(Number(limit) || 2000, 10000)).toArray()
+    const lim = Math.min(Number(limit) || 2000, 10000)
+    // images 컬렉션을 timeID 로 조인 — 각 행에 images:[{filename,type,url,thumbnail}] 부여.
+    // (내보내기 image1~5·목록 이미지 표시용) 조인 결과가 있으면 그것을, 없으면 문서 임베드 images 유지.
+    const docs = await (await coll()).aggregate([
+      { $match: filter },
+      { $limit: lim },
+      { $lookup: { from: 'images', localField: 'timeID', foreignField: 'timeID', as: '_imgs' } },
+      {
+        $addFields: {
+          images: {
+            $cond: [
+              { $gt: [{ $size: '$_imgs' }, 0] },
+              { $map: { input: '$_imgs', as: 'i', in: { filename: '$$i.filename', type: '$$i.type', url: '$$i.url', thumbnail: '$$i.thumbnail' } } },
+              { $ifNull: ['$images', []] },
+            ],
+          },
+        },
+      },
+      { $project: { _imgs: 0 } },
+    ]).toArray()
     res.json(docs)
   } catch (e) {
     res.status(500).json({ error: e.message })
@@ -124,15 +143,17 @@ router.post('/import', async (req, res) => {
     }
 
     // 선수 요약 재집계 → SP.athletes upsert
-    // 단체전(FRR·MR)·time 없거나 "" 제외, name+gender+group 별 time count
+    // 단체전(FRR·MR)·time 없거나 "" 제외, (competitionID·ageGroup·name) 별 time count
     const summary = await c.aggregate([
       { $match: { time: { $type: 'string', $ne: '' }, status: { $nin: ['DQ', 'DNS'] }, discipline: { $nin: ['FRR', 'MR'] } } },
       {
         $group: {
-          _id: { name: '$name', gender: '$gender', group: '$group' },
+          _id: { competitionID: '$competitionID', ageGroup: '$ageGroup', name: '$name' },
           name: { $first: '$name' },
           gender: { $first: '$gender' },
           group: { $first: '$group' },
+          ageGroup: { $first: '$ageGroup' },
+          competitionID: { $first: '$competitionID' },
           team: { $first: '$team' },
           timeCount: { $sum: 1 },
         },
@@ -144,8 +165,9 @@ router.post('/import', async (req, res) => {
       const athColl = (await SP()).collection('athletes')
       const ops = summary.map((s) => ({
         updateOne: {
-          filter: { name: s.name ?? '', gender: s.gender ?? '', group: s.group ?? '' },
-          update: { $set: { name: s.name ?? '', gender: s.gender ?? '', group: s.group ?? '', team: s.team ?? '', timeCount: s.timeCount, updatedAt: now } },
+          // 키: competitionID + ageGroup + name
+          filter: { competitionID: s.competitionID ?? null, ageGroup: s.ageGroup ?? '', name: s.name ?? '' },
+          update: { $set: { competitionID: s.competitionID ?? null, ageGroup: s.ageGroup ?? '', name: s.name ?? '', gender: s.gender ?? '', group: s.group ?? '', team: s.team ?? '', timeCount: s.timeCount, updatedAt: now } },
           upsert: true,
         },
       }))
@@ -236,8 +258,12 @@ router.post('/delete-many', async (req, res) => {
 })
 
 // 파일(CSV) 행 업서트 — { rows: [{ timeID, name, gender, heat, ageGroup, team,
-//   discipline, distance, round, time, rank, image1..image5 }] }
+//   discipline, distance, round, time, rank, image1..image5,
+//   notesAthlete, notesTime, quotesAthlete, quotesTime }] }
 // timeID 있으면 그 키로 upsert, 없으면 insert. image1~5 → images:[{filename}].
+// image1~5 다음의 메모/인용 컬럼(선수·기록) — 값이 있는 것만 저장.
+const NOTE_FIELDS = ['notesAthlete', 'notesTime']
+const QUOTE_FIELDS = ['quotesAthlete', 'quotesTime']
 router.post('/import-rows', async (req, res) => {
   try {
     const rows = (req.body && req.body.rows) || []
@@ -253,6 +279,10 @@ router.post('/import-rows', async (req, res) => {
         name: str(r.name), gender: str(r.gender), heat: num(r.heat), ageGroup: str(r.ageGroup),
         team: str(r.team), discipline: str(r.discipline), distance: str(r.distance),
         round: str(r.round), time: str(r.time).replace(/^'/, ''), rank: num(r.rank),
+      }
+      for (const f of [...NOTE_FIELDS, ...QUOTE_FIELDS]) {
+        const v = str(r[f])
+        if (v) doc[f] = v
       }
       if (images.length) doc.images = images
       const timeID = num(r.timeID)

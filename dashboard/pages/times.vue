@@ -134,16 +134,25 @@ const fields: Field[] = [
 ]
 
 // ── CSV 내보내기/가져오기 ──
-// 내보내기 컬럼(11) / 가져오기 컬럼(+image1~5)
-const EXPORT_COLS = ['timeID', 'name', 'gender', 'heat', 'ageGroup', 'team', 'discipline', 'distance', 'round', 'time', 'rank']
-const IMPORT_COLS = [...EXPORT_COLS, 'image1', 'image2', 'image3', 'image4', 'image5']
+// 내보내기·가져오기 공통 컬럼 — 기본 11 + image1~5 + 메모/인용(선수·기록)
+const BASE_COLS = ['timeID', 'name', 'gender', 'heat', 'ageGroup', 'team', 'discipline', 'distance', 'round', 'time', 'rank']
+const IMAGE_COLS = ['image1', 'image2', 'image3', 'image4', 'image5']
+const NOTE_COLS = ['notesAthlete', 'notesTime', 'quotesAthlete', 'quotesTime']
+const EXPORT_COLS = [...BASE_COLS, ...IMAGE_COLS, ...NOTE_COLS]
+const IMPORT_COLS = EXPORT_COLS
 
 const csvCell = (v: any) => {
   const s = v == null ? '' : String(v)
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
 }
+// image1~5 → r.images[0..4] 의 filename (timeID 로 조인된 images 컬렉션)
+const IMAGE_IDX: Record<string, number> = { image1: 0, image2: 1, image3: 2, image4: 3, image5: 4 }
 // time(예: 00:23.78)은 Excel 이 시간/숫자로 바꾸지 않도록 아포스트로피 접두 → 문자열 강제
-const cellFor = (r: any, c: string) => (c === 'time' && r[c] ? `'${r[c]}` : r[c])
+const cellFor = (r: any, c: string) => {
+  if (c === 'time') return r[c] ? `'${r[c]}` : r[c]
+  if (c in IMAGE_IDX) { const im = (r.images || [])[IMAGE_IDX[c]]; return (im && (im.filename || im.name)) || '' }
+  return r[c]
+}
 const exportCSV = () => {
   const header = EXPORT_COLS.join(',')
   const body = rows.value.map((r) => EXPORT_COLS.map((c) => csvCell(cellFor(r, c))).join(',')).join('\r\n')

@@ -2,7 +2,7 @@
 // 홈 갤러리 — 그리드/리스트 토글, 분야 필터, featured, 월 그룹.
 // 기사 목록·featured 모두 DB(/api/articles) 연동.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { normArticle } from '~/utils/articleList'
+import { normArticle, catKo, articleDate } from '~/utils/articleList'
 
 const { isEN, t } = useLang()
 
@@ -130,11 +130,11 @@ const featImg = (d: any) => d?.media?.coverImage || (d?.media?.images && d.media
 const feat = computed(() => (listData.value || []).filter((d: any) => d.slug && d.visibility?.isFeatured).slice(0, 3).map((d, i) => ({
   slug: d.slug,
   img: featImg(d),
-  cat: (d.translations?.ko?.categories || [])[0] || '경기',
+  cat: catKo(d.translations?.ko?.categories),
   catEN: (d.translations?.en?.categories || [])[0] || '',
   title: d.translations?.ko?.title || '',
   titleEN: d.translations?.en?.title || '',
-  date: String(d.publishedAt || '').slice(0, 10),
+  date: articleDate(d),
   big: i === 0,
 })))
 const featCat = (f: any) => (isEN.value ? (f.catEN || f.cat) : f.cat)

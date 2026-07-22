@@ -4,6 +4,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import '~/assets/css/article.css'
 import { buildArticleLayout, type RelatedItem } from '~/utils/articleHtml'
+import { catKo, articleDate } from '~/utils/articleList'
 import { wireArticleInteractions, type ArticleWiring } from '~/utils/articleInteractions'
 
 const { isEN } = useLang()
@@ -26,12 +27,12 @@ const { data, error } = await useAsyncData(
         .slice(0, 5)
         .map((d) => ({
           slug: d.slug,
-          category: (d.translations?.ko?.categories || [])[0] || '경기',
+          category: catKo(d.translations?.ko?.categories),
           categoryEn: (d.translations?.en?.categories || [])[0] || '',
           title: d.translations?.ko?.title || '',
           titleEn: d.translations?.en?.title || '',
           region: '',
-          date: d.publishedAt || '',
+          date: articleDate(d),
           thumb: d?.media?.thumb || d?.media?.coverImage || (d?.media?.images && d.media.images[0]?.url) || '',
         }))
     } catch {}

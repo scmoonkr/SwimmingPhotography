@@ -118,6 +118,7 @@ router.get('/', async (req, res) => {
           gender: { $first: '$gender' },
           group: { $first: '$group' },
           ageGroup: { $first: '$ageGroup' },
+          competitionID: { $first: '$competitionID' },
           team: { $first: '$team' },
           sido: { $first: '$sido' },
           aid: { $first: '$aid' },
@@ -146,7 +147,34 @@ router.get('/', async (req, res) => {
         },
       },
       { $addFields: { myTimesCount: { $ifNull: [{ $arrayElemAt: ['$_myt.c', 0] }, 0] } } },
-      { $project: { _myt: 0 } },
+      // images 건수 조인 — 선수(name+gender+team) 기준
+      {
+        $lookup: {
+          from: 'images',
+          let: { nm: '$name', gd: '$gender', tm: '$team' },
+          pipeline: [
+            { $match: { $expr: { $and: [{ $eq: ['$name', '$$nm'] }, { $eq: ['$gender', '$$gd'] }, { $eq: ['$team', '$$tm'] }] } } },
+            { $count: 'c' },
+          ],
+          as: '_img',
+        },
+      },
+      { $addFields: { imageCount: { $ifNull: [{ $arrayElemAt: ['$_img.c', 0] }, 0] } } },
+      // articles 조인 — 생성 기사 존재 여부(키: competitionID+ageGroup+name)
+      {
+        $lookup: {
+          from: 'articles',
+          let: { cid: '$competitionID', ag: '$ageGroup', nm: '$name' },
+          pipeline: [
+            { $match: { $expr: { $and: [{ $eq: ['$competitionID', '$$cid'] }, { $eq: ['$ageGroup', '$$ag'] }, { $eq: ['$name', '$$nm'] }] } } },
+            { $limit: 1 },
+            { $project: { _id: 1 } },
+          ],
+          as: '_art',
+        },
+      },
+      { $addFields: { hasArticle: { $gt: [{ $size: '$_art' }, 0] } } },
+      { $project: { _myt: 0, _img: 0, _art: 0 } },
     ]).toArray()
     res.json(docs)
   } catch (e) {
@@ -347,10 +375,11 @@ router.get('/saved', async (req, res) => {
   }
 })
 
-// 드로어 저장 — json(소스 payload)+llm(생성 기사 JSON)+note 를 SP.athletes 에 upsert(name+gender+group)
+// 드로어 저장 — json(소스 payload)+llm(생성 기사 JSON)+note 를 SP.athletes 에 upsert(name+gender+group).
+// 추가로 genJson(llm)을 SP.articles 에 upsert — 키: { competitionID, ageGroup, name }.
 router.post('/save', async (req, res) => {
   try {
-    const { name, gender, group, json, llm, note } = req.body || {}
+    const { name, gender, group, json, llm, note, competitionID, ageGroup, team } = req.body || {}
     if (!name) return res.status(400).json({ error: '선수명(name)이 필요합니다.' })
     const key = { name: String(name), gender: String(gender || ''), group: String(group || '') }
     const r = await (await SP()).collection('athletes').updateOne(
@@ -358,7 +387,28 @@ router.post('/save', async (req, res) => {
       { $set: { ...key, json: json ?? null, llm: llm ?? '', note: note ?? '', savedAt: new Date() } },
       { upsert: true },
     )
-    res.json({ ok: true, upserted: !!r.upsertedCount, modified: r.modifiedCount })
+
+    // genJson(생성 기사 JSON)을 articles 컬렉션에 upsert — 키: { competitionID, ageGroup, name }.
+    // article = parseJSON(genJson); article.created = new Date(); → article 을 upsert.
+    let result = null
+    if (llm) {
+      const cid = (competitionID != null && competitionID !== '') ? Number(competitionID) : null
+      const akey = { competitionID: cid, ageGroup: String(ageGroup || ''), name: String(name) }
+      let article = null
+      try { article = JSON.parse(llm) } catch { return res.status(400).json({ error: 'genJson 이 유효한 JSON 이 아닙니다.' }) }
+      if (article && typeof article === 'object' && !Array.isArray(article)) {
+        delete article._id                            // _id 는 수정 불가
+        article.created = new Date()                  // 오늘 날짜 ISODate
+        const ar = await (await SP()).collection('articles').updateOne(
+          akey,
+          { $set: { ...article, ...akey } },          // 키(competitionID·ageGroup·name)는 항상 akey 로 고정
+          { upsert: true },
+        )
+        result = { upserted: !!ar.upsertedCount, modified: ar.modifiedCount }
+      }
+    }
+
+    res.json({ ok: true, upserted: !!r.upsertedCount, modified: r.modifiedCount, article: result })
   } catch (e) {
     res.status(500).json({ error: e.message })
   }

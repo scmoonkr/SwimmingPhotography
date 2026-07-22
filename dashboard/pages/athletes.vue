@@ -23,6 +23,7 @@ const competitionID = ref<number | ''>('')
 const gender = ref('')
 const group = ref('')
 const name = ref('')
+const articleFilter = ref<'' | 'has' | 'none'>('')   // 전체 / 기사작성 / 기사미작성
 const groupOptions = ref<string[]>([])
 
 // 기록 표기: "00:24.43" → "24초 43" / "01:33.33" → "1분 33초 33"
@@ -56,10 +57,18 @@ const columns: Column[] = [
   { key: 'team', label: '팀', cls: 'muted' },
   { key: 'count', label: '기록', cls: 'num', get: (r) => (r.times || []).length },
   { key: 'myTimesCount', label: 'my', cls: 'num', get: (r) => r.myTimesCount ?? 0 },
+  { key: 'imageCount', label: '이미지', cls: 'num', get: (r) => r.imageCount ?? 0 },
+  { key: 'hasArticle', label: '기사', cls: 'num', get: (r) => (r.hasArticle ? '✓' : '') },
 ]
 
 // ── 목록 ──
 const rows = ref<any[]>([])
+// 기사 작성 여부 필터 (전체/기사작성/기사미작성) — 클라이언트에서 hasArticle 로 거름
+const viewRows = computed(() => {
+  if (articleFilter.value === 'has') return rows.value.filter((r) => r.hasArticle)
+  if (articleFilter.value === 'none') return rows.value.filter((r) => !r.hasArticle)
+  return rows.value
+})
 const loading = ref(false)
 const errorMsg = ref('')
 const notice = ref('')
@@ -353,7 +362,7 @@ const saveAthlete = async () => {
   try {
     await $fetch(api('/save'), {
       method: 'POST',
-      body: { name: a.name, gender: a.gender, group: a.group, json: buildPayload(), llm: genJson.value, note: note.value },
+      body: { name: a.name, gender: a.gender, group: a.group, ageGroup: a.ageGroup, team: a.team, competitionID: competitionID.value || null, json: buildPayload(), llm: genJson.value, note: note.value },
     })
     notice.value = `저장됨 — ${a.name}`
   } catch (err: any) {
@@ -427,6 +436,11 @@ onMounted(async () => {
         <option value="">group 전체</option>
         <option v-for="g in groupOptions" :key="g" :value="g">{{ g }}</option>
       </select>
+      <select v-model="articleFilter" class="filter-select" aria-label="기사 작성 여부">
+        <option value="">전체</option>
+        <option value="has">기사작성</option>
+        <option value="none">기사미작성</option>
+      </select>
       <input v-model="name" class="filter-input filter-name" type="search" placeholder="선수명 검색…" @keydown.enter="load">
       <button class="btn btn-ghost" type="button" @click="load">검색</button>
       <span class="t-spacer" />
@@ -442,9 +456,9 @@ onMounted(async () => {
     <p v-if="errorMsg" class="load-error">{{ errorMsg }}</p>
     <p v-if="myAllLoading" class="notice">my 일괄 조회 중… {{ myAllProgress }}</p>
     <p v-else-if="notice" class="notice">{{ notice }}</p>
-    <p v-if="!loading" class="result-note">총 {{ rows.length }}명</p>
+    <p v-if="!loading" class="result-note">총 {{ viewRows.length }}명</p>
 
-    <DataTable :columns="columns" :rows="rows" clickable hide-search hide-actions @row-click="openRow" />
+    <DataTable :columns="columns" :rows="viewRows" clickable hide-search hide-actions @row-click="openRow" />
 
     <!-- 상세 드로어 (읽기전용): 선수 + times -->
     <div class="drawer-root" :class="{ open }" @keydown="onKey">
