@@ -199,27 +199,33 @@ sourceData: {
     "startCount": 1571,
     "disciplines": [
       {
-        "count": 539,
+        "athleteCount": 539,
+        "startCount": 539,
         "discipline": "FR"
       },
       {
-        "count": 363,
+        "athleteCount": 363,
+        "startCount": 539,
         "discipline": "BR"
       },
       {
-        "count": 335,
+        "athleteCount": 335,
+        "startCount": 539,
         "discipline": "FL"
       },
       {
-        "count": 334,
+        "athleteCount": 334,
+        "startCount": 539,
         "discipline": "BA"
       },
       {
-        "count": 32,
+        "athleteCount": 32,
+        "startCount": 539,
         "discipline": "FRR"
       },
       {
-        "count": 29,
+        "athleteCount": 29,
+        "startCount": 539,
         "discipline": "MR"
       }
     ],

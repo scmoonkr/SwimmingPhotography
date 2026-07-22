@@ -24,6 +24,16 @@ watch(
   { immediate: true, deep: true },
 )
 
+// 이미지 URL 정규화 — http 면 그대로, '/'·'images/' 는 로컬, 그 외(R2 상대경로)는 CLOUD_PUBLIC_URL 을 앞에 붙인다.
+const cloudBase = String(useRuntimeConfig().public.cloudPublicUrl || '').replace(/\/+$/, '')
+const imgSrc = (u: any) => {
+  const s = String(u || '')
+  if (!s) return ''
+  if (/^https?:\/\//.test(s) || s.startsWith('/')) return s
+  if (/^images\//i.test(s)) return '/' + s
+  return cloudBase ? `${cloudBase}/${s.replace(/^\/+/, '')}` : '/' + s
+}
+
 const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') emit('close') }
 </script>
 
@@ -57,7 +67,7 @@ const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') emit('close') }
           <!-- 표시전용: 이미지 썸네일 줄 -->
           <div v-else-if="f.type === 'thumbs'" class="field-thumbs">
             <template v-if="(form[f.key] || []).length">
-              <img v-for="(u, i) in form[f.key]" :key="i" :src="'/' + String(u).replace(/^\/?/, '')" class="thumb-img" alt="">
+              <img v-for="(u, i) in form[f.key]" :key="i" :src="imgSrc(u)" class="thumb-img" alt="">
             </template>
             <span v-else class="field-meta">—</span>
           </div>
@@ -67,7 +77,7 @@ const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') emit('close') }
           <div v-else-if="f.type === 'imagelist'" class="field-imagelist">
             <template v-if="(form[f.key] || []).length">
               <div v-for="(im, i) in (form[f.key] || []).slice(0, 5)" :key="i" class="il-item">
-                <img v-if="im && im.url" :src="im.url" class="il-thumb" alt="">
+                <img v-if="im && (im.url || im.path)" :src="imgSrc(im.url || im.path)" class="il-thumb" alt="">
                 <span class="il-name">{{ (im && (im.filename || im.name)) || im }}</span>
               </div>
             </template>

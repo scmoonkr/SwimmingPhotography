@@ -104,9 +104,14 @@ const fields: Field[] = [
     set: (r, v) => { r.publishedAt = v },
   },
   {
-    key: 'categories', label: '분류 (searchCategories)', type: 'text',
+    key: 'categories', label: '분류 (searchCategories)', type: 'text', span: 2,
     get: (r) => (r.searchCategories || []).join(', '),
     set: (r, v) => { const a = splitList(v); r.searchCategories = a; r.translations.ko.categories = a },
+  },
+  {
+    key: 'featured', label: 'featured', type: 'checkbox', options: ['featured', '일반'], span: 1,
+    get: (r) => !!r.visibility?.isFeatured,
+    set: (r, v) => { if (!r.visibility) r.visibility = {}; r.visibility.isFeatured = !!v },
   },
   {
     key: 'tags', label: '태그 (searchTags)', type: 'text',
@@ -198,9 +203,9 @@ const onDrawerDelete = async () => {
     <p v-if="errorMsg" class="load-error">데이터를 불러오지 못했습니다: {{ errorMsg }}</p>
 
     <DataTable
-      :columns="e.columns" :rows="rows" clickable hide-search
+      :columns="e.columns" :rows="rows" clickable hide-search hide-actions
       selectable :selected="checked" @update:selected="checked = $event"
-      @row-click="openRow" @delete-row="onDelete"
+      @row-click="openRow"
     />
 
     <DetailDrawer

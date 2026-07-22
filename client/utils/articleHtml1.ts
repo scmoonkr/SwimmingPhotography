@@ -1,6 +1,6 @@
-// articles 문서(JSON) → 기사 상세 HTML 문자열.
-// docs/html/article-20260531-kimheekyung.html 구조를 그대로 재현하되, DB 문서에서 값을 채운다.
-// 반환값은 <div class="layout"> … </div> (기사 본문 + 사이드바) — article/[slug].vue 가 v-html 로 렌더.
+// articles 문서(JSON) → 기사 상세 HTML 문자열. (article1 — 변경된 blocks 스키마 반영판)
+// content.blocks 가 type+source(competition·event·team) 조합으로 바뀐 새 스키마를 렌더한다.
+// 반환값은 <div class="layout"> … </div> (기사 본문 + 사이드바) — article1/[slug].vue 가 v-html 로 렌더.
 
 const esc = (s: any) => String(s ?? '')
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -90,7 +90,7 @@ export interface BuildOpts {
   cloudPublicUrl?: string     // 이미지 스토리지 공개 베이스 (http 아닌 url 앞에 붙임)
 }
 
-export function buildArticleLayout(doc: any, opts: BuildOpts = {}): string {
+export function buildArticleLayout1(doc: any, opts: BuildOpts = {}): string {
   CLOUD_BASE = opts.cloudPublicUrl || ''
   const ko = doc?.translations?.ko || {}
   const en = doc?.translations?.en || {}
@@ -144,7 +144,17 @@ export function buildArticleLayout(doc: any, opts: BuildOpts = {}): string {
   }
   blocks.forEach((b, i) => {
     if (!b || !b.type) return
-    const eb = (enBlocks[i] && enBlocks[i].type === b.type) ? enBlocks[i] : null
+    // EN 블록 매칭 — index + type + source 일치할 때만
+    const eb = (enBlocks[i] && enBlocks[i].type === b.type && (enBlocks[i].source || '') === (b.source || '')) ? enBlocks[i] : null
+    // ── 새 스키마: competition·event·team (source 별) — 섹션(제목?+문단). 훅 클래스 부여 ──
+    if (b.type === 'competition' || b.type === 'event' || b.type === 'team') {
+      const secCls = `art-sec art-${b.type}${b.source ? '-' + b.source : ''}`
+      let inner = ''
+      if (b.title) inner += `<h2${attrEn(eb ? (eb.title || '') : '')}>${esc(b.title)}</h2>`
+      if (b.text) inner += `<p${attrEn(eb ? (eb.text || '') : '')}>${esc(b.text)}</p>`
+      if (inner) bodyParts.push(`<section class="${secCls}">${inner}</section>`)
+      return
+    }
     if (b.type === 'heading') {
       bodyParts.push(`<h2${attrEn(eb ? (eb.text || eb.title || '') : '')}>${esc(b.text || b.title || '')}</h2>`)
     } else if (b.type === 'paragraph') {

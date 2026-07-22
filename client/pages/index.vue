@@ -130,11 +130,11 @@ const featImg = (d: any) => d?.media?.coverImage || (d?.media?.images && d.media
 const feat = computed(() => (listData.value || []).filter((d: any) => d.slug && d.visibility?.isFeatured).slice(0, 3).map((d, i) => ({
   slug: d.slug,
   img: featImg(d),
-  cat: (d.translations?.ko?.categories || [])[0] || d?.payload?.data?.category || '경기',
+  cat: (d.translations?.ko?.categories || [])[0] || '경기',
   catEN: (d.translations?.en?.categories || [])[0] || '',
   title: d.translations?.ko?.title || '',
   titleEN: d.translations?.en?.title || '',
-  date: d?.payload?.data?.date || String(d.publishedAt || '').slice(0, 10),
+  date: String(d.publishedAt || '').slice(0, 10),
   big: i === 0,
 })))
 const featCat = (f: any) => (isEN.value ? (f.catEN || f.cat) : f.cat)

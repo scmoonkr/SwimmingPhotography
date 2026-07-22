@@ -217,6 +217,7 @@ const DATA: Record<string, Entity> = {
       { key: 'title', label: '제목', cls: 'strong', get: (r) => r.translations?.ko?.title || '' },
       { key: 'type', label: '유형', cls: 'muted', get: (r) => (r.type === 'breaking_news' ? '속보' : '기사') },
       { key: 'status', label: '상태', type: 'badge', get: (r) => (r.status === 'published' ? '게시됨' : '초안') },
+      { key: 'featured', label: 'featured', cls: 'num', get: (r) => (r.visibility?.isFeatured ? '★' : '') },
       { key: 'reporter', label: '출처', cls: 'muted', get: (r) => r.reporter?.name || '' },
       { key: 'hasImage', label: '이미지', get: (r) => (hasImage(r) ? '○' : '') },
       { key: 'hasYoutube', label: '유튜브', get: (r) => (hasYoutube(r) ? '○' : '') },

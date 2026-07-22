@@ -7,7 +7,7 @@ export interface ArticleCard {
   cat: string; catENG: string
   title: string; titleENG: string
   thumb: string
-  date: string          // YYYY-MM-DD (payload.data.date, 없으면 publishedAt)
+  date: string          // YYYY-MM-DD (publishedAt 기준)
   region: string; regionENG: string
   competition: string; competitionENG: string
   athlete: string; athleteENG: string
@@ -18,19 +18,18 @@ export interface ArticleCard {
 export function normArticle(d: any): ArticleCard {
   const ko = d?.translations?.ko || {}
   const en = d?.translations?.en || {}
-  const pd = d?.payload?.data || {}
   return {
     slug: d?.slug || '',
-    cat: (ko.categories || [])[0] || pd.category || '경기',
+    cat: (ko.categories || [])[0] || '경기',
     catENG: (en.categories || [])[0] || '',
     title: ko.title || '',
     titleENG: en.title || '',
     thumb: d?.media?.thumb || d?.media?.coverImage || (d?.media?.images && d.media.images[0]?.url) || '',
-    date: pd.date || String(d?.publishedAt || '').slice(0, 10),
-    region: pd.region || '', regionENG: '',
-    competition: pd.competition || '', competitionENG: '',
-    athlete: pd.athlete || '', athleteENG: '',
-    event: pd.event || '', eventENG: '',
-    record: pd.record || '',
+    date: String(d?.publishedAt || '').slice(0, 10),   // 발행일(publishedAt) 기준
+    region: '', regionENG: '',
+    competition: '', competitionENG: '',
+    athlete: '', athleteENG: '',
+    event: '', eventENG: '',
+    record: '',
   }
 }

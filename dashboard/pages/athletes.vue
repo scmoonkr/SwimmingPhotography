@@ -154,7 +154,7 @@ const infoRows = computed<[string, any][][]>(() => {
   ]
 })
 // disciplines [{discipline,count}] → "자유형 539 · 평영 367 …"
-const fmtDisciplines = (d: any) => Array.isArray(d) ? d.map((x) => `${disc(x.discipline)} ${x.count}`).join(' · ') : ''
+const fmtDisciplines = (d: any) => Array.isArray(d) ? d.map((x) => `${disc(x.discipline)} ${x.startCount ?? x.count}`).join(' · ') : ''
 // 기록 비교표(구분·기록·차이·비고) — time 하나 기준
 const isNation = (s: any) => /^[A-Z]{2,3}$/.test(String(s || ''))
 const recNote = (r: any) => (r ? `${r.name || ''}${isNation(r.team) ? ` (${r.team})` : ''} · ${String(r.datetime || '').slice(0, 4)}` : '')
@@ -299,6 +299,9 @@ const generateArticle = async () => {
   try {
     const r = await $fetch<any>(api('/generate-article'), { method: 'POST', body: { data: payload } })
     genJson.value = r.content || ''
+    notice.value = r.finishReason === 'length'
+      ? `⚠ 응답이 토큰 한도로 잘렸습니다(출력 ${r.usage?.completion_tokens ?? '?'} 토큰). NVIDIA_MAX_TOKENS를 올리거나 스키마를 줄이세요.`
+      : `기사 생성 완료${r.usage ? ` (출력 ${r.usage.completion_tokens} 토큰)` : ''}`
   } catch (err: any) {
     genJson.value = '생성 실패: ' + (err?.data?.error || err?.message || '')
   } finally {

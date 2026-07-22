@@ -37,6 +37,7 @@ DB name: SwimmingPhotography
       {
         imageId,
         url: "",
+        thumb: "",
         role: "race", // race | award | team_photo | cheering | profile | venue
         photographer: "",
         photographerEng: "",

@@ -14,7 +14,7 @@ const DISCIPLINE_LABEL: Record<string, string> = {
 }
 const discLabel = (v: string) => DISCIPLINE_LABEL[v] || v || ''
 // disciplines [{discipline,count}] → "자유형 120 · 배영 80"
-const fmtDisciplines = (d: any) => Array.isArray(d) ? d.map((x) => `${discLabel(x.discipline)} ${x.count}`).join(' · ') : (d ?? '')
+const fmtDisciplines = (d: any) => Array.isArray(d) ? d.map((x) => `${discLabel(x.discipline)} ${x.startCount ?? x.count}`).join(' · ') : (d ?? '')
 
 // ── 이 대회 기록 가져오기 (mergedTimes → SP.times upsert) ──
 const importing = ref(false)

@@ -40,6 +40,17 @@ const getRules = () => {
   return RULES
 }
 
+// docs/*.md 파일 읽기 (LLM 프롬프트 재료: prompt.md=system, schema.md=출력형식).
+// 캐시하지 않음 — 문서를 편집하면 다음 생성부터 바로 반영(서버 재시작 불필요).
+const getDoc = (rel) => {
+  try { return fs.readFileSync(path.resolve(__dirname, '../../../docs/' + rel), 'utf8') } catch { return '' }
+}
+// schema.md 의 첫 ```json 블록(= A. 기사 JSON 출력형식) 추출
+const getOutputSchema = () => {
+  const m = getDoc('schema.md').match(/```json\s*([\s\S]*?)```/)
+  return m ? m[1].trim() : ''
+}
+
 // 대회 select 옵션 (SP.competitions)
 router.get('/competitions', async (req, res) => {
   try {
@@ -521,23 +532,17 @@ router.post('/generate-article', async (req, res) => {
     const name = data?.athlete?.name || data?.name
     if (!name) return res.status(400).json({ error: '선수 데이터가 없습니다.' })
 
-    const rules = getRules()
-    const sys = `너는 수영 전문 기자다. [데이터]의 사실만으로 한국어 경기 기사를 작성하고, 아래 [출력 스키마]의 모든 필드를 실제 내용으로 채워 JSON만 출력한다.
-빈 문자열("")을 남기지 마라. title·subtitle·lead·blocks(2~4개 문단)·conclusion·tags 를 모두 채워라.
-데이터에 없는 사실(나이·소속·신기록·메달·우승 등)은 지어내지 마라. JSON 외 텍스트(설명·마크다운·코드펜스)는 출력하지 마라.
-
-[작성 규칙 — 표준기사 가이드라인]
-${rules}
-
-[출력 스키마]
-{"title":"기사 제목","subtitle":"부제","lead":"리드 문단","blocks":[{"type":"paragraph","text":"본문 문단1"},{"type":"paragraph","text":"본문 문단2"}],"conclusion":"마무리 문단","tags":["태그1","태그2"]}`
-    const user = `[데이터]\n${JSON.stringify(data, null, 2)}\n\n위 데이터로 기사를 작성하고, 스키마의 모든 필드를 채운 JSON만 출력하라.`
+    // system = docs/prompt.md 전문, 출력형식 = docs/schema.md 의 기사 JSON(A). 입력 = docs/sourcedata.md 규격(buildPayload).
+    const promptMd = getDoc('prompt.md') || getRules()
+    const schema = getOutputSchema()
+    const sys = `${promptMd}${schema ? `\n\n## 출력 형식 (schema.md · 기사 JSON A)\n아래 구조의 JSON만 출력한다(블록 type·source 포함). 주석(//)은 설명이므로 출력하지 않는다.\n${schema}` : ''}`
+    const user = `[sourceData]\n${JSON.stringify(data, null, 2)}\n\n위 sourceData만 근거로, schema.md 기사 JSON 형식으로만 출력하라. 설명·마크다운·코드펜스 금지.`
 
     const r = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model, temperature: 0.4, top_p: 0.9, max_tokens: 1600,
+        model, temperature: 0.3, top_p: 0.9, max_tokens: Number(process.env.NVIDIA_MAX_TOKENS) || 8192,
         messages: [{ role: 'system', content: sys }, { role: 'user', content: user }],
       }),
     })
@@ -546,8 +551,10 @@ ${rules}
       return res.status(502).json({ error: `LLM 오류 ${r.status}: ${txt.slice(0, 300)}` })
     }
     const out = await r.json()
-    const content = out?.choices?.[0]?.message?.content || ''
-    res.json({ content })
+    const choice = out?.choices?.[0] || {}
+    const content = choice.message?.content || ''
+    // finish_reason='length' 면 max_tokens 초과로 잘린 것 → 프런트에서 경고
+    res.json({ content, finishReason: choice.finish_reason || '', usage: out?.usage || null })
   } catch (e) {
     res.status(500).json({ error: e.message })
   }

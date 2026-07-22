@@ -165,12 +165,12 @@ router.post('/import', async (req, res) => {
             teams: [{ $match: { team: { $type: 'string', $ne: '' } } }, { $group: { _id: '$team' } }, { $count: 'n' }],
             athletes: [{ $match: IND }, { $group: { _id: { name: '$name', gender: '$gender' } } }, { $count: 'n' }],
             starts: [{ $match: IND }, { $count: 'n' }],
-            // 종목별 time count — [{ discipline, count }] (계영 포함, count 내림차순)
+            // 종목별 — [{ discipline, athleteCount(선수 distinct), startCount(기록수) }] (계영 포함, startCount 내림차순)
             disciplines: [
               { $match: { discipline: { $type: 'string', $ne: '' } } },
-              { $group: { _id: '$discipline', count: { $sum: 1 } } },
-              { $sort: { count: -1 } },
-              { $project: { _id: 0, discipline: '$_id', count: 1 } },
+              { $group: { _id: '$discipline', names: { $addToSet: { n: '$name', g: '$gender' } }, startCount: { $sum: 1 } } },
+              { $project: { _id: 0, discipline: '$_id', athleteCount: { $size: '$names' }, startCount: 1 } },
+              { $sort: { startCount: -1 } },
             ],
           },
         },

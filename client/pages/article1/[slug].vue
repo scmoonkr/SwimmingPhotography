@@ -3,7 +3,7 @@
 // 문서 JSON → HTML(buildArticleLayout) → v-html, 상호작용은 wireArticleInteractions 로 공유.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import '~/assets/css/article.css'
-import { buildArticleLayout, type RelatedItem } from '~/utils/articleHtml'
+import { buildArticleLayout1, type RelatedItem } from '~/utils/articleHtml1'
 import { wireArticleInteractions, type ArticleWiring } from '~/utils/articleInteractions'
 
 const { isEN } = useLang()
@@ -12,7 +12,7 @@ const slug = computed(() => String(route.params.slug || ''))
 
 // slug 로 문서 조회 (+ 같은 대회 최근 기사)
 const { data, error } = await useAsyncData(
-  () => 'article:' + slug.value,
+  () => 'article1:' + slug.value,
   async () => {
     const list = await $fetch<any[]>('/api/articles', { params: { slug: slug.value, limit: 1 } })
     const doc = (list && list[0]) || null
@@ -43,7 +43,7 @@ const { data, error } = await useAsyncData(
 const doc = computed<any>(() => data.value?.doc || null)
 const html = computed(() => {
   if (!doc.value) return ''
-  return buildArticleLayout(doc.value, {
+  return buildArticleLayout1(doc.value, {
     related: data.value?.related || [],
     relatedHeading: '최근 기사',
     moreHref: '/search',
