@@ -15,15 +15,30 @@ const toId = (id) => {
 // 목록. type/status 외에 category(searchCategories 포함), q(제목 부분검색) 지원.
 router.get('/', async (req, res) => {
   try {
-    const { type, status, category, q, slug, featured, limit = 200 } = req.query
+    const { type, status, category, q, slug, featured, dateFrom, hasImage, limit = 200 } = req.query
     const filter = {}
     if (type) filter.type = type
-    if (status) filter.status = status
+    if (status) filter.status = status          // 전체(미지정) / published / draft
     if (slug) filter.slug = String(slug)
     if (category) filter.searchCategories = String(category)
     if (q) filter['translations.ko.title'] = { $regex: String(q), $options: 'i' }
     // 홈 상단 하이라이트: visibility.isFeatured=true 인 기사만
     if (featured === 'true' || featured === '1') filter['visibility.isFeatured'] = true
+    // 작성일자(createdAt) >= dateFrom — createdAt 이 문자열/Date 혼재라 $toDate 로 변환해 비교
+    if (dateFrom) {
+      const from = new Date(String(dateFrom))
+      if (!Number.isNaN(from.getTime())) {
+        filter.$expr = { $gte: [{ $convert: { input: '$createdAt', to: 'date', onError: null, onNull: null } }, from] }
+      }
+    }
+    // 이미지 존재 — media.images 1개 이상, 또는 coverImage/thumb 존재
+    if (hasImage === 'true' || hasImage === '1') {
+      filter.$or = [
+        { 'media.images.0': { $exists: true } },
+        { 'media.coverImage': { $nin: [null, ''] } },
+        { 'media.thumb': { $nin: [null, ''] } },
+      ]
+    }
     const docs = await (await coll())
       .find(filter)
       .sort({ publishedAt: -1, createdAt: -1 })

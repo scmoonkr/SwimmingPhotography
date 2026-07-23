@@ -69,6 +69,8 @@ const viewRows = computed(() => {
   if (articleFilter.value === 'none') return rows.value.filter((r) => !r.hasArticle)
   return rows.value
 })
+// 테이블 체크박스 선택 (배치 LLM생성 대상)
+const selectedRows = ref<any[]>([])
 const loading = ref(false)
 const errorMsg = ref('')
 const notice = ref('')
@@ -82,6 +84,7 @@ const load = async () => {
     if (group.value) params.group = group.value
     if (name.value.trim()) params.name = name.value.trim()
     rows.value = await $fetch<any[]>(api(), { params })
+    selectedRows.value = []   // 재조회 시 선택 초기화(참조 불일치 방지)
     // group 미지정 조회일 때 group 셀렉트 옵션 갱신(전체 집합 유지)
     if (!group.value) groupOptions.value = [...new Set(rows.value.map((r) => r.group).filter(Boolean))].sort()
   } catch (err: any) {
@@ -103,8 +106,9 @@ const pbByEvent = ref<Record<string, any>>({})
 const athleteImages = ref<{ type: string; url: string; thumbnail?: string; filename?: string }[]>([])
 const eventStats = ref<{ events: Record<string, any>; heats: any[] }>({ events: {}, heats: [] })
 
-const openRow = async (r: any) => {
-  selected.value = r; open.value = true
+// 선수 상세 데이터 로드 (drawer 표시·배치 LLM생성 공용) — refs(selected/eventStats/teamData/records/pb/images) 채움
+const loadAthleteData = async (r: any) => {
+  selected.value = r
   teamStats.value = null; teamData.value = null; recordsByEvent.value = {}; pbByEvent.value = {}; activeTab.value = 0; genJson.value = ''; note.value = ''
   athleteImages.value = []
   eventStats.value = { events: {}, heats: [] }
@@ -144,6 +148,10 @@ const openRow = async (r: any) => {
       pbByEvent.value = { ...pbByEvent.value, [k]: pb }
     } catch {}
   }
+}
+const openRow = async (r: any) => {
+  open.value = true
+  await loadAthleteData(r)
 }
 // 기록 탭 (종목별) — timeStamp 빠른순
 const timeTabs = computed<any[]>(() => (selected.value?.times || []).slice().sort((a: any, b: any) => (a.timeStamp || Infinity) - (b.timeStamp || Infinity)))
@@ -372,6 +380,40 @@ const saveAthlete = async () => {
   }
 }
 
+// ── 배치 LLM생성 — 체크된 선수들을 드로어의 '기사LLM생성 + 저장'과 동일하게 순차 처리 ──
+const batchLoading = ref(false)
+const batchProgress = ref('')
+const generateSelected = async () => {
+  const targets = [...selectedRows.value]
+  if (!targets.length) { alert('선택된 선수가 없습니다.'); return }
+  if (!competitionID.value) { alert('대회를 먼저 선택하세요. (종목·팀 통계에 필요)'); return }
+  if (!confirm(`선택한 ${targets.length}명의 기사를 LLM으로 생성하고 articles에 저장합니다. 계속할까요?`)) return
+  batchLoading.value = true; notice.value = ''; errorMsg.value = ''
+  let ok = 0, fail = 0
+  for (let i = 0; i < targets.length; i++) {
+    const r = targets[i]
+    batchProgress.value = `${i + 1}/${targets.length} · ${r.name}`
+    try {
+      await loadAthleteData(r)                     // 드로어와 동일한 소스 데이터 로드
+      const payload = buildPayload()
+      if (!payload) { fail++; continue }
+      const gen = await $fetch<any>(api('/generate-article'), { method: 'POST', body: { data: payload } })
+      const content = gen?.content || ''
+      if (!content) { fail++; continue }
+      // 드로어 저장과 동일 — genJson(content) 을 articles 에 upsert
+      await $fetch(api('/save'), {
+        method: 'POST',
+        body: { name: r.name, gender: r.gender, group: r.group, ageGroup: r.ageGroup, team: r.team, competitionID: competitionID.value || null, json: payload, llm: content, note: '' },
+      })
+      ok++
+    } catch { fail++ }
+  }
+  batchLoading.value = false; batchProgress.value = ''
+  notice.value = `LLM 생성·저장 완료 — 성공 ${ok}${fail ? ` · 실패 ${fail}` : ''}`
+  selectedRows.value = []
+  await load()                                     // hasArticle(기사) 갱신
+}
+
 // ── "my" — name·gender 로 myranking.co.kr 크롤링 → SP.myTimes upsert ──
 const myLoading = ref(false)
 const fetchMy = async () => {
@@ -443,6 +485,9 @@ onMounted(async () => {
       </select>
       <input v-model="name" class="filter-input filter-name" type="search" placeholder="선수명 검색…" @keydown.enter="load">
       <button class="btn btn-ghost" type="button" @click="load">검색</button>
+      <button class="btn btn-primary" type="button" :disabled="batchLoading || !selectedRows.length" @click="generateSelected">
+        {{ batchLoading ? `LLM 생성 중… ${batchProgress}` : `LLM생성${selectedRows.length ? ` (${selectedRows.length})` : ''}` }}
+      </button>
       <span class="t-spacer" />
       <button class="btn btn-primary" type="button" @click="openAdd">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
@@ -456,9 +501,13 @@ onMounted(async () => {
     <p v-if="errorMsg" class="load-error">{{ errorMsg }}</p>
     <p v-if="myAllLoading" class="notice">my 일괄 조회 중… {{ myAllProgress }}</p>
     <p v-else-if="notice" class="notice">{{ notice }}</p>
-    <p v-if="!loading" class="result-note">총 {{ viewRows.length }}명</p>
+    <p v-if="batchLoading" class="notice">LLM 생성·저장 중… {{ batchProgress }}</p>
+    <p v-if="!loading" class="result-note">총 {{ viewRows.length }}명<span v-if="selectedRows.length"> · 선택 {{ selectedRows.length }}</span></p>
 
-    <DataTable :columns="columns" :rows="viewRows" clickable hide-search hide-actions @row-click="openRow" />
+    <DataTable
+      :columns="columns" :rows="viewRows" clickable hide-search hide-actions selectable
+      :selected="selectedRows" @update:selected="selectedRows = $event" @row-click="openRow"
+    />
 
     <!-- 상세 드로어 (읽기전용): 선수 + times -->
     <div class="drawer-root" :class="{ open }" @keydown="onKey">

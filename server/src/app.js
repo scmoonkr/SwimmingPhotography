@@ -10,6 +10,7 @@ import competitionsRouter from './routes/competitions.js'
 import venuesRouter from './routes/venues.js'
 import timesRouter from './routes/times.js'
 import athletesRouter from './routes/athletes.js'
+import imagesRouter from './routes/images.js'
 import countsRouter from './routes/counts.js'
 import streamRouter from './routes/stream.js'
 
@@ -32,6 +33,7 @@ app.use('/api/competitions', competitionsRouter)
 app.use('/api/venues', venuesRouter)
 app.use('/api/times', timesRouter)
 app.use('/api/athletes', athletesRouter)
+app.use('/api/images', imagesRouter)
 app.use('/api/counts', countsRouter)
 app.use('/api/stream', streamRouter)
 

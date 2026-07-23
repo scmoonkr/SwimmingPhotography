@@ -9,9 +9,13 @@ const TYPE = 'article'
 const e = useEntity('article')
 const api = (p = '') => `${useRuntimeConfig().public.apiBase}/api/articles${p}`
 
-// ── 필터 (분류 + 제목) ──
+// ── 필터 (분류 + 상태 + 작성일자 + featured + 이미지 + 제목) ──
 const category = ref('')
 const q = ref('')
+const status = ref('')          // '' 전체 / published 게시됨 / draft 초안
+const dateFrom = ref('')        // 작성일자(createdAt) >= 이 날짜
+const featured = ref(false)     // visibility.isFeatured 만
+const hasImage = ref(false)     // 이미지 있는 기사만
 
 const rows = ref<any[]>([])
 const errorMsg = ref('')
@@ -22,6 +26,10 @@ const load = async () => {
     const params: Record<string, any> = { type: TYPE }
     if (category.value) params.category = category.value
     if (q.value.trim()) params.q = q.value.trim()
+    if (status.value) params.status = status.value
+    if (dateFrom.value) params.dateFrom = dateFrom.value
+    if (featured.value) params.featured = 'true'
+    if (hasImage.value) params.hasImage = 'true'
     const data = await $fetch<any[]>(api(), { params })
     // 작성일(createdAt) 최근순
     rows.value = (data || []).slice().sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
@@ -187,6 +195,14 @@ const onDrawerDelete = async () => {
         <option value="">전체 분류</option>
         <option v-for="c in BN_CATEGORIES" :key="c.v" :value="c.v">{{ c.l }}</option>
       </select>
+      <select v-model="status" class="filter-select" aria-label="상태" @change="load">
+        <option value="">전체</option>
+        <option value="published">게시됨</option>
+        <option value="draft">초안</option>
+      </select>
+      <input v-model="dateFrom" class="filter-select" type="date" aria-label="작성일자(이후)" title="작성일자 ≥" @change="load">
+      <label class="filter-check"><input v-model="featured" type="checkbox" @change="load"> featured</label>
+      <label class="filter-check"><input v-model="hasImage" type="checkbox" @change="load"> 이미지</label>
       <input v-model="q" class="filter-input" type="search" placeholder="제목 검색…" @keydown.enter="load">
       <button class="btn btn-ghost" type="button" @click="load">검색</button>
       <span class="filter-spacer" />
@@ -228,6 +244,8 @@ const onDrawerDelete = async () => {
   background: var(--paper); border: 1px solid var(--line); border-radius: 6px; padding: 9px 12px;
 }
 .filter-input:focus, .filter-select:focus { outline: none; border-color: var(--orange); }
+.filter-check { display: inline-flex; align-items: center; gap: 5px; font-family: var(--sans); font-size: 13.5px; color: var(--ink); cursor: pointer; white-space: nowrap; }
+.filter-check input { width: 15px; height: 15px; cursor: pointer; accent-color: var(--orange); }
 .filter-spacer { flex: 1; }
 .load-error {
   margin-bottom: 14px; padding: 10px 14px; border-radius: 6px;

@@ -399,6 +399,37 @@ router.post('/save', async (req, res) => {
       if (article && typeof article === 'object' && !Array.isArray(article)) {
         delete article._id                            // _id 는 수정 불가
         article.created = new Date()                  // 오늘 날짜 ISODate
+
+        // media.images 를 소스 이미지(payload.images: [{type,url(상대경로)}])로 구성.
+        // url·role(type 소문자)·sceneType(type 대문자)·photographer 는 실제/기본값,
+        // title·caption(translations)은 LLM 생성분(article.media.images)에서 url·순서로 매칭해 가져온다.
+        const srcImages = Array.isArray(json?.images) ? json.images : []
+        if (srcImages.length) {
+          const llmImgs = Array.isArray(article.media?.images) ? article.media.images : []
+          const byUrl = new Map(llmImgs.filter((x) => x && x.url).map((x) => [String(x.url), x]))
+          const trOf = (im) => {
+            const ko = (im && im.translations && im.translations.ko) || {}
+            return { ko: { title: ko.title || '', caption: ko.caption || '' } }
+          }
+          const images = srcImages.map((im, i) => {
+            const url = String(im.url || '')
+            const type = String(im.type || '')
+            const lm = byUrl.get(url) || llmImgs[i] || null
+            return {
+              imageId: null,
+              url,
+              role: type.toLowerCase(),
+              sceneType: type.toUpperCase(),
+              photographer: '', photographerEng: '', email: '',
+              translations: trOf(lm),
+            }
+          })
+          const urlOfType = (t) => { const f = srcImages.find((im) => String(im.type || '').toUpperCase() === t); return f ? String(f.url || '') : '' }
+          const thumb = urlOfType('RACE') || String(srcImages[0].url || '')
+          const coverImage = urlOfType('START') || thumb
+          article.media = { ...(article.media && typeof article.media === 'object' ? article.media : {}), thumb, coverImage, images }
+        }
+
         const ar = await (await SP()).collection('articles').updateOne(
           akey,
           { $set: { ...article, ...akey } },          // 키(competitionID·ageGroup·name)는 항상 akey 로 고정
