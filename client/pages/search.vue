@@ -180,7 +180,8 @@ useHead({ title: computed(() => (isEN.value ? 'Search — Swimming Photography' 
       <template v-for="g in groups" :key="g.ym">
         <div class="month-group">{{ g.label }}</div>
         <NuxtLink v-for="(a, i) in g.rows" :key="g.ym + i" class="row" :to="'/article/' + a.slug">
-          <span class="thumb" aria-hidden="true" :style="a.thumb ? { backgroundImage: `url('${img(a.thumb)}')` } : undefined">
+          <span class="thumb" aria-hidden="true">
+            <img v-if="a.thumb" class="thumb-img" :src="img(a.thumb)" alt="" loading="lazy">
             <span class="thumb-date">{{ fmtDate(a.date) }}</span>
           </span>
           <span class="c-title"><span class="c-cat">{{ pick(a, 'cat') }}</span><span class="c-bar"> | </span>{{ pick(a, 'title') }}</span>
@@ -223,6 +224,8 @@ useHead({ title: computed(() => (isEN.value ? 'Search — Swimming Photography' 
 .items { margin: 6px 0 8px; }
 .row { color: var(--ink); }
 .thumb { background-color: var(--paper-deep); background-size: cover; background-position: center; position: relative; overflow: hidden; }
+/* 썸네일을 실제 <img> 로 렌더 — 인라인 background-image 하이드레이션 유실 방지 */
+.thumb-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 .thumb-date { position: absolute; left: 9px; bottom: 8px; font-family: var(--serif); font-size: 12px; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.5); letter-spacing: .01em; pointer-events: none; display: none; }
 .c-cat { color: var(--orange); font-weight: 700; margin-right: 0.4em; }
 .c-bar { display: none; }
