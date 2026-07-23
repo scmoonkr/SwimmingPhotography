@@ -145,7 +145,7 @@ const infoRows = () => {
 .drawer-root { position: fixed; inset: 0; z-index: 1000; pointer-events: none; }
 .drawer-ov { position: absolute; inset: 0; background: rgba(26, 26, 26, .34); opacity: 0; transition: opacity .22s ease; }
 .drawer {
-  position: absolute; top: 0; right: 0; height: 100%; width: min(560px, 96vw); background: var(--paper);
+  position: absolute; top: 0; right: 0; height: 100%; width: min(1120px, 96vw); background: var(--paper);
   border-left: 1px solid var(--line); box-shadow: -18px 0 50px rgba(26, 26, 26, .12);
   display: flex; flex-direction: column; transform: translateX(100%); transition: transform .26s cubic-bezier(.4, 0, .2, 1);
 }
