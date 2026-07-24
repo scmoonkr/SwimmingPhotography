@@ -17,18 +17,17 @@ const img = (p: string) => {
   return cloudBase ? cloudBase.replace(/\/+$/, '') + '/' + s : '/' + s
 }
 
-// ── 뷰(grid/list) ──
-const view = ref<'grid' | 'list'>('grid')
+// ── 뷰(grid/list) ── 쿠키로 저장 → SSR 이 처음부터 저장된 뷰로 렌더(그리드↔리스트 깜박임·이중 클래스 방지).
+// (localStorage 는 마운트 후에야 읽혀 SSR grid → 클라 list 전환 시 썸네일이 깜박였다 사라지는 FOUC 발생)
+const viewCookie = useCookie<'grid' | 'list'>('mb_view', { default: () => 'grid', sameSite: 'lax', maxAge: 60 * 60 * 24 * 365 })
+const view = ref<'grid' | 'list'>(viewCookie.value === 'list' ? 'list' : 'grid')
 useHead({
   title: 'Swimming Photography',
   bodyAttrs: { class: computed(() => 'view-' + view.value) },
 })
-onMounted(() => {
-  try { const s = localStorage.getItem('mb_view'); if (s === 'grid' || s === 'list') view.value = s } catch {}
-})
 const setView = (v: 'grid' | 'list') => {
   view.value = v
-  try { localStorage.setItem('mb_view', v) } catch {}
+  viewCookie.value = v
 }
 
 // 뷰 토글 라벨 (선택 = 오른쪽/진하게)
@@ -270,7 +269,7 @@ watch([bkItems, view, isEN], () => nextTick().then(syncBBHeight))
           :data-cat="a.cat" :data-region="a.region" :data-competition="a.competition"
         >
           <span class="thumb" aria-hidden="true">
-            <img v-if="a.thumb" class="thumb-img" :src="img(a.thumb)" alt="" loading="lazy">
+            <img v-if="a.thumb" class="thumb-img" :src="img(a.thumb)" alt="" decoding="async">
             <span class="thumb-date">{{ fmtDate(a.date) }}</span>
           </span>
           <span class="c-title"><span class="c-cat">{{ pick(a, 'cat') }}</span><span class="c-bar"> | </span>{{ pick(a, 'title') }}</span>

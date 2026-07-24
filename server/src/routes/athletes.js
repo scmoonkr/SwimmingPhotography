@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { Router } from 'express'
 import { SP, BR } from '../db.js'
 import { publicUrl } from '../r2.js'
+import { callLLM } from '../llm.js'
 
 const router = Router()
 const coll = async () => (await SP()).collection('times')
@@ -606,9 +607,6 @@ router.get('/pb', async (req, res) => {
 // 기사 LLM 생성 — 드로어 내용(JSON)을 표준기사 가이드라인 지침과 함께 NVIDIA 모델에 전달해 기사 JSON 생성.
 router.post('/generate-article', async (req, res) => {
   try {
-    const apiKey = process.env.NVIDIA_API_KEY
-    const model = process.env.NVIDIA_MODEL_NAME || 'meta/llama-3.1-8b-instruct'
-    if (!apiKey) return res.status(500).json({ error: 'NVIDIA_API_KEY 가 설정되지 않았습니다.' })
     const data = (req.body && req.body.data) || req.body || {}
     const name = data?.athlete?.name || data?.name
     if (!name) return res.status(400).json({ error: '선수 데이터가 없습니다.' })
@@ -619,25 +617,13 @@ router.post('/generate-article', async (req, res) => {
     const sys = `${promptMd}${schema ? `\n\n## 출력 형식 (schema.md · 기사 JSON A)\n아래 구조의 JSON만 출력한다(블록 type·source 포함). 주석(//)은 설명이므로 출력하지 않는다.\n${schema}` : ''}`
     const user = `[sourceData]\n${JSON.stringify(data, null, 2)}\n\n위 sourceData만 근거로, schema.md 기사 JSON 형식으로만 출력하라. 설명·마크다운·코드펜스 금지.`
 
-    const r = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model, temperature: 0.3, top_p: 0.9, max_tokens: Number(process.env.NVIDIA_MAX_TOKENS) || 8192,
-        messages: [{ role: 'system', content: sys }, { role: 'user', content: user }],
-      }),
-    })
-    if (!r.ok) {
-      const txt = await r.text().catch(() => '')
-      return res.status(502).json({ error: `LLM 오류 ${r.status}: ${txt.slice(0, 300)}` })
-    }
-    const out = await r.json()
-    const choice = out?.choices?.[0] || {}
-    const content = choice.message?.content || ''
-    // finish_reason='length' 면 max_tokens 초과로 잘린 것 → 프런트에서 경고
-    res.json({ content, finishReason: choice.finish_reason || '', usage: out?.usage || null })
+    // LLM 제공자는 .env LLM_MODEL(chatgpt|claude|gemini|nvidia)로 선택 — llm.js 가 라우팅.
+    const maxTokens = Number(process.env.LLM_MAX_TOKENS || process.env.NVIDIA_MAX_TOKENS) || 8192
+    const out = await callLLM({ system: sys, user, temperature: 0.3, maxTokens })
+    // finishReason='length' 면 max_tokens 초과로 잘린 것 → 프런트에서 경고
+    res.json({ content: out.content, finishReason: out.finishReason, usage: out.usage, provider: out.provider, model: out.model })
   } catch (e) {
-    res.status(500).json({ error: e.message })
+    res.status(502).json({ error: e.message })
   }
 })
 
