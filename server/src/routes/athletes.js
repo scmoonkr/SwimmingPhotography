@@ -627,6 +627,25 @@ router.post('/generate-article', async (req, res) => {
   }
 })
 
+// sourceData JSON 파일 저장 — LLM 입력용 sourceData를 DOWNLOAD_DIR/sourcedata/{competitionID}-{name}.json 으로 저장
+router.post('/save-source-json', async (req, res) => {
+  try {
+    const { competitionID, name, data } = req.body || {}
+    if (!name || !data) return res.status(400).json({ error: '선수명(name)과 데이터(data)가 필요합니다.' })
+    const dir = process.env.DOWNLOAD_DIR
+    if (!dir) return res.status(500).json({ error: 'DOWNLOAD_DIR 환경변수가 설정되지 않았습니다.' })
+    const safeDir = path.join(dir, 'sourcedata')
+    fs.mkdirSync(safeDir, { recursive: true })
+    const safeName = String(name).replace(/[\\/:*?"<>|]/g, '_')
+    const safeCid = String(competitionID ?? 'unknown').replace(/[\\/:*?"<>|]/g, '_')
+    const filename = `${safeCid}-${safeName}.json`
+    fs.writeFileSync(path.join(safeDir, filename), JSON.stringify(data, null, 2), 'utf8')
+    res.json({ ok: true, filename })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
 // 선수 추가 — {name, gender, group, ageGroup, team, sido, competitionID, times:[{discipline,distance,course,time,rank,round}]}
 // 각 times 를 SP.times 문서로 저장(선수는 times 그룹으로 표현되므로).
 router.post('/', async (req, res) => {
