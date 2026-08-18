@@ -120,7 +120,7 @@ const fields: Field[] = [
   { key: 'time', label: '기록', span: 1, get: (r) => r.time ?? '', set: (r, v) => { r.time = v } },
   { key: 'rank', label: '순위', span: 1, get: (r) => r.rank ?? '', set: (r, v) => { r.rank = numOrNull(v) } },
   { key: 'datetime', label: '일자', span: 1, get: (r) => r.datetime ?? '', set: (r, v) => { r.datetime = v } },
-  { key: 'heat', label: 'heat', span: 1, get: (r) => r.heat ?? '', set: (r, v) => { r.heat = numOrNull(v) } },
+  { key: 'heat', label: 'heat', span: 1, get: (r) => r.heat ?? '', set: (r, v) => { r.heat = v } },
   // 4행: 대회 ID(1/4) · 대회명(3/4)
   { key: 'competitionID', label: '대회 ID', span: 1, get: (r) => r.competitionID ?? '', set: (r, v) => { r.competitionID = numOrNull(v) } },
   { key: 'competitionName', label: '대회', span: 3, get: (r) => r.competitionName ?? '', set: (r, v) => { r.competitionName = v } },

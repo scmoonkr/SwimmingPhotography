@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 기사 — SwimmingPhotography DB(articles, type=article). Express(/api/articles) 경유.
 // 속보(breaking_news) 페이지와 동일 구조, type 만 다름.
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useEntity, slugify, blankArticle, BN_CATEGORIES } from '~/composables/useMock'
 import type { Field } from '~/composables/useMock'
 
@@ -44,24 +44,30 @@ const selected = ref<Record<string, any> | null>(null)
 const open = ref(false)
 const isNew = ref(false)
 
-// ── 체크박스 선택 + 일괄 게시 ──
+// ── 체크박스 선택 + 일괄 게시/초안 ──
+// 게시 버튼: 선택된 '초안' 기사만 게시. 초안 버튼: 선택된 '게시됨' 기사만 초안으로.
 const checked = ref<Record<string, any>[]>([])
-const publishing = ref(false)
-const publishSelected = async () => {
-  const ids = checked.value.map((r) => r._id).filter(Boolean)
+const busy = ref<'' | 'publish' | 'draft'>('')
+const draftChecked = computed(() => checked.value.filter((r) => r.status !== 'published'))
+const pubChecked = computed(() => checked.value.filter((r) => r.status === 'published'))
+
+const setStatus = async (path: '/publish' | '/unpublish', targets: Record<string, any>[], verb: string, kind: 'publish' | 'draft') => {
+  const ids = targets.map((r) => r._id).filter(Boolean)
   if (!ids.length) return
-  if (!confirm(`선택한 ${ids.length}건을 게시하시겠습니까?`)) return
-  publishing.value = true
+  if (!confirm(`선택한 ${ids.length}건을 ${verb}하시겠습니까?`)) return
+  busy.value = kind
   try {
-    await $fetch(api('/publish'), { method: 'POST', body: { ids } })
+    await $fetch(api(path), { method: 'POST', body: { ids } })
     checked.value = []
     await load()
   } catch (err: any) {
-    alert('게시 실패: ' + (err?.data?.error || err?.message || ''))
+    alert(`${verb} 실패: ` + (err?.data?.error || err?.message || ''))
   } finally {
-    publishing.value = false
+    busy.value = ''
   }
 }
+const publishSelected = () => setStatus('/publish', draftChecked.value, '게시', 'publish')
+const draftSelected = () => setStatus('/unpublish', pubChecked.value, '초안 전환', 'draft')
 
 const splitList = (v: string) => (v || '').split(',').map((s) => s.trim()).filter(Boolean)
 
@@ -208,8 +214,12 @@ const onDrawerDelete = async () => {
       <span class="filter-spacer" />
       <button
         class="btn btn-ghost" type="button"
-        :disabled="!checked.length || publishing" @click="publishSelected"
-      >{{ publishing ? '게시 중…' : (checked.length ? `게시 (${checked.length})` : '게시') }}</button>
+        :disabled="!draftChecked.length || !!busy" @click="publishSelected"
+      >{{ busy === 'publish' ? '게시 중…' : (draftChecked.length ? `게시 (${draftChecked.length})` : '게시') }}</button>
+      <button
+        class="btn btn-ghost" type="button"
+        :disabled="!pubChecked.length || !!busy" @click="draftSelected"
+      >{{ busy === 'draft' ? '초안 전환 중…' : (pubChecked.length ? `초안 (${pubChecked.length})` : '초안') }}</button>
       <button class="btn btn-primary" type="button" @click="openNew">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
         기사 등록

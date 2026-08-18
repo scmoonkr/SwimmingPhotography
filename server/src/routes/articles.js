@@ -113,6 +113,22 @@ router.post('/publish', async (req, res) => {
   }
 })
 
+// 일괄 초안 — { ids: [...] } → status:'draft' (게시 취소). publishedAt 은 유지.
+router.post('/unpublish', async (req, res) => {
+  try {
+    const ids = (req.body && req.body.ids) || []
+    const oids = ids.map(toId).filter(Boolean)
+    if (!oids.length) return res.status(400).json({ error: 'ids 가 비어 있습니다.' })
+    const r = await (await coll()).updateMany(
+      { _id: { $in: oids } },
+      { $set: { status: 'draft', updatedAt: new Date() } },
+    )
+    res.json({ matched: r.matchedCount, modified: r.modifiedCount })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
 // 수정
 router.put('/:id', async (req, res) => {
   try {

@@ -304,7 +304,7 @@ watch([bkItems, view, isEN], () => nextTick().then(syncBBHeight))
 
 /* 검색 */
 .search-panel { padding: 0; }
-.search-heading { font-family: var(--serif); font-size: 12.5px; font-weight: 400; color: var(--ink-mute); padding: 26px 0 10px; }
+.search-heading { font-family: var(--serif); font-size: 12.5px; font-weight: 400; color: var(--ink-mute); padding: 0 0 10px; }
 .search-input { width: 100%; font-family: var(--serif); font-size: 22px; color: var(--ink); background: var(--paper-deep); border: none; border-radius: 2px; padding: 18px 20px; line-height: 1.3; }
 .search-input::placeholder { color: var(--ink-light); font-size: 16px; }
 .search-input:focus { outline: none; box-shadow: inset 0 -2px 0 var(--orange); }
