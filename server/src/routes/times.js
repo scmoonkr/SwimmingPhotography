@@ -15,6 +15,53 @@ const toId = (id) => { try { return new ObjectId(id) } catch { return null } }
 const imgUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024, files: 1000 } })
 const safeName = (s) => String(s).replace(/[^\w.\-가-힣]/g, '_')
 
+// 동명이인 조회 — GET /homonyms?competitionID=&name=
+// 이미지의 name 은 times.name_unique 와 같아야 매칭된다.
+// (competitionID + name_unique) 가 없으면 그 이름은 동명이인이라 번호가 붙은 상태이므로,
+// 같은 이름의 후보들을 name_unique 별로 묶어 돌려준다.  (/:id 보다 먼저 등록)
+router.get('/homonyms', async (req, res) => {
+  try {
+    const { competitionID, name } = req.query
+    const nm = String(name || '').trim()
+    if (!nm) return res.json({ isHomonym: false, candidates: [] })
+    const c = await coll()
+    const match = {}
+    if (competitionID != null && competitionID !== '') match.competitionID = Number(competitionID)
+
+    // 지금 이름 그대로 매칭되는 기록이 있는지 — 있으면 동명이인 문제 아님
+    const hit = await c.countDocuments({ ...match, name_unique: nm }, { limit: 1 })
+
+    // 후보 — 끝의 번호를 뗀 이름("홍길동1" → "홍길동")으로 같은 이름의 선수를 모은다
+    const base = nm.replace(/\d+$/, '') || nm
+    const candidates = await c.aggregate([
+      { $match: { ...match, name: base } },
+      {
+        $group: {
+          _id: { name_unique: { $ifNull: ['$name_unique', '$name'] }, gender: '$gender', ageGroup: '$ageGroup', team: '$team' },
+          name: { $first: '$name' },
+          timeCount: { $sum: 1 },
+        },
+      },
+      { $sort: { '_id.name_unique': 1 } },
+    ]).toArray()
+
+    res.json({
+      isHomonym: !hit,
+      base,
+      candidates: candidates.map((g) => ({
+        name: g.name ?? '',
+        name_unique: g._id.name_unique ?? '',
+        gender: g._id.gender ?? '',
+        ageGroup: g._id.ageGroup ?? '',
+        team: g._id.team ?? '',
+        timeCount: g.timeCount,
+      })),
+    })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
 // 대회 select 옵션 (필터용) — times 컬렉션에 실제로 존재하는 대회(distinct), 최신순
 router.get('/competitions', async (req, res) => {
   try {
@@ -51,20 +98,14 @@ router.get('/', async (req, res) => {
     if (name) filter.name = { $regex: String(name), $options: 'i' }
     const lim = Math.min(Number(limit) || 2000, 10000)
     // images 컬렉션을 timeID 로 조인 — 각 행에 images:[{filename,type,url,thumbnail}] 부여.
-    // (내보내기 image1~5·목록 이미지 표시용) 조인 결과가 있으면 그것을, 없으면 문서 임베드 images 유지.
+    // (내보내기 image1~5·목록 이미지 표시용) times 문서에는 이미지를 저장하지 않고 항상 조인으로만 만든다.
     const docs = await (await coll()).aggregate([
       { $match: filter },
       { $limit: lim },
       { $lookup: { from: 'images', localField: 'timeID', foreignField: 'timeID', as: '_imgs' } },
       {
         $addFields: {
-          images: {
-            $cond: [
-              { $gt: [{ $size: '$_imgs' }, 0] },
-              { $map: { input: '$_imgs', as: 'i', in: { filename: '$$i.filename', type: '$$i.type', url: '$$i.url', thumbnail: '$$i.thumbnail' } } },
-              { $ifNull: ['$images', []] },
-            ],
-          },
+          images: { $map: { input: '$_imgs', as: 'i', in: { filename: '$$i.filename', type: '$$i.type', url: '$$i.url', thumbnail: '$$i.thumbnail' } } },
         },
       },
       { $project: { _imgs: 0 } },
@@ -86,14 +127,23 @@ router.post('/import', async (req, res) => {
     if (!Object.keys(filter).length) return res.status(400).json({ error: '대회 또는 일자를 지정하세요.' })
 
     // 대회정보가 SP.competitions 에 없으면 원본(Breaststroke)에서 복사해 추가
+    // 겸해서 대회명(compName)을 확보한다 — mergedTimes 에 competitionName 이 없는 기록을 채우는 용도.
     let competitionAdded = false
+    let compName = ''
     const cid = (competitionID != null && competitionID !== '') ? Number(competitionID) : null
     if (cid != null) {
       const spComp = (await SP()).collection('competitions')
       const exists = await spComp.findOne({ competitionID: cid })
-      if (!exists) {
+      if (exists) {
+        compName = exists.competitionName || exists.stem || ''
+      } else {
         const brComp = await (await BR()).collection('competitions').findOne({ competitionID: cid })
-        if (brComp) { const cc = { ...brComp }; delete cc._id; await spComp.insertOne(cc); competitionAdded = true }
+        if (brComp) {
+          compName = brComp.competitionName || brComp.stem || ''
+          const cc = { ...brComp }; delete cc._id
+          if (cc.gungu == null) cc.gungu = '' // 군구 — 원본(BR)엔 없는 SP 전용 필드
+          await spComp.insertOne(cc); competitionAdded = true
+        }
       }
     }
 
@@ -110,8 +160,119 @@ router.post('/import', async (req, res) => {
     const exTidSet = new Set(exTid), exSidSet = new Set(exSid)
     const toInsert = rows
       .filter((r) => (r.timeID != null) ? !exTidSet.has(r.timeID) : !exSidSet.has(String(r._id)))
-      .map((r) => { const d = { ...r }; delete d._id; if (d.timeID == null) d._srcId = String(r._id); return d })
+      .map((r) => {
+        const d = { ...r }; delete d._id
+        if (d.timeID == null) d._srcId = String(r._id)
+        if (!d.competitionName && compName) d.competitionName = compName // 원본에 대회명이 없으면 대회 문서로 보완
+        return d
+      })
     if (toInsert.length) await c.insertMany(toInsert, { ordered: false })
+
+    // 이미 들어와 있던 기록 중 대회명이 비어 있는 것도 같이 보완
+    let nameFilled = 0
+    if (cid != null && compName) {
+      const nf = await c.updateMany(
+        { competitionID: cid, $or: [{ competitionName: { $exists: false } }, { competitionName: null }, { competitionName: '' }] },
+        { $set: { competitionName: compName } },
+      )
+      nameFilled = nf.modifiedCount || 0
+    }
+
+    // name_unique — 이미지 매칭용 유일 선수명.
+    // 선수 식별 키는 (competitionID·name·gender·ageGroup·team). 이미지는 name 하나로 매칭되므로
+    // 한 대회 안에 같은 이름이 둘 이상이면(동명이인) 어느 쪽 이미지인지 구분되지 않는다.
+    // 그래서 동명이인일 때만 name 에 일련번호를 붙인다. (이미지 파일명 규칙과 동일)
+    //   대회 안에 홍길동 이 한 명뿐   → 홍길동
+    //   홍길동 men 1그룹 A팀         → 홍길동1
+    //   홍길동 men 초등3 B팀         → 홍길동2
+    // 번호는 '대회별로' 매긴다 — 전역으로 매기면 같은 사람이 대회마다 다른 번호를 받는다.
+    // 따라서 name_unique 는 대회 안에서만 유일하고, 매칭할 때 competitionID 를 함께 봐야 한다.
+    // 이미 부여된 번호는 유지한다(다시 가져오기 해도 흔들리지 않도록).
+    const nameUniqueOps = []
+    const combos = await c.aggregate([
+      { $match: { name: { $type: 'string', $ne: '' } } },
+      {
+        $group: {
+          _id: { competitionID: '$competitionID', name: '$name', gender: '$gender', ageGroup: '$ageGroup', team: '$team' },
+          assigned: { $addToSet: '$name_unique' },
+          firstSeen: { $min: '$datetime' },
+        },
+      },
+    ]).toArray()
+
+    // (대회·이름) 으로 묶어 그 안에서 번호를 매긴다
+    const byPerson = new Map()
+    for (const g of combos) {
+      const k = JSON.stringify([g._id.competitionID ?? null, g._id.name])
+      if (!byPerson.has(k)) byPerson.set(k, [])
+      byPerson.get(k).push(g)
+    }
+    const nuOf = (g, nu) => nameUniqueOps.push({
+      updateMany: {
+        // 값이 null 이면 필드가 없는 문서까지 함께 매칭된다($group 과 동일 기준)
+        filter: {
+          competitionID: g._id.competitionID ?? null,
+          name: g._id.name,
+          gender: g._id.gender ?? null,
+          ageGroup: g._id.ageGroup ?? null,
+          team: g._id.team ?? null,
+          name_unique: { $ne: nu },
+        },
+        update: { $set: { name_unique: nu } },
+      },
+    })
+    for (const list of byPerson.values()) {
+      const pname = list[0]._id.name
+      // 동명이인이 아니면 번호 없이 이름 그대로
+      if (list.length === 1) { nuOf(list[0], pname); continue }
+      const used = new Set()
+      const numOf = new Map()
+      // 1) 기존 번호 유지 — name_unique 가 "이름+숫자" 꼴이면 그 숫자를 그대로 쓴다
+      for (const g of list) {
+        const cur = (g.assigned || []).find((v) => typeof v === 'string' && v.startsWith(pname))
+        const n = cur ? Number(cur.slice(pname.length)) : NaN
+        if (Number.isInteger(n) && n > 0 && !used.has(n)) { used.add(n); numOf.set(g, n) }
+      }
+      // 2) 새 조합에 빈 번호 배정 — 먼저 나온(일자 빠른) 조합부터.
+      //    ageGroup 까지 같은 동명이인이 있을 수 있어 gender·team 으로 최종 tie-break.
+      const pending = list.filter((g) => !numOf.has(g)).sort((a, b) =>
+        String(a.firstSeen || '').localeCompare(String(b.firstSeen || ''))
+        || String(a._id.ageGroup || '').localeCompare(String(b._id.ageGroup || ''))
+        || String(a._id.gender || '').localeCompare(String(b._id.gender || ''))
+        || String(a._id.team || '').localeCompare(String(b._id.team || '')))
+      let next = 1
+      for (const g of pending) {
+        while (used.has(next)) next++
+        used.add(next); numOf.set(g, next)
+      }
+      for (const [g, n] of numOf) nuOf(g, `${pname}${n}`)
+    }
+    let nameUniqueSet = 0
+    if (nameUniqueOps.length) {
+      const nu = await c.bulkWrite(nameUniqueOps, { ordered: false })
+      nameUniqueSet = nu.modifiedCount || 0
+    }
+
+    // 이미지의 name 도 같은 값으로 맞춘다 — images 는 timeID 로 times 와 이어져 있으므로,
+    // 나중에 동명이인이 생겨 번호가 바뀌어도(홍길동 → 홍길동1) 다시 가져오기 때 함께 따라온다.
+    // (images 에는 별도 name_unique 를 두지 않고 name 하나로 매칭한다.)
+    let imageNameSet = 0
+    {
+      const pairs = await c.aggregate([
+        { $match: { timeID: { $ne: null }, name_unique: { $type: 'string', $ne: '' } } },
+        { $group: { _id: '$name_unique', timeIDs: { $addToSet: '$timeID' } } },
+      ]).toArray()
+      const imgOps = pairs.map((p) => ({
+        updateMany: {
+          filter: { timeID: { $in: p.timeIDs }, name: { $ne: p._id } },
+          update: { $set: { name: p._id } },
+        },
+      }))
+      if (imgOps.length) {
+        const ir = await (await imagesColl()).bulkWrite(imgOps, { ordered: false })
+        imageNameSet = ir.modifiedCount || 0
+      }
+    }
 
     // eventRank — 종목(부) 단위 순위. rank 는 heat 별 순위라,
     // 같은 (성별·부·영법·거리·라운드) 안에서 timeStamp 오름차순으로 다시 매긴다.
@@ -143,18 +304,15 @@ router.post('/import', async (req, res) => {
     }
 
     // 선수 요약 재집계 → SP.athletes upsert
-    // 단체전(FRR·MR)·time 없거나 "" 제외, (competitionID·ageGroup·name) 별 time count
+    // 단체전(FRR·MR)·time 없거나 "" 제외.
+    // 키: (competitionID·name·gender·ageGroup·team) — name_unique 를 정하는 조합과 동일.
     const summary = await c.aggregate([
       { $match: { time: { $type: 'string', $ne: '' }, status: { $nin: ['DQ', 'DNS'] }, discipline: { $nin: ['FRR', 'MR'] } } },
       {
         $group: {
-          _id: { competitionID: '$competitionID', ageGroup: '$ageGroup', name: '$name' },
-          name: { $first: '$name' },
-          gender: { $first: '$gender' },
+          _id: { competitionID: '$competitionID', name: '$name', gender: '$gender', ageGroup: '$ageGroup', team: '$team' },
+          name_unique: { $first: '$name_unique' },   // 위에서 SP.times 에 매긴 유일 선수명
           group: { $first: '$group' },
-          ageGroup: { $first: '$ageGroup' },
-          competitionID: { $first: '$competitionID' },
-          team: { $first: '$team' },
           timeCount: { $sum: 1 },
         },
       },
@@ -163,14 +321,23 @@ router.post('/import', async (req, res) => {
     if (summary.length) {
       const now = new Date()
       const athColl = (await SP()).collection('athletes')
-      const ops = summary.map((s) => ({
-        updateOne: {
-          // 키: competitionID + ageGroup + name
-          filter: { competitionID: s.competitionID ?? null, ageGroup: s.ageGroup ?? '', name: s.name ?? '' },
-          update: { $set: { competitionID: s.competitionID ?? null, ageGroup: s.ageGroup ?? '', name: s.name ?? '', gender: s.gender ?? '', group: s.group ?? '', team: s.team ?? '', timeCount: s.timeCount, updatedAt: now } },
-          upsert: true,
-        },
-      }))
+      const ops = summary.map((s) => {
+        // 유일키 — athletes.js 의 athleteKey() 와 같은 정규화
+        const key = {
+          competitionID: s._id.competitionID ?? null,
+          name: s._id.name ?? '',
+          gender: s._id.gender ?? '',
+          ageGroup: s._id.ageGroup ?? '',
+          team: s._id.team ?? '',
+        }
+        return {
+          updateOne: {
+            filter: key,
+            update: { $set: { ...key, name_unique: s.name_unique ?? '', group: s.group ?? '', timeCount: s.timeCount, updatedAt: now } },
+            upsert: true,
+          },
+        }
+      })
       const rw = await athColl.bulkWrite(ops, { ordered: false })
       athletesUpserted = (rw.upsertedCount || 0) + (rw.modifiedCount || 0)
     }
@@ -238,7 +405,7 @@ router.post('/import', async (req, res) => {
       }
     }
 
-    res.json({ matched: rows.length, inserted: toInsert.length, skipped: rows.length - toInsert.length, competitionAdded, eventRanked, athletes: summary.length, athletesUpserted, stats })
+    res.json({ matched: rows.length, inserted: toInsert.length, skipped: rows.length - toInsert.length, competitionAdded, nameFilled, nameUniqueSet, imageNameSet, eventRanked, athletes: summary.length, athletesUpserted, stats })
   } catch (e) {
     res.status(500).json({ error: e.message })
   }
@@ -258,10 +425,12 @@ router.post('/delete-many', async (req, res) => {
 })
 
 // 파일(CSV) 행 업서트 — { rows: [{ timeID, name, gender, heat, ageGroup, team,
-//   discipline, distance, round, time, rank, image1..image5,
+//   discipline, distance, round, time, rank,
 //   notesAthlete, notesTime, quotesAthlete, quotesTime }] }
-// timeID 있으면 그 키로 upsert, 없으면 insert. image1~5 → images:[{filename}].
-// image1~5 다음의 메모/인용 컬럼(선수·기록) — 값이 있는 것만 저장.
+// timeID 있으면 그 키로 upsert, 없으면 insert.
+// CSV 의 image1~5 컬럼은 저장하지 않는다 — 이미지는 images 컬렉션에만 두고 timeID 로 조인한다.
+// (그 컬럼은 '이미지 가져오기' 드로어가 폴더에서 읽을 파일명을 고르는 데만 쓴다.)
+// 메모/인용 컬럼(선수·기록) — 값이 있는 것만 저장.
 const NOTE_FIELDS = ['notesAthlete', 'notesTime']
 const QUOTE_FIELDS = ['quotesAthlete', 'quotesTime']
 router.post('/import-rows', async (req, res) => {
@@ -273,8 +442,6 @@ router.post('/import-rows', async (req, res) => {
     const c = await coll()
     const ops = []
     for (const r of rows) {
-      const images = [r.image1, r.image2, r.image3, r.image4, r.image5]
-        .map(str).filter(Boolean).map((filename) => ({ filename }))
       const doc = {
         name: str(r.name), gender: str(r.gender), heat: num(r.heat), ageGroup: str(r.ageGroup),
         team: str(r.team), discipline: str(r.discipline), distance: str(r.distance),
@@ -284,7 +451,6 @@ router.post('/import-rows', async (req, res) => {
         const v = str(r[f])
         if (v) doc[f] = v
       }
-      if (images.length) doc.images = images
       const timeID = num(r.timeID)
       if (timeID != null && !Number.isNaN(timeID)) {
         doc.timeID = timeID
@@ -327,7 +493,7 @@ router.post('/images-import', imgUpload.fields([{ name: 'files', maxCount: 1000 
     const tMap = new Map()
     if (tIds.length) {
       const tdocs = await (await coll())
-        .find({ timeID: { $in: tIds } }, { projection: { timeID: 1, name: 1, gender: 1, ageGroup: 1, team: 1, discipline: 1, course: 1, distance: 1 } })
+        .find({ timeID: { $in: tIds } }, { projection: { timeID: 1, name: 1, name_unique: 1, gender: 1, ageGroup: 1, team: 1, discipline: 1, course: 1, distance: 1 } })
         .toArray()
       for (const d of tdocs) tMap.set(d.timeID, d)
     }
@@ -354,7 +520,8 @@ router.post('/images-import', imgUpload.fields([{ name: 'files', maxCount: 1000 
               timeID, filename: fname, competition, competitionID, type: m.type || '',
               // url·thumbnail 은 CLOUD_PUBLIC_URL 을 제외한 상대경로로 저장. 조회 시 CLOUD_PUBLIC_URL 을 붙임.
               url: key, thumbnail,
-              name: t.name || '', gender: t.gender || '', ageGroup: t.ageGroup || '',
+              // name — 선수 매칭 키. times.name_unique 를 그대로 쓴다(동명이인이면 "홍길동1").
+              name: t.name_unique || t.name || '', gender: t.gender || '', ageGroup: t.ageGroup || '',
               team: t.team || '', discipline: t.discipline || '', course: t.course || '', distance: t.distance || '',
               updatedAt: new Date(),
             },

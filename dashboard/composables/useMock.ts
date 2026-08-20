@@ -123,6 +123,7 @@ export const blankCompetition = () => ({
   datetime: '',
   pool: '',
   sido: '',
+  gungu: '',        // 군구
   course: 'LCM',
   isMasters: false,
   measured: '자동계측',

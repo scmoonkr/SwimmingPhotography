@@ -17,6 +17,8 @@ const DISTANCES = ['', '25M', '50M', '100M', '200M', '400M', '500M', '800M', '10
 const disc = (v: string) => (DISCIPLINE_LABEL[v] || v || '')
 const genderLabel = (v: string) => ({ men: '남자', women: '여자', mixed: '혼성' } as Record<string, string>)[v] || v
 const eventLabel = (t: any) => [disc(t.discipline), t.distance, t.course].filter(Boolean).join(' ')
+// 이름 표기 — 동명이인이라 name_unique 에 번호가 붙은 경우에만 "이름/name_unique"
+const nameWithUnique = (r: any) => (r?.name_unique && r.name_unique !== r.name) ? `${r.name}/${r.name_unique}` : (r?.name || '')
 
 // ── 필터 ──
 const competitionID = ref<number | ''>('')
@@ -50,7 +52,7 @@ const selectedComp = computed(() => competitions.value.find((c) => c.competition
 
 // ── 테이블 컬럼 ──
 const columns: Column[] = [
-  { key: 'name', label: '선수명', cls: 'strong' },
+  { key: 'name', label: '선수명', cls: 'strong', get: (r) => nameWithUnique(r) },
   { key: 'gender', label: '성별', cls: 'muted', get: (r) => genderLabel(r.gender) },
   { key: 'group', label: 'group' },
   { key: 'ageGroup', label: 'ageGroup', cls: 'muted' },
@@ -63,11 +65,33 @@ const columns: Column[] = [
 
 // ── 목록 ──
 const rows = ref<any[]>([])
+// 중복 보기 — name+gender 는 같은데 ageGroup 이 갈린 선수만. (부/그룹 배정 오류 후보)
+// 현재 조회된 목록(선택한 대회·필터) 안에서만 판정한다.
+const dupOnly = ref(false)
+const dupKey = (r: any) => `${r.name || ''}|${r.gender || ''}`
+const dupKeys = computed(() => {
+  const ageGroups = new Map<string, Set<string>>()
+  for (const r of rows.value) {
+    const k = dupKey(r)
+    if (!ageGroups.has(k)) ageGroups.set(k, new Set())
+    ageGroups.get(k)!.add(r.ageGroup || '')
+  }
+  return new Set([...ageGroups].filter(([, ags]) => ags.size > 1).map(([k]) => k))
+})
+const dupCount = computed(() => rows.value.filter((r) => dupKeys.value.has(dupKey(r))).length)
+
 // 기사 작성 여부 필터 (전체/기사작성/기사미작성) — 클라이언트에서 hasArticle 로 거름
 const viewRows = computed(() => {
-  if (articleFilter.value === 'has') return rows.value.filter((r) => r.hasArticle)
-  if (articleFilter.value === 'none') return rows.value.filter((r) => !r.hasArticle)
-  return rows.value
+  let list = rows.value
+  if (articleFilter.value === 'has') list = list.filter((r) => r.hasArticle)
+  else if (articleFilter.value === 'none') list = list.filter((r) => !r.hasArticle)
+  if (dupOnly.value) {
+    // 같은 선수끼리 붙여 보이도록 name → ageGroup 순 정렬
+    list = list.filter((r) => dupKeys.value.has(dupKey(r)))
+      .slice().sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''))
+        || String(a.ageGroup || '').localeCompare(String(b.ageGroup || '')))
+  }
+  return list
 })
 // 테이블 체크박스 선택 (배치 LLM생성 대상)
 const selectedRows = ref<any[]>([])
@@ -99,6 +123,7 @@ watch([competitionID, gender, group], load)
 // ── 상세 드로어 (읽기전용): 선수 + 팀통계 + times별 기록 비교 ──
 const selected = ref<any | null>(null)
 const open = ref(false)
+const drawerName = computed(() => nameWithUnique(selected.value) || '선수')
 const teamStats = ref<{ athletes: number; times: number } | null>(null)
 const teamData = ref<any>(null) // 소속팀 성적 { total, events }(선수 출전종목 coarse/fine)
 const recordsByEvent = ref<Record<string, any[]>>({})
@@ -114,7 +139,7 @@ const loadAthleteData = async (r: any) => {
   eventStats.value = { events: {}, heats: [] }
   // 선수 이미지 (images 컬렉션: name·gender·team·ageGroup 매칭)
   try {
-    athleteImages.value = await $fetch(api('/images'), { params: { name: r.name, gender: r.gender, team: r.team, ageGroup: r.ageGroup } })
+    athleteImages.value = await $fetch(api('/images'), { params: { name: r.name, name_unique: r.name_unique || '', competitionID: competitionID.value || '', gender: r.gender } })
   } catch {}
   // 종목·heat 통계 (선택 대회 기준)
   if (competitionID.value) {
@@ -124,7 +149,7 @@ const loadAthleteData = async (r: any) => {
   }
   // 저장분(SP.athletes) 있으면 llm(생성기사)·note 표시
   try {
-    const saved = await $fetch<any>(api('/saved'), { params: { name: r.name, gender: r.gender, group: r.group } })
+    const saved = await $fetch<any>(api('/saved'), { params: { name: r.name, competitionID: competitionID.value || '', gender: r.gender || '', ageGroup: r.ageGroup || '', team: r.team || '' } })
     if (saved) { genJson.value = saved.llm || ''; note.value = saved.note || '' }
   } catch {}
   if (r.team) {
@@ -494,15 +519,23 @@ onMounted(async () => {
         선수추가
       </button>
       <button class="btn btn-ghost" type="button" :disabled="myAllLoading" @click="fetchMyAll">
-        {{ myAllLoading ? 'my 조회 중…' : 'my' }}
+        {{ myAllLoading ? 'myR 조회 중…' : 'myR' }}
       </button>
+      <button
+        class="btn" :class="dupOnly ? 'btn-primary' : 'btn-ghost'" type="button"
+        title="name+gender 는 같은데 ageGroup 이 다른 선수만 보기"
+        @click="dupOnly = !dupOnly"
+      >중복{{ dupCount ? ` (${dupCount})` : '' }}</button>
     </div>
 
     <p v-if="errorMsg" class="load-error">{{ errorMsg }}</p>
     <p v-if="myAllLoading" class="notice">my 일괄 조회 중… {{ myAllProgress }}</p>
     <p v-else-if="notice" class="notice">{{ notice }}</p>
     <p v-if="batchLoading" class="notice">LLM 생성·저장 중… {{ batchProgress }}</p>
-    <p v-if="!loading" class="result-note">총 {{ viewRows.length }}명<span v-if="selectedRows.length"> · 선택 {{ selectedRows.length }}</span></p>
+    <p v-if="!loading" class="result-note">
+      총 {{ viewRows.length }}명<span v-if="dupOnly"> · 중복만 (name+gender 같고 ageGroup 다름)</span><span v-if="selectedRows.length"> · 선택 {{ selectedRows.length }}</span>
+    </p>
+    <p v-if="dupOnly && !dupCount && !loading" class="notice">중복 없음 — 현재 목록에서 name+gender 가 같은데 ageGroup 이 다른 선수는 없습니다.</p>
 
     <DataTable
       :columns="columns" :rows="viewRows" clickable hide-search hide-actions selectable
@@ -514,7 +547,7 @@ onMounted(async () => {
       <div class="drawer-ov" @click="open = false" />
       <aside class="drawer" role="dialog" aria-modal="true" aria-label="선수 상세">
         <header class="drawer-head">
-          <h2>{{ selected?.name || '선수' }}</h2>
+          <h2>{{ drawerName }}</h2>
           <button class="drawer-x" aria-label="닫기" @click="open = false">×</button>
         </header>
         <div class="drawer-body">
@@ -596,7 +629,7 @@ onMounted(async () => {
         </div>
         <footer class="drawer-foot">
           <button class="btn btn-ghost my-btn" type="button" :disabled="myLoading" @click="fetchMy">
-            {{ myLoading ? 'my 조회 중…' : 'my' }}
+            {{ myLoading ? 'myR 조회 중…' : 'myR' }}
           </button>
           <button class="btn btn-primary" type="button" :disabled="saving || !selected" @click="saveAthlete">
             {{ saving ? '저장 중…' : '저장' }}

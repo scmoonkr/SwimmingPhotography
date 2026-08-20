@@ -77,15 +77,18 @@ function deterministicBlocks(data) {
   const pick = phrasePicker()
 
   // ③ 종목별 result → event → record → recordTable (성적순)
+  // 첫 번째 result 블록 소제목: 모든 종목을 "자유형 50m 25초 56, 금메달, 접영 50m 30초 01, 5위" 형태로 나열
+  const allTitle = evs.map((e) =>
+    `${e.discipline} ${e.distance} ${e.time}${e.rank <= 3 ? ', ' + medalKo(e.rank) : ', ' + e.rank + '위'}`
+  ).join(', ')
+
   evs.forEach((e, idx) => {
     const evName = `${a.gender || ''} ${e.discipline} ${e.distance}`.trim()
     const heat = heats.find((h) => h.discipline === e.discipline && h.distance === e.distance) || {}
     // result
     let rt = `${josa(a.name, '은', '는')} ${evName}${heat.heat ? ` ${heat.heat}경기` : ''}에서 ${e.time}로 ${pick(e.rank)}.`
     if (heat.athleteCount) rt += ` 이 경기에는 ${heat.athleteCount}명이 배정돼 전원이 출발대에 섰다.`
-    // 소제목: 첫 종목만. 4위 이하는 순위 빼고 기록만 (prompt §5).
-    const title = `${e.discipline} ${e.distance} ${e.time}${e.rank <= 3 ? ', ' + medalKo(e.rank) : ''}`
-    blocks.push({ type: 'event', source: 'result', ...(idx === 0 ? { title } : {}), text: rt })
+    blocks.push({ type: 'event', source: 'result', ...(idx === 0 ? { title: allTitle } : {}), text: rt })
     // event (종목 전체)
     if (e.athleteCount != null) {
       let t = `${evName}에는 ${comma(e.athleteCount)}명이 출전해 ${comma(e.startCount)}건의 도약이 이뤄졌다.`
@@ -116,19 +119,35 @@ function deterministicBlocks(data) {
     }
   })
 
-  // ④ 팀
-  if (team && team.team) {
+  // ④ 팀 — team.team이 없거나 "개인"이면 팀이 아닌 개인 출전으로 처리
+  if (team && (team.team != null || team.athleteCount != null)) {
+    const teamName = team.team || ''
+    const isIndividual = !teamName || teamName === '개인'
     const total = (team.goldCount || 0) + (team.silverCount || 0) + (team.bronzeCount || 0)
     const med = []
     if (team.goldCount) med.push(`금메달 ${team.goldCount}개`)
     if (team.silverCount) med.push(`은메달 ${team.silverCount}개`)
     if (team.bronzeCount) med.push(`동메달 ${team.bronzeCount}개`)
-    let t = `${josa(a.name, '이', '가')} 속한 ${josa(team.team, '은', '는')} 이번 대회에 선수 ${comma(team.athleteCount)}명이 출전해 ${comma(team.startCount)}회의 도약을 기록했다.`
-    if (med.length) t += ` 팀이 획득한 메달은 ${med.join(', ')}로 모두 ${total}개다.`
-    blocks.push({ type: 'team', source: 'info', title: `${team.team}, 메달 ${total}개`, text: t })
-    if ((team.disciplines || []).length) {
-      const p = team.disciplines.map((d) => `${strokeKo(d.discipline)} ${d.count}회`)
-      blocks.push({ type: 'team', source: 'events', text: `영법별 도약은 ${p.join(', ')}였다.` })
+
+    if (isIndividual) {
+      // "개인"은 팀이 아니므로 소속 표현 금지. 선수 개인 사실 + 개인 출전 전체 통계만.
+      let t = `${josa(a.name, '은', '는')} 소속 없이 개인으로 출전했다.`
+      if (team.athleteCount != null) t += ` 이번 대회에 개인으로 출전한 선수는 ${comma(team.athleteCount)}명이다.`
+      if (med.length) t += ` 개인 출전 선수들이 획득한 메달은 ${med.join(', ')}로 모두 ${total}개다.`
+      const indvTitle = total > 0 ? `개인으로 출전한 선수들, 메달 ${total}개` : undefined
+      blocks.push({ type: 'team', source: 'info', ...(indvTitle ? { title: indvTitle } : {}), text: t })
+      if ((team.disciplines || []).length) {
+        const p = team.disciplines.map((d) => `${strokeKo(d.discipline)} ${d.count}회`)
+        blocks.push({ type: 'team', source: 'events', text: `개인으로 출전한 선수들의 영법별 도약은 ${p.join(', ')}였다.` })
+      }
+    } else {
+      let t = `${josa(a.name, '이', '가')} 속한 ${josa(teamName, '은', '는')} 이번 대회에 선수 ${comma(team.athleteCount)}명이 출전해 ${comma(team.startCount)}회의 도약을 기록했다.`
+      if (med.length) t += ` 팀이 획득한 메달은 ${med.join(', ')}로 모두 ${total}개다.`
+      blocks.push({ type: 'team', source: 'info', title: `${teamName}, 메달 ${total}개`, text: t })
+      if ((team.disciplines || []).length) {
+        const p = team.disciplines.map((d) => `${strokeKo(d.discipline)} ${d.count}회`)
+        blocks.push({ type: 'team', source: 'events', text: `영법별 도약은 ${p.join(', ')}였다.` })
+      }
     }
   }
 
@@ -238,7 +257,7 @@ export async function buildHybridArticle(data, opts = {}) {
     type: 'article', status: 'draft', langDefault: 'ko', availableLangs: ['ko'],
     sourceType: 'ai_generated', generationJobId: null,
     reporter: { name: '편집부', nameEng: 'Editorial Team', email: 'press@medalbank.com' },
-    relations: { competitionId: null, venueId: null, athleteId: null, teamId: null, timeIds: null, imageIds: null, startListIds: null },
+    relations: { competitionId: data.competitionInfo?.competitionID ?? null, venueId: null, athleteId: null, teamId: null, timeIds: null, imageIds: null, startListIds: null },
     media: buildMedia(data),
     tags: [], searchTags: buildTags(data), searchCategories: ['meet', 'athlete', 'masters'],
     translations: {

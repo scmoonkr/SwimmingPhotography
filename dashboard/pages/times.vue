@@ -35,9 +35,11 @@ const loadCompetitions = async () => {
 const ROUND_KO: Record<string, string> = { preliminaries: '예선', finals: '결선', semiFinals: '준결선' }
 const roundLabel = (v: string) => ROUND_KO[v] || v || ''
 const imageNames = (r: any) => (r.images || []).slice(0, 5).map((im: any) => (im && (im.filename || im.name)) || im).filter(Boolean).join('|')
+// 이름 표기 — 동명이인이라 name_unique 에 번호가 붙은 경우에만 "이름/name_unique"
+const nameWithUnique = (r: any) => (r?.name_unique && r.name_unique !== r.name) ? `${r.name}/${r.name_unique}` : (r?.name || '')
 const columns: Column[] = [
   { key: 'timeID', label: 'timeID', cls: 'mono' },
-  { key: 'name', label: '선수명', cls: 'strong' },
+  { key: 'name', label: '선수명', cls: 'strong', get: (r) => nameWithUnique(r) },
   // 성별 · 부
   { key: 'genderAge', label: '성별·부', cls: 'muted', get: (r) => [genderLabel(r.gender), r.ageGroup].filter(Boolean).join(' · ') },
   { key: 'team', label: '소속', cls: 'muted' },
@@ -65,11 +67,19 @@ const load = async () => {
     if (discipline.value) params.discipline = discipline.value
     if (distance.value) params.distance = distance.value
     const data = await $fetch<any[]>(api(), { params })
-    // 정렬: heat → ageGroup(부, 숫자 인식) → rank
+    // 정렬: 선수명 → ageGroup(부, 숫자 인식) → heat → rank
+    // 선수명은 영문 먼저, 그다음 한글. ('ko' 로케일은 한글을 라틴보다 앞에 두므로 직접 가른다)
     const toN = (v: any) => { const n = Number(v); return Number.isFinite(n) ? n : Infinity }
+    const ko = (a: any, b: any) => String(a || '').localeCompare(String(b || ''), 'ko', { numeric: true })
+    const isHangul = (v: any) => /^[가-힣ㄱ-ㅎㅏ-ㅣ]/.test(String(v || ''))
+    const byName = (a: any, b: any) => {
+      const ha = isHangul(a.name), hb = isHangul(b.name)
+      return (ha === hb) ? ko(a.name, b.name) : (ha ? 1 : -1)
+    }
     rows.value = (data || []).slice().sort((a, b) =>
-      (toN(a.heat) - toN(b.heat))
-      || String(a.ageGroup || '').localeCompare(String(b.ageGroup || ''), 'ko', { numeric: true })
+      byName(a, b)
+      || ko(a.ageGroup, b.ageGroup)
+      || (toN(a.heat) - toN(b.heat))
       || (toN(a.rank) - toN(b.rank)),
     )
     selectedRows.value = []
@@ -295,7 +305,7 @@ onMounted(async () => {
 
     <p v-if="errorMsg" class="load-error">{{ errorMsg }}</p>
     <p v-if="notice" class="notice">{{ notice }}</p>
-    <p v-if="!loading" class="result-note">총 {{ rows.length }}건 · heat · 부 · 순위 순</p>
+    <p v-if="!loading" class="result-note">총 {{ rows.length }}건 · 선수명 · 부 · heat · 순위 순</p>
 
     <DataTable
       :columns="columns" :rows="rows" clickable hide-search hide-actions selectable

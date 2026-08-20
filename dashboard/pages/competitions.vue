@@ -26,6 +26,9 @@ const importTimes = async () => {
   try {
     const r = await $fetch<any>(timesApi('/import'), { method: 'POST', body: { competitionID: Number(cid) } })
     let msg = `가져오기 완료 — 원본 ${r.matched}건 · 신규 ${r.inserted} · 중복제외 ${r.skipped}`
+    if (r.nameFilled) msg += ` · 대회명보완 ${r.nameFilled}`
+    if (r.nameUniqueSet) msg += ` · name_unique ${r.nameUniqueSet}`
+    if (r.imageNameSet) msg += ` · 이미지명 ${r.imageNameSet}`
     if (r.stats) {
       msg += ` / 팀 ${r.stats.teamCount} · 선수 ${r.stats.athleteCount} · start ${r.stats.startCount}`
       if (selected.value) Object.assign(selected.value, r.stats) // 드로어 표시 갱신
@@ -70,6 +73,13 @@ watch(year, load) // 연도 바꾸면 즉시 재조회
 const selected = ref<Record<string, any> | null>(null)
 const open = ref(false)
 const isNew = ref(false)
+
+// 드로어 제목 — competitionID 는 편집 대상이 아니라 제목으로 보여준다.
+const drawerTitle = computed(() => {
+  if (isNew.value) return '대회 추가'
+  const cid = selected.value?.competitionID
+  return (cid == null || cid === '') ? '대회 상세 · 편집' : `${cid} 대회 상세 · 편집`
+})
 
 // ── 이미지 업로드 (multipart → /api/competitions/:id/images) ──
 const fileInput = ref<HTMLInputElement | null>(null)
@@ -166,15 +176,16 @@ const onPickSource = (row: Record<string, any>) => {
   open.value = true
 }
 
-// 편집 필드 (competitions 스키마) — competitionID 는 원본(BR) 키. 대회검색으로 채워 저장·기록가져오기에 사용.
+// 편집 필드 (competitions 스키마) — competitionID 는 원본(BR) 키라 편집하지 않고 드로어 제목에 표시.
+// (대회검색으로 채워진 값은 onSave 에서 그대로 넘긴다.)
 const fields: Field[] = [
-  { key: 'competitionID', label: '대회 ID (원본 competitionID)', type: 'text', half: true, get: (r) => r.competitionID ?? '', set: (r, v) => { r.competitionID = (v === '' || v == null) ? null : Number(v) } },
+  { key: 'pool', label: '수영장', type: 'text', half: true, get: (r) => r.pool ?? '', set: (r, v) => { r.pool = v } },
   { key: 'datetime', label: '일자 (YYYY-MM-DD)', type: 'text', half: true, get: (r) => r.datetime ?? '', set: (r, v) => { r.datetime = v } },
   { key: 'competitionName', label: '대회명', type: 'text', get: (r) => r.competitionName ?? '', set: (r, v) => { r.competitionName = v } },
   // 종목별 time count — 기록가져오기로 계산되는 읽기전용 값(폼 저장 시 배열 원본 보존)
   { key: 'disciplines', label: '종목 (종목별 기록수)', type: 'text', half: false, get: (r) => fmtDisciplines(r.disciplines), set: () => {} },
   { key: 'sido', label: '시도', type: 'select', options: SIDO_LIST, half: true, get: (r) => r.sido ?? '', set: (r, v) => { r.sido = v } },
-  { key: 'pool', label: '수영장', type: 'text', half: true, get: (r) => r.pool ?? '', set: (r, v) => { r.pool = v } },
+  { key: 'gungu', label: '군구', type: 'text', half: true, get: (r) => r.gungu ?? '', set: (r, v) => { r.gungu = v } },
   { key: 'course', label: 'Course', type: 'select', options: ['LCM', 'SCM'], half: true, get: (r) => r.course ?? 'LCM', set: (r, v) => { r.course = v } },
   { key: 'isMasters', label: '구분', type: 'select', options: ['일반', '마스터즈'], half: true, get: (r) => (r.isMasters ? '마스터즈' : '일반'), set: (r, v) => { r.isMasters = v === '마스터즈' } },
   // 대회 스케치
@@ -196,6 +207,9 @@ const openNew = () => { isNew.value = true; selected.value = blankCompetition();
 
 const onSave = async (v: Record<string, any>) => {
   const base = isNew.value ? blankCompetition() : JSON.parse(JSON.stringify(selected.value))
+  // competitionID 는 폼에 없으므로(제목 표시 전용) 대회검색으로 채운 값을 그대로 넘긴다.
+  const cid = selected.value?.competitionID
+  if (isNew.value && cid != null && cid !== '') base.competitionID = Number(cid)
   fields.forEach((f) => f.set(base, v[f.key]))
   try {
     if (isNew.value) {
@@ -260,7 +274,7 @@ const onDrawerDelete = async () => {
     />
 
     <DetailDrawer
-      :open="open" :title="isNew ? '대회 추가' : '대회 상세 · 편집'"
+      :open="open" :title="drawerTitle"
       :fields="fields" :row="selected" width="min(897px, 96vw)"
       @close="open = false" @save="onSave" @delete="onDrawerDelete"
     >

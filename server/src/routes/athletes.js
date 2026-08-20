@@ -66,15 +66,18 @@ router.get('/competitions', async (req, res) => {
   }
 })
 
-// 선수 이미지 — images 컬렉션에서 name·gender·team·ageGroup 매칭 → [{ type, url, thumbnail, filename }]
+// 선수 이미지 — images.name 을 times.name_unique 로 매칭 → [{ type, url, thumbnail, filename }]
+// name_unique 는 동명이인일 때만 번호가 붙은 이름("홍길동1"), 아니면 이름 그대로.
 router.get('/images', async (req, res) => {
   try {
-    const { name, gender, team, ageGroup } = req.query
-    if (!name) return res.json([])
-    const filter = { name: String(name) }
+    const { name, name_unique: nameUnique, gender, competitionID } = req.query
+    const key = String(nameUnique || name || '')
+    if (!key) return res.json([])
+    // images.name 이 곧 유일 선수명(동명이인이면 "홍길동1").
+    // name_unique 는 대회 안에서만 유일하므로 competitionID 로 좁힌다.
+    const filter = { name: key }
+    if (competitionID != null && competitionID !== '') filter.competitionID = Number(competitionID)
     if (gender) filter.gender = String(gender)
-    if (team) filter.team = String(team)
-    if (ageGroup) filter.ageGroup = String(ageGroup)
     const docs = await (await SP()).collection('images')
       .find(filter, { projection: { _id: 0, type: 1, url: 1, thumbnail: 1, filename: 1 } })
       .toArray()
@@ -113,9 +116,14 @@ router.get('/', async (req, res) => {
     const docs = await (await coll()).aggregate([
       { $match: match },
       {
+        // 그룹 키는 (competitionID·name_unique) — 동명이인을 각각 한 행으로 분리한다.
+        // name 으로 묶으면 소속이 같은 동명이인이 한 행으로 합쳐져 한쪽만 보인다.
+        // name_unique 는 대회 안에서만 유일하므로 competitionID 를 함께 넣는다.
+        // 아직 name_unique 가 없는(기록가져오기 전) 문서는 name 으로 떨어진다.
         $group: {
-          _id: { name: '$name', team: '$team' },
+          _id: { competitionID: '$competitionID', name_unique: { $ifNull: ['$name_unique', '$name'] }, team: '$team' },
           name: { $first: '$name' },
+          name_unique: { $first: { $ifNull: ['$name_unique', '$name'] } },   // 이미지 매칭 키(동명이인이면 "홍길동1")
           gender: { $first: '$gender' },
           group: { $first: '$group' },
           ageGroup: { $first: '$ageGroup' },
@@ -148,13 +156,14 @@ router.get('/', async (req, res) => {
         },
       },
       { $addFields: { myTimesCount: { $ifNull: [{ $arrayElemAt: ['$_myt.c', 0] }, 0] } } },
-      // images 건수 조인 — 선수(name+gender+team) 기준
+      // images 건수 조인 — images.name 을 name_unique(없으면 name) 로 매칭.
+      // name_unique 는 대회 안에서만 유일하므로 competitionID 도 함께 본다.
       {
         $lookup: {
           from: 'images',
-          let: { nm: '$name', gd: '$gender', tm: '$team' },
+          let: { nu: { $ifNull: ['$name_unique', '$name'] }, cid: '$competitionID' },
           pipeline: [
-            { $match: { $expr: { $and: [{ $eq: ['$name', '$$nm'] }, { $eq: ['$gender', '$$gd'] }, { $eq: ['$team', '$$tm'] }] } } },
+            { $match: { $expr: { $and: [{ $eq: ['$name', '$$nu'] }, { $eq: ['$competitionID', '$$cid'] }] } } },
             { $count: 'c' },
           ],
           as: '_img',
@@ -361,13 +370,23 @@ router.get('/event-stats', async (req, res) => {
   }
 })
 
-// 드로어 저장분 조회 — SP.athletes(name+gender+group)의 json(소스)·llm(생성기사)·note
+// SP.athletes 의 유일키 — (competitionID·name·gender·ageGroup·team).
+// times/import 의 재집계와 드로어 저장이 같은 문서를 가리키도록 맞춘다.
+// name_unique 를 정하는 조합과 동일하며, 컬렉션에도 같은 조합으로 unique 인덱스가 걸려 있다.
+const athleteKey = (q = {}) => ({
+  competitionID: (q.competitionID != null && q.competitionID !== '') ? Number(q.competitionID) : null,
+  name: String(q.name || ''),
+  gender: String(q.gender || ''),
+  ageGroup: String(q.ageGroup || ''),
+  team: String(q.team || ''),
+})
+
+// 드로어 저장분 조회 — SP.athletes 의 json(소스)·llm(생성기사)·note
 router.get('/saved', async (req, res) => {
   try {
-    const { name, gender, group } = req.query
-    if (!name) return res.json(null)
+    if (!req.query.name) return res.json(null)
     const doc = await (await SP()).collection('athletes').findOne(
-      { name: String(name), gender: String(gender || ''), group: String(group || '') },
+      athleteKey(req.query),
       { projection: { json: 1, llm: 1, note: 1, savedAt: 1 } },
     )
     res.json(doc || null)
@@ -376,16 +395,21 @@ router.get('/saved', async (req, res) => {
   }
 })
 
-// 드로어 저장 — json(소스 payload)+llm(생성 기사 JSON)+note 를 SP.athletes 에 upsert(name+gender+group).
+// 드로어 저장 — json(소스 payload)+llm(생성 기사 JSON)+note 를 SP.athletes 에 upsert.
+// 키: (competitionID·name·gender·ageGroup·team)
 // 추가로 genJson(llm)을 SP.articles 에 upsert — 키: { competitionID, ageGroup, name }.
 router.post('/save', async (req, res) => {
   try {
-    const { name, gender, group, json, llm, note, competitionID, ageGroup, team } = req.body || {}
+    const { name, group, json, llm, note, competitionID, ageGroup } = req.body || {}
     if (!name) return res.status(400).json({ error: '선수명(name)이 필요합니다.' })
-    const key = { name: String(name), gender: String(gender || ''), group: String(group || '') }
+    const key = athleteKey(req.body)
     const r = await (await SP()).collection('athletes').updateOne(
       key,
-      { $set: { ...key, json: json ?? null, llm: llm ?? '', note: note ?? '', savedAt: new Date() } },
+      {
+        $set: { ...key, json: json ?? null, llm: llm ?? '', note: note ?? '', savedAt: new Date() },
+        // 키가 아닌 부가정보 — 신규 문서일 때만 채운다(기록가져오기 재집계값을 덮지 않도록).
+        $setOnInsert: { group: String(group || '') },
+      },
       { upsert: true },
     )
 
