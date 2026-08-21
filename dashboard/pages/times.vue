@@ -35,8 +35,13 @@ const loadCompetitions = async () => {
 const ROUND_KO: Record<string, string> = { preliminaries: '예선', finals: '결선', semiFinals: '준결선' }
 const roundLabel = (v: string) => ROUND_KO[v] || v || ''
 const imageNames = (r: any) => (r.images || []).slice(0, 5).map((im: any) => (im && (im.filename || im.name)) || im).filter(Boolean).join('|')
+// name_unique 는 names 와 같은 문자열 배열 — 표시용으로 ','.join 한다.
+const nuStr = (r: any) => (Array.isArray(r?.name_unique) ? r.name_unique.join(',') : (r?.name_unique || ''))
 // 이름 표기 — 동명이인이라 name_unique 에 번호가 붙은 경우에만 "이름/name_unique"
-const nameWithUnique = (r: any) => (r?.name_unique && r.name_unique !== r.name) ? `${r.name}/${r.name_unique}` : (r?.name || '')
+const nameWithUnique = (r: any) => {
+  const nu = nuStr(r)
+  return (nu && nu !== r?.name) ? `${r.name}/${nu}` : (r?.name || '')
+}
 const columns: Column[] = [
   { key: 'timeID', label: 'timeID', cls: 'mono' },
   { key: 'name', label: '선수명', cls: 'strong', get: (r) => nameWithUnique(r) },
@@ -119,18 +124,24 @@ const numOrNull = (v: any) => (v === '' || v == null ? null : Number(v))
 const fields: Field[] = [
   // 1행: 선수(2/4) · 성별(1/4) · timeID(1/4)
   { key: 'name', label: '선수', span: 2, get: (r) => r.name ?? '', set: (r, v) => { r.name = v } },
-  { key: 'gender', label: '성별', type: 'select', options: ['', 'men', 'women', 'mixed'], span: 1, get: (r) => r.gender ?? '', set: (r, v) => { r.gender = v } },
-  { key: 'timeID', label: 'timeID', span: 1, get: (r) => r.timeID ?? '', set: (r, v) => { r.timeID = numOrNull(v) } },
+  // name_unique 는 names 와 같은 문자열 배열 — 콤마로 보여주고, 저장할 때 다시 배열로 되돌린다
+  { key: 'name_unique', label: 'name_unique (콤마 구분)', span: 2, get: (r) => nuStr(r), set: (r, v) => { r.name_unique = String(v ?? '').split(',').map((s) => s.trim()).filter(Boolean) } },
   // 2행: 부(1/4) · 영법(1/4) · 코스(1/4) · 거리(1/4)
   { key: 'ageGroup', label: '부(ageGroup)', span: 1, get: (r) => r.ageGroup ?? '', set: (r, v) => { r.ageGroup = v } },
   { key: 'discipline', label: '영법', type: 'select', options: DISCIPLINES, span: 1, get: (r) => r.discipline ?? '', set: (r, v) => { r.discipline = v } },
   { key: 'course', label: '코스', type: 'select', options: ['LCM', 'SCM'], span: 1, get: (r) => r.course ?? '', set: (r, v) => { r.course = v } },
   { key: 'distance', label: '거리', type: 'select', options: DISTANCES, span: 1, get: (r) => r.distance ?? '', set: (r, v) => { r.distance = v } },
-  // 3행: 기록(1/4) · 순위(1/4) · 일자(1/4) · heat(1/4)
+
+  { key: 'gender', label: '성별', type: 'select', options: ['', 'men', 'women', 'mixed'], span: 1, get: (r) => r.gender ?? '', set: (r, v) => { r.gender = v } },
   { key: 'time', label: '기록', span: 1, get: (r) => r.time ?? '', set: (r, v) => { r.time = v } },
   { key: 'rank', label: '순위', span: 1, get: (r) => r.rank ?? '', set: (r, v) => { r.rank = numOrNull(v) } },
+  { key: 'timeID', label: 'timeID', span: 1, get: (r) => r.timeID ?? '', set: (r, v) => { r.timeID = numOrNull(v) } },
+
+  // 3행: 기록(1/4) · 순위(1/4) · 일자(1/4) · heat(1/4)
   { key: 'datetime', label: '일자', span: 1, get: (r) => r.datetime ?? '', set: (r, v) => { r.datetime = v } },
   { key: 'heat', label: 'heat', span: 1, get: (r) => r.heat ?? '', set: (r, v) => { r.heat = v } },
+  { key: 'pool', label: 'pool', span: 2, get: (r) => r.pool ?? '', set: (r, v) => { r.pool = v } },
+
   // 4행: 대회 ID(1/4) · 대회명(3/4)
   { key: 'competitionID', label: '대회 ID', span: 1, get: (r) => r.competitionID ?? '', set: (r, v) => { r.competitionID = numOrNull(v) } },
   { key: 'competitionName', label: '대회', span: 3, get: (r) => r.competitionName ?? '', set: (r, v) => { r.competitionName = v } },

@@ -17,8 +17,13 @@ const DISTANCES = ['', '25M', '50M', '100M', '200M', '400M', '500M', '800M', '10
 const disc = (v: string) => (DISCIPLINE_LABEL[v] || v || '')
 const genderLabel = (v: string) => ({ men: '남자', women: '여자', mixed: '혼성' } as Record<string, string>)[v] || v
 const eventLabel = (t: any) => [disc(t.discipline), t.distance, t.course].filter(Boolean).join(' ')
+// name_unique 는 names 와 같은 문자열 배열 — 표시·매칭용으로 ','.join 한다.
+const nuStr = (r: any) => (Array.isArray(r?.name_unique) ? r.name_unique.join(',') : (r?.name_unique || ''))
 // 이름 표기 — 동명이인이라 name_unique 에 번호가 붙은 경우에만 "이름/name_unique"
-const nameWithUnique = (r: any) => (r?.name_unique && r.name_unique !== r.name) ? `${r.name}/${r.name_unique}` : (r?.name || '')
+const nameWithUnique = (r: any) => {
+  const nu = nuStr(r)
+  return (nu && nu !== r?.name) ? `${r.name}/${nu}` : (r?.name || '')
+}
 
 // ── 필터 ──
 const competitionID = ref<number | ''>('')
@@ -139,7 +144,7 @@ const loadAthleteData = async (r: any) => {
   eventStats.value = { events: {}, heats: [] }
   // 선수 이미지 (images 컬렉션: name·gender·team·ageGroup 매칭)
   try {
-    athleteImages.value = await $fetch(api('/images'), { params: { name: r.name, name_unique: r.name_unique || '', competitionID: competitionID.value || '', gender: r.gender } })
+    athleteImages.value = await $fetch(api('/images'), { params: { name: r.name, name_unique: nuStr(r), competitionID: competitionID.value || '', gender: r.gender } })
   } catch {}
   // 종목·heat 통계 (선택 대회 기준)
   if (competitionID.value) {

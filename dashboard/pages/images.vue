@@ -32,6 +32,15 @@ const columns: Column[] = [
 const rows = ref<any[]>([])
 const loading = ref(false)
 const errorMsg = ref('')
+const importOpen = ref(false)   // 사진 가져오기 드로어
+const notice = ref('')
+const onImportDone = async (r: any) => {
+  importOpen.value = false
+  notice.value = `${r.count}장 저장 완료 — 신규 ${r.upserted} · 수정 ${r.modified}`
+    + (r.failed?.length ? ` · 실패 ${r.failed.length}` : '')
+  await loadFilters()   // 대회 옵션의 장수 갱신
+  await load()
+}
 
 const loadFilters = async () => {
   try { competitions.value = await $fetch<any[]>(api('/competitions')) } catch { competitions.value = [] }
@@ -52,7 +61,12 @@ const load = async () => {
     loading.value = false
   }
 }
-onMounted(async () => { await loadFilters(); await load() })
+onMounted(async () => {
+  await loadFilters()
+  // 처음에는 최근 대회(competitionID 내림차순 첫 항목)를 자동 선택 → watch 가 load 실행 (times 와 동일)
+  if (competitions.value.length) competitionID.value = competitions.value[0].competitionID
+  else await load()
+})
 watch([competitionID, discipline], load)
 
 // ── 상세 드로어 (편집) ──
@@ -62,7 +76,7 @@ const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') open.value = false
 
 // 편집 대상 필드 — 서버 PUT /api/images/:id 의 EDITABLE 과 같은 목록.
 // name 은 선수 매칭 키(times.name_unique)라 동명이인이면 "홍길동1" 처럼 번호가 붙은 이름을 넣어야 한다.
-const EDIT_FIELDS = ['name', 'gender', 'discipline', 'distance', 'type'] as const
+const EDIT_FIELDS = ['name', 'team', 'gender', 'discipline', 'distance', 'type'] as const
 const GENDER_OPTS = ['', 'men', 'women', 'mixed']
 const DIST_OPTS = ['', '25M', '50M', '100M', '200M', '400M', '800M', '1500M']
 const draft = ref<Record<string, string>>({})
@@ -87,10 +101,11 @@ const homRows = ref<any[]>([])
 const homIsHomonym = ref(false)
 const homMsg = ref('')
 const closeHomonyms = () => { homOpen.value = false; homRows.value = []; homMsg.value = ''; homIsHomonym.value = false }
-// 후보 클릭 → name 입력에 채운다(저장은 하단 '저장' 버튼으로).
+// 후보 클릭 → name·team 을 채운다(저장은 하단 '저장' 버튼으로).
 const applyHomonym = (h: any) => {
   if (!h?.name_unique) return
   draft.value.name = h.name_unique
+  if (h.team) draft.value.team = h.team
   homIsHomonym.value = false
 }
 const showHomonyms = async () => {
@@ -161,7 +176,7 @@ const onDelete = async () => {
       <select v-model="competitionID" class="filter-select filter-comp" aria-label="대회">
         <option value="">대회 전체</option>
         <option v-for="c in competitions" :key="c.competitionID" :value="c.competitionID">
-          {{ c.competitionName || c.competitionID }} ({{ c.count }})
+          {{ c.competitionName || c.competitionID }}<span v-if="c.datetime"> ({{ c.datetime }})</span> · {{ c.count }}장
         </option>
       </select>
       <select v-model="discipline" class="filter-select" aria-label="영법">
@@ -170,12 +185,21 @@ const onDelete = async () => {
       </select>
       <input v-model="name" class="filter-input" type="search" placeholder="선수명 검색…" @keydown.enter="load">
       <button class="btn btn-ghost" type="button" @click="load">검색</button>
+      <span class="toolbar-spacer" />
+      <button class="btn btn-primary" type="button" @click="importOpen = true">Import</button>
     </div>
 
     <p v-if="errorMsg" class="load-error">{{ errorMsg }}</p>
+    <p v-if="notice" class="result-note notice">{{ notice }}</p>
     <p v-if="!loading" class="result-note">총 {{ rows.length }}장</p>
 
     <DataTable :columns="columns" :rows="rows" clickable hide-search hide-actions @row-click="openRow" />
+
+    <!-- 사진 가져오기 드로어 (1단계: 파일명 → times 매칭 확인) -->
+    <ImageImportDrawer
+      :open="importOpen" :competitions="competitions" :competition-i-d="competitionID"
+      @close="importOpen = false" @done="onImportDone"
+    />
 
     <!-- 상세 드로어 -->
     <div class="drawer-root" :class="{ open }" @keydown="onKey">
@@ -192,18 +216,24 @@ const onDelete = async () => {
 
           <!-- 편집 필드 -->
           <div v-if="selected" class="edit-grid">
-            <div class="fld fld-wide">
+            <div class="fld">
               <span class="info-l">name</span>
               <div class="name-ctl">
                 <input v-model="draft.name" class="fld-input" type="text" placeholder="선수명 (동명이인이면 홍길동1)">
-                <button class="btn btn-ghost" type="button" :disabled="homLoading" @click="showHomonyms">
+                <button class="btn btn-ghost btn-sm" type="button" :disabled="homLoading" @click="showHomonyms">
                   {{ homLoading ? '조회 중…' : '동명이인' }}
                 </button>
-                <button v-if="homOpen" class="btn btn-ghost" type="button" @click="closeHomonyms">닫기</button>
+                <button v-if="homOpen" class="btn btn-ghost btn-sm" type="button" @click="closeHomonyms">닫기</button>
               </div>
+            </div>
+            <label class="fld">
+              <span class="info-l">team</span>
+              <input v-model="draft.team" class="fld-input" type="text" placeholder="소속">
+            </label>
 
-              <!-- 동명이인 후보 — times 의 같은 이름 선수들 -->
-              <div v-if="homOpen" class="hom-panel">
+            <!-- 동명이인 후보 — times 의 같은 이름 선수들 (한 줄 전체) -->
+            <div v-if="homOpen" class="fld fld-wide">
+              <div class="hom-panel">
                 <p v-if="homMsg" class="hom-msg">{{ homMsg }}</p>
                 <p v-else-if="homIsHomonym" class="hom-note">
                   동명이인입니다 — 이 대회에 <b>{{ draft.name }}</b> 이름의 기록이 없습니다. 아래 name_unique 중 하나로 바꿔주세요.
@@ -284,6 +314,7 @@ const onDelete = async () => {
 
 <style scoped>
 .toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+.toolbar-spacer { flex: 1; }
 .filter-select, .filter-input {
   font-family: var(--sans); font-size: 13.5px; color: var(--ink);
   background: var(--paper); border: 1px solid var(--line); border-radius: 6px; padding: 9px 12px;
@@ -292,6 +323,7 @@ const onDelete = async () => {
 .filter-comp { max-width: 320px; }
 .filter-select:focus, .filter-input:focus { outline: none; border-color: var(--orange); }
 .result-note { font-size: 12.5px; color: var(--ink-mute); margin: 0 0 12px; }
+.result-note.notice { color: var(--orange); font-weight: 600; }
 .load-error { margin-bottom: 14px; padding: 10px 14px; border-radius: 6px; background: var(--bad-bg); color: var(--bad); font-size: 13px; }
 
 /* 드로어 */
@@ -320,8 +352,10 @@ const onDelete = async () => {
   background: var(--paper); border: 1px solid var(--line); border-radius: 6px; padding: 8px 11px; width: 100%;
 }
 .fld-input:focus { outline: none; border-color: var(--orange); }
-.name-ctl { display: flex; align-items: center; gap: 8px; }
-.name-ctl .fld-input { flex: 1; }
+.name-ctl { display: flex; align-items: center; gap: 6px; }
+.name-ctl .fld-input { flex: 1; min-width: 0; }
+.name-ctl .btn-sm { padding: 7px 9px; font-size: 12px; white-space: nowrap; }
+.hom-hint b { color: var(--ink); }
 
 /* 동명이인 후보 패널 */
 .hom-panel { margin-top: 8px; padding: 10px 12px; background: var(--paper-deep); border-radius: 6px; }

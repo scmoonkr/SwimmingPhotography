@@ -11,6 +11,29 @@ import { callLLM } from '../llm.js'
 const router = Router()
 const coll = async () => (await SP()).collection('times')
 
+// name_unique 는 names 와 같은 문자열 배열 — 매칭·표시용 문자열 하나로 합치는 집계식.
+// 배열이면 ','.join, 예전 문서처럼 문자열이면 그대로, 비었으면 name 으로 떨어진다.
+const NU_STR = {
+  $let: {
+    vars: {
+      s: {
+        $cond: [
+          { $isArray: '$name_unique' },
+          {
+            $reduce: {
+              input: '$name_unique',
+              initialValue: '',
+              in: { $cond: [{ $eq: ['$$value', ''] }, '$$this', { $concat: ['$$value', ',', '$$this'] }] },
+            },
+          },
+          { $ifNull: ['$name_unique', ''] },
+        ],
+      },
+    },
+    in: { $cond: [{ $eq: ['$$s', ''] }, '$name', '$$s'] },
+  },
+}
+
 // 표준기사 가이드라인(.md) — LLM 프롬프트용. 소형 모델이 전체 마크다운에 눌리므로
 // 핵심 규칙(제목/리드/문체/표기)만 추려서 캐시. 파일이 있으면 §1~4의 불릿만 발췌.
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -121,9 +144,10 @@ router.get('/', async (req, res) => {
         // name_unique 는 대회 안에서만 유일하므로 competitionID 를 함께 넣는다.
         // 아직 name_unique 가 없는(기록가져오기 전) 문서는 name 으로 떨어진다.
         $group: {
-          _id: { competitionID: '$competitionID', name_unique: { $ifNull: ['$name_unique', '$name'] }, team: '$team' },
+          _id: { competitionID: '$competitionID', name_unique: NU_STR, team: '$team' },
           name: { $first: '$name' },
-          name_unique: { $first: { $ifNull: ['$name_unique', '$name'] } },   // 이미지 매칭 키(동명이인이면 "홍길동1")
+          // 이미지 매칭 키 — 저장은 배열이지만 여기서는 ','.join 한 문자열로 내려준다
+          name_unique: { $first: NU_STR },
           gender: { $first: '$gender' },
           group: { $first: '$group' },
           ageGroup: { $first: '$ageGroup' },
@@ -161,7 +185,7 @@ router.get('/', async (req, res) => {
       {
         $lookup: {
           from: 'images',
-          let: { nu: { $ifNull: ['$name_unique', '$name'] }, cid: '$competitionID' },
+          let: { nu: NU_STR, cid: '$competitionID' },
           pipeline: [
             { $match: { $expr: { $and: [{ $eq: ['$name', '$$nu'] }, { $eq: ['$competitionID', '$$cid'] }] } } },
             { $count: 'c' },
