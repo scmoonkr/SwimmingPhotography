@@ -1,24 +1,21 @@
 <script setup lang="ts">
 // 속보 페이지 — docs/html/breakingnews.html 이식.
-// 최근 일주일(오늘~7일 전)은 날짜별 섹션을 항상 표시(빈 날은 '등록된 내용이 없습니다'), 그 이전은 월별 묶음.
+// 최근 등록분 10개를 골라 날짜별로 묶어 보여준다(내용이 있는 날짜만).
 import { computed, onMounted, ref } from 'vue'
 
 const { isEN, t } = useLang()
 const { items, load, pick, open } = useBreaking()
 
-// SSR/CSR 날짜 불일치(하이드레이션 미스매치) 방지 — 마운트 후에만 목록 렌더
+// SSR 시엔 items 가 비어 있으므로 마운트 후에만 목록 렌더
 const mounted = ref(false)
-const nowTs = ref(0)
-onMounted(async () => { await load(); nowTs.value = Date.now(); mounted.value = true })
+onMounted(async () => { await load(); mounted.value = true })
 
 useHead({ title: computed(() => (isEN.value ? 'Breaking — Swimming Photography' : '속보 — Swimming Photography')) })
 
-const MONTHS_EN = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 const KO_DAYS = ['일요일', '월요일', '화요일', '수요일', '목요일', '금요일', '토요일']
 const EN_DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const pad2 = (n: number) => ('0' + n).slice(-2)
 
-const monthLabel = (ym: string) => { const q = ym.split('-'); return isEN.value ? MONTHS_EN[(+q[1]) - 1] + ' ' + q[0] : q[0] + '년 ' + (+q[1]) + '월' }
 const dayLabel = (d: Date) => isEN.value
   ? EN_DAYS[d.getDay()] + ', ' + pad2(d.getDate()) + '-' + pad2(d.getMonth() + 1) + '-' + d.getFullYear()
   : d.getFullYear() + '년 ' + (d.getMonth() + 1) + '월 ' + d.getDate() + '일 ' + KO_DAYS[d.getDay()]
@@ -35,34 +32,25 @@ const fmtFull = (s: string) => {
 
 type Entry = { kind: 'head'; label: string } | { kind: 'row'; item: any } | { kind: 'none' }
 
-// 렌더용 플랫 리스트 (헤딩 / 행 / 빈-안내)
+// 이 페이지에 보여줄 최대 건수 — items 는 티커·홈 속보 박스와 공유하는 전역 상태라
+// 여기서만 잘라 쓴다. items 는 이미 최신순 정렬돼 있다.
+const LIMIT = 10
+const recent = computed(() => items.value.slice(0, LIMIT))
+
+// 렌더용 플랫 리스트 — 최근 10개를 날짜별로 묶는다(내용이 있는 날짜만, 최신순).
 const entries = computed<Entry[]>(() => {
   if (!mounted.value) return []
-  const isoOf = (d: Date) => d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate())
-  const now = new Date(nowTs.value)
-  const t0 = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  const older: any[] = []
-  const byDay: Record<string, any[]> = {}
-  for (const it of items.value) {
-    const day = (it.publishedAt || '').slice(0, 10)
-    const diff = Math.round((+t0 - +new Date(day + 'T00:00:00')) / 86400000)
-    if (diff >= 0 && diff <= 7) (byDay[day] = byDay[day] || []).push(it)
-    else older.push(it)
-  }
+  if (!recent.value.length) return [{ kind: 'none' }]
   const out: Entry[] = []
-  // 최근 일주일: 날짜 섹션 항상 표시
-  for (let diff = 0; diff <= 7; diff++) {
-    const d = new Date(t0.getTime() - diff * 86400000)
-    out.push({ kind: 'head', label: dayLabel(d) })
-    const dayItems = byDay[isoOf(d)] || []
-    if (dayItems.length) dayItems.forEach((item) => out.push({ kind: 'row', item }))
-    else out.push({ kind: 'none' })
-  }
-  // 그 이전: 월별 묶음
-  let curYm: string | null = null
-  for (const it of older) {
-    const ym = (it.publishedAt || '').slice(0, 7)
-    if (ym !== curYm) { curYm = ym; out.push({ kind: 'head', label: monthLabel(ym) }) }
+  let curDay: string | null = null
+  for (const it of recent.value) {
+    const day = (it.publishedAt || '').slice(0, 10)
+    if (day !== curDay) {
+      curDay = day
+      const d = new Date(day + 'T00:00:00')
+      // 일시가 비었거나 형식이 이상하면 원문을 헤딩으로 쓴다
+      out.push({ kind: 'head', label: Number.isNaN(+d) ? (day || '—') : dayLabel(d) })
+    }
     out.push({ kind: 'row', item: it })
   }
   return out
@@ -76,7 +64,7 @@ const flag = computed(() => (isEN.value ? '[Breaking]' : '[속보]'))
     <h1 class="page-title">
       <strong>{{ t('이 시간 속보입니다.', 'Breaking news at this hour. ') }}</strong>
       <span>{{ t(' 가장 빠른 소식을 한 줄로 전합니다. 자세한 내용은 추후 기사로 이어집니다.', 'The fastest updates, one line at a time. Full details follow in upcoming articles.') }}</span>
-      <NuxtLink class="back-link" to="/">{{ t(' 전체 기사 보기', 'All articles') }}</NuxtLink>
+      <NuxtLink class="back-link" to="/">{{ t(' 전체 기사 보기', ' All articles') }}</NuxtLink>
     </h1>
 
     <div class="bk-list">

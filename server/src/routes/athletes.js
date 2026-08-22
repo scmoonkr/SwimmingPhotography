@@ -2,6 +2,7 @@
 // 대회·성별·선수명으로 필터해 선수 목록(각 선수의 times[영법·기록·순위 등])을 반환. 수동 선수추가도 지원.
 import fs from 'node:fs'
 import path from 'node:path'
+import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { Router } from 'express'
 import { SP, BR } from '../db.js'
@@ -64,16 +65,33 @@ const getRules = () => {
   return RULES
 }
 
-// docs/*.md 파일 읽기 (LLM 프롬프트 재료: prompt.md=system, schema.md=출력형식).
-// 캐시하지 않음 — 문서를 편집하면 다음 생성부터 바로 반영(서버 재시작 불필요).
+// ── LLM 프롬프트 재료: Claude Code 스킬 폴더를 그대로 읽는다 ──
+// .env 의 SKILL_DIR 로 지정 (예: C:/Develop/Contents/Photography/.claude/skills/generate-article)
+//   SKILL.md              → system 프롬프트 (앞머리 YAML frontmatter 는 제외)
+//   references/schema.md  → 출력 JSON 형식
+//   references/sourcedata.md → 입력 규격
+// 캐시하지 않음 — 스킬 문서를 고치면 다음 생성부터 바로 반영(서버 재시작 불필요).
+const SKILL_DIR = () => process.env.SKILL_DIR || ''
+const readSkill = (rel) => {
+  const base = SKILL_DIR()
+  if (!base) return ''
+  try { return fs.readFileSync(path.resolve(base, rel), 'utf8') } catch { return '' }
+}
+// SKILL.md 앞머리의 YAML frontmatter(--- … ---)는 스킬 메타데이터라 프롬프트에서 뺀다
+const stripFrontmatter = (md) => md.replace(/^\uFEFF?---\r?\n[\s\S]*?\r?\n---\r?\n/, '')
+// 스킬 본문 — 없으면 예전 docs/prompt.md, 그것도 없으면 축약 규칙으로 폴백
+const getSkill = () => stripFrontmatter(readSkill('SKILL.md')).trim()
+// 마크다운의 첫 ```json 블록 추출 (schema.md = A형 기사 JSON 출력형식)
+const firstJsonBlock = (md) => {
+  const m = String(md || '').match(/```json\s*([\s\S]*?)```/)
+  return m ? m[1].trim() : ''
+}
+
+// 예전 위치(docs/*.md) 폴백 — SKILL_DIR 미설정 환경 대비
 const getDoc = (rel) => {
   try { return fs.readFileSync(path.resolve(__dirname, '../../../docs/' + rel), 'utf8') } catch { return '' }
 }
-// schema.md 의 첫 ```json 블록(= A. 기사 JSON 출력형식) 추출
-const getOutputSchema = () => {
-  const m = getDoc('schema.md').match(/```json\s*([\s\S]*?)```/)
-  return m ? m[1].trim() : ''
-}
+const getOutputSchema = () => firstJsonBlock(readSkill('references/schema.md')) || firstJsonBlock(getDoc('schema.md'))
 
 // 대회 select 옵션 (SP.competitions)
 router.get('/competitions', async (req, res) => {
@@ -652,18 +670,48 @@ router.get('/pb', async (req, res) => {
   }
 })
 
-// 기사 LLM 생성 — 드로어 내용(JSON)을 표준기사 가이드라인 지침과 함께 NVIDIA 모델에 전달해 기사 JSON 생성.
+// 결정적 생성기 실행 — Contents/Photography 의 generate_articles.py 를 그대로 호출한다.
+// 로직을 옮겨 적지 않으므로 폴더에서 돌린 결과와 항상 같다. (LLM 아님)
+const runArticleGenerator = (data, pathName) => new Promise((resolve, reject) => {
+  const genDir = process.env.ARTICLE_GEN_DIR
+  const py = process.env.PYTHON_BIN || 'python'
+  const script = path.resolve(__dirname, '../../gen_article.py')
+  const ps = spawn(py, [script, pathName], {
+    env: { ...process.env, ARTICLE_GEN_DIR: genDir, PYTHONIOENCODING: 'utf-8' },
+  })
+  let out = '', err = ''
+  ps.stdout.on('data', (d) => { out += d })
+  ps.stderr.on('data', (d) => { err += d })
+  ps.on('error', (e) => reject(new Error(`python 실행 실패(PYTHON_BIN=${py}): ${e.message}`)))
+  ps.on('close', (code) => (code === 0 && out.trim())
+    ? resolve(out)
+    : reject(new Error(err.trim() || `생성기가 종료코드 ${code} 로 끝났습니다.`)))
+  ps.stdin.on('error', () => {})   // python 이 먼저 죽으면 EPIPE — close 에서 처리한다
+  ps.stdin.end(JSON.stringify(data), 'utf8')
+})
+
+// 기사 생성 — ARTICLE_GEN_DIR 이 있으면 검증된 결정적 생성기, 없으면 LLM(스킬 프롬프트)로 폴백.
 router.post('/generate-article', async (req, res) => {
   try {
     const data = (req.body && req.body.data) || req.body || {}
     const name = data?.athlete?.name || data?.name
     if (!name) return res.status(400).json({ error: '선수 데이터가 없습니다.' })
 
-    // system = docs/prompt.md 전문, 출력형식 = docs/schema.md 의 기사 JSON(A). 입력 = docs/sourcedata.md 규격(buildPayload).
-    const promptMd = getDoc('prompt.md') || getRules()
+    if (process.env.ARTICLE_GEN_DIR) {
+      // path_name 은 제목 유형 순환 seed 라, 폴더 파이프라인과 같은 파일명을 넘겨야 결과가 같다.
+      const cid = data?.competitionInfo?.competitionID ?? data?.competitionID ?? ''
+      const pathName = `${cid}-${name}.json`
+      const content = await runArticleGenerator(data, pathName)
+      return res.json({ content, finishReason: 'stop', provider: 'generate_articles.py', model: pathName })
+    }
+
+    // system = 스킬 본문(SKILL.md) + 출력 형식(references/schema.md 의 기사 JSON A).
+    // SKILL.md 는 "references/schema.md 를 참조한다"고 쓰여 있으나 LLM 은 파일을 못 여니
+    // 그 내용을 system 에 직접 붙여 준다. 입력은 references/sourcedata.md 규격(buildPayload).
+    const promptMd = getSkill() || getDoc('prompt.md') || getRules()
     const schema = getOutputSchema()
-    const sys = `${promptMd}${schema ? `\n\n## 출력 형식 (schema.md · 기사 JSON A)\n아래 구조의 JSON만 출력한다(블록 type·source 포함). 주석(//)은 설명이므로 출력하지 않는다.\n${schema}` : ''}`
-    const user = `[sourceData]\n${JSON.stringify(data, null, 2)}\n\n위 sourceData만 근거로, schema.md 기사 JSON 형식으로만 출력하라. 설명·마크다운·코드펜스 금지.`
+    const sys = `${promptMd}${schema ? `\n\n## 출력 형식 (references/schema.md · 기사 JSON A)\n아래 구조의 JSON만 출력한다(블록 type·source 포함). 주석(//)은 설명이므로 출력하지 않는다.\n${schema}` : ''}`
+    const user = `[sourceData]\n${JSON.stringify(data, null, 2)}\n\n위 sourceData만 근거로, 기사 JSON 형식으로만 출력하라. 설명·마크다운·코드펜스 금지.`
 
     // LLM 제공자는 .env LLM_MODEL(chatgpt|claude|gemini|nvidia)로 선택 — llm.js 가 라우팅.
     const maxTokens = Number(process.env.LLM_MAX_TOKENS || process.env.NVIDIA_MAX_TOKENS) || 8192

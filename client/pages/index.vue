@@ -74,6 +74,14 @@ const curCat = ref('경기')
 // ── 검색 ──
 const showSearch = ref(false)
 const searchQ = ref('')
+const searchInput = ref<HTMLInputElement | null>(null)
+// 검색 칩 → 패널을 열고 입력칸으로 포커스. v-show 라 DOM 은 있지만
+// display:none 상태에서는 focus 가 먹지 않으므로 nextTick 뒤에 준다.
+const openSearch = async () => {
+  showSearch.value = true
+  await nextTick()
+  searchInput.value?.focus()
+}
 const onSearchEnter = () => {
   const q = searchQ.value.trim()
   if (q) navigateTo({ path: '/search', query: { q } })
@@ -202,7 +210,7 @@ watch([bkItems, view, isEN], () => nextTick().then(syncBBHeight))
           :class="{ active: curCat === c.k }" @click="curCat = c.k"
         >{{ t(c.k, c.en) }}</button>
         <NuxtLink class="chip chip-link" to="/breakingnews">{{ t('속보', 'Breaking') }}</NuxtLink>
-        <button class="chip chip-search" type="button" @click="showSearch = true">{{ t('검색', 'Search') }}</button>
+        <button class="chip chip-search" type="button" @click="openSearch">{{ t('검색', 'Search') }}</button>
       </div>
       <button
         v-show="!showSearch" class="view-toggle" type="button" aria-label="그리드/리스트 보기 전환"
@@ -216,9 +224,10 @@ watch([bkItems, view, isEN], () => nextTick().then(syncBBHeight))
     <div v-show="showSearch" class="search-panel">
       <div class="search-heading">{{ t('도시, 대회, 종목, 선수, 제목 검색', 'Search by city, meet, event, athlete, or title') }}</div>
       <input
+        ref="searchInput"
         v-model="searchQ" type="search" class="search-input" aria-label="검색"
         :placeholder="t('검색어를 입력한 후 엔터를 눌러주세요.', 'Type your search, then press Enter.')"
-        @keydown.enter="onSearchEnter" @blur="showSearch = false"
+        @keydown.enter="onSearchEnter" @keydown.esc="showSearch = false" @blur="showSearch = false"
       >
     </div>
 

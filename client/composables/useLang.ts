@@ -41,6 +41,11 @@ export const applyI18n = (root: HTMLElement, en: boolean) => {
     if (el.getAttribute('data-ko-html') === null) el.setAttribute('data-ko-html', el.innerHTML)
     el.innerHTML = en ? el.getAttribute('data-en-html') || '' : el.getAttribute('data-ko-html') || ''
   })
+  // placeholder 는 텍스트 노드가 아니라 속성이라 따로 바꾼다 (data-en-ph)
+  root.querySelectorAll<HTMLElement>('[data-en-ph]').forEach((el) => {
+    if (el.getAttribute('data-ko-ph') === null) el.setAttribute('data-ko-ph', el.getAttribute('placeholder') || '')
+    el.setAttribute('placeholder', en ? el.getAttribute('data-en-ph') || '' : el.getAttribute('data-ko-ph') || '')
+  })
 }
 
 // 최초 진입 시 저장된 언어 복원 (클라이언트 전용)

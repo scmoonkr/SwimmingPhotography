@@ -4,7 +4,7 @@
 //   예) 20260809_110347_048A8302_서민석_남자_개인혼영_200_BLOCK.jpg
 //   앞쪽(******)은 촬영 정보라 무시하고 '_' 로 끊어 뒤에서 5개를 쓴다.
 // times 매칭·업로드는 다음 단계에서 구현한다.
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 
 const props = defineProps<{
   open: boolean
@@ -231,7 +231,9 @@ const doUpload = async () => {
     for (const p of targets) {
       const q = queue.value.find((x) => x.file.name === p.filename)
       if (!q) continue
-      upProgress.value = `${++i}/${targets.length}`
+      upProgress.value = `${++i} / ${targets.length}  ${p.filename}`
+      // 썸네일 생성은 동기 루프라 화면이 갱신되지 않는다 — 한 프레임 양보해 진행률을 보여준다
+      await nextTick()
       const thumb = await makeThumb(q.file)
       fd.append('files', q.file, p.filename)
       fd.append('thumbs', thumb || q.file, p.filename)
@@ -244,6 +246,7 @@ const doUpload = async () => {
       })
     }
     fd.append('meta', JSON.stringify(meta))
+    upProgress.value = `${targets.length} / ${targets.length}  전송 중…`
     const r = await $fetch<any>(api('/import'), { method: 'POST', body: fd })
     msg.value = ''
     emit('done', r)
@@ -439,7 +442,7 @@ const cancelEdit = () => { editing.value = '' }
 
       <footer class="drawer-foot">
         <span class="foot-msg">{{ msg }}</span>
-        <span v-if="uploading" class="foot-progress">업로드 {{ upProgress }}</span>
+        <span v-if="uploading" class="foot-progress" :title="upProgress">{{ upProgress }}</span>
         <button class="btn btn-ghost" type="button" :disabled="uploading" @click="emit('close')">닫기</button>
         <button class="btn btn-ghost" type="button" :disabled="!parsed.length || matching || uploading" @click="runMatch">
           {{ matching ? '매칭 중…' : 'times 매칭' }}
@@ -522,6 +525,10 @@ const cancelEdit = () => { editing.value = '' }
   padding: 12px 20px; border-top: 1px solid var(--line); background: var(--paper);
 }
 .foot-msg { flex: 1; font-size: 12px; color: var(--bad); }
-.foot-progress { font-size: 12px; color: var(--ink-mute); font-variant-numeric: tabular-nums; }
+/* 진행률 — 파일명이 길어도 푸터가 밀리지 않도록 자른다 */
+.foot-progress {
+  flex: 1 1 auto; min-width: 0; font-size: 12px; color: var(--ink-mute);
+  font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 .btn:disabled { opacity: .5; cursor: default; }
 </style>
