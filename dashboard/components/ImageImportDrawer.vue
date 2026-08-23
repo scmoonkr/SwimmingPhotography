@@ -208,6 +208,8 @@ const makeThumb = (file: File): Promise<Blob | null> => new Promise((resolve) =>
 
 const uploading = ref(false)
 const upProgress = ref('')
+// 한 요청에 담는 장수 — 원본이 장당 수 MB 라 크게 잡으면 요청 하나가 너무 무거워진다
+const BATCH = 4
 // 매칭이 안 된 파일은 timeID 없이 올라간다 — 올리기 전에 몇 건인지 알려준다
 const unmatchedCount = computed(() => parsed.value.filter((p) => p.ok && p.match?.status !== 'ok').length)
 
@@ -222,36 +224,51 @@ const doUpload = async () => {
   if (bad && !confirm(`${targets.length}장 중 ${bad}장은 times 매칭이 확정되지 않았습니다.\ntimeID 없이(또는 첫 후보로) 저장됩니다. 계속할까요?`)) return
 
   uploading.value = true; msg.value = ''; upProgress.value = ''
+  // 한 번에 다 보내면 원본 수십~수백 MB 가 요청 하나가 되어 오래 멈춘 것처럼 보인다.
+  // 묶음으로 나눠 보내면 진행률이 계속 움직이고, 중간에 끊겨도 앞 묶음은 이미 저장돼 있다.
+  const total = targets.length
+  const sum = { count: 0, upserted: 0, modified: 0, failed: [] as any[] }
+  let done = 0
   try {
-    const fd = new FormData()
-    fd.append('competitionID', String(cid.value))
-    fd.append('competitionName', comp?.competitionName ?? '')
-    const meta: any[] = []
-    let i = 0
-    for (const p of targets) {
-      const q = queue.value.find((x) => x.file.name === p.filename)
-      if (!q) continue
-      upProgress.value = `${++i} / ${targets.length}  ${p.filename}`
-      // 썸네일 생성은 동기 루프라 화면이 갱신되지 않는다 — 한 프레임 양보해 진행률을 보여준다
-      await nextTick()
-      const thumb = await makeThumb(q.file)
-      fd.append('files', q.file, p.filename)
-      fd.append('thumbs', thumb || q.file, p.filename)
-      meta.push({
-        filename: p.filename,
-        name: p.name, gender: p.gender, discipline: p.discipline, distance: p.distance, type: p.type,
-        // 매칭이 하나로 확정된 것만 timeID 를 붙인다(여러 건이면 첫 후보)
-        timeID: p.match?.timeIDs?.[0] ?? null,
-        ageGroup: p.match?.ageGroup ?? '', team: p.match?.team ?? '',
-      })
+    for (let s = 0; s < total; s += BATCH) {
+      const chunk = targets.slice(s, s + BATCH)
+      const fd = new FormData()
+      fd.append('competitionID', String(cid.value))
+      fd.append('competitionName', comp?.competitionName ?? '')
+      const meta: any[] = []
+      for (const p of chunk) {
+        const q = queue.value.find((x) => x.file.name === p.filename)
+        if (!q) continue
+        upProgress.value = `썸네일 ${done + meta.length + 1} / ${total}  ${p.filename}`
+        // 썸네일 생성은 동기 루프라 화면이 갱신되지 않는다 — 한 프레임 양보해 진행률을 보여준다
+        await nextTick()
+        const thumb = await makeThumb(q.file)
+        fd.append('files', q.file, p.filename)
+        fd.append('thumbs', thumb || q.file, p.filename)
+        meta.push({
+          filename: p.filename,
+          name: p.name, gender: p.gender, discipline: p.discipline, distance: p.distance, type: p.type,
+          // 매칭이 하나로 확정된 것만 timeID 를 붙인다(여러 건이면 첫 후보)
+          timeID: p.match?.timeIDs?.[0] ?? null,
+          ageGroup: p.match?.ageGroup ?? '', team: p.match?.team ?? '',
+        })
+      }
+      if (!meta.length) continue
+      fd.append('meta', JSON.stringify(meta))
+      upProgress.value = `전송 ${done + meta.length} / ${total}`
+      const r = await $fetch<any>(api('/import'), { method: 'POST', body: fd })
+      sum.count += r.count || 0
+      sum.upserted += r.upserted || 0
+      sum.modified += r.modified || 0
+      if (r.failed?.length) sum.failed.push(...r.failed)
+      done += meta.length
+      upProgress.value = `저장 ${done} / ${total}`
     }
-    fd.append('meta', JSON.stringify(meta))
-    upProgress.value = `${targets.length} / ${targets.length}  전송 중…`
-    const r = await $fetch<any>(api('/import'), { method: 'POST', body: fd })
-    msg.value = ''
-    emit('done', r)
+    emit('done', sum)
   } catch (err: any) {
-    msg.value = '업로드 실패: ' + (err?.data?.error || err?.message || '')
+    // 앞 묶음은 이미 저장됐으므로 어디까지 됐는지 알려준다
+    msg.value = `업로드 실패(${done}/${total} 저장됨): ` + (err?.data?.error || err?.message || '')
+    if (done) emit('done', sum)
   } finally {
     uploading.value = false; upProgress.value = ''
   }

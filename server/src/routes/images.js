@@ -133,9 +133,11 @@ router.post('/import', upload.fields([{ name: 'files', maxCount: 1000 }, { name:
     const folder = `SP-images-${competitionID}`
 
     const now = new Date()
-    const ops = []
     const failed = []
-    for (let i = 0; i < files.length; i++) {
+
+    // R2 업로드 — 한 장씩 순차로 올리면 (원본+썸네일) 왕복이 직렬로 쌓여 느리다.
+    // 동시 실행 수를 제한한 워커풀로 병렬 처리한다.
+    const uploadOne = async (i) => {
       const m = meta[i] || {}
       const fname = safeName(m.filename || files[i].originalname)
       const key = `${folder}/${fname}`
@@ -144,12 +146,27 @@ router.post('/import', upload.fields([{ name: 'files', maxCount: 1000 }, { name:
         await putObject(key, files[i].buffer, files[i].mimetype)
       } catch (e) {
         failed.push({ filename: fname, error: e.message })
-        continue
+        return null
       }
       let thumbnail = key
       if (thumbs[i] && thumbs[i].buffer) {
         try { await putObject(thumbKey, thumbs[i].buffer, thumbs[i].mimetype || 'image/jpeg'); thumbnail = thumbKey } catch { /* 썸네일 실패는 원본으로 대체 */ }
       }
+      return { fname, key, thumbnail }
+    }
+    const uploaded = new Array(files.length).fill(null)
+    let cursor = 0
+    const workers = Math.min(Number(process.env.R2_CONCURRENCY) || 6, files.length)
+    await Promise.all(Array.from({ length: workers }, async () => {
+      for (let i = cursor++; i < files.length; i = cursor++) uploaded[i] = await uploadOne(i)
+    }))
+
+    const ops = []
+    for (let i = 0; i < files.length; i++) {
+      const up = uploaded[i]
+      if (!up) continue                      // R2 업로드 실패 — failed 에 이미 담겼다
+      const { fname, key, thumbnail } = up
+      const m = meta[i] || {}
       const timeID = (m.timeID != null && m.timeID !== '') ? Number(m.timeID) : null
       ops.push({
         updateOne: {
@@ -194,14 +211,17 @@ router.get('/disciplines', async (req, res) => {
   }
 })
 
-// 목록 — competitionID·discipline·name 필터
+// 목록 — competitionID·discipline·name·matched 필터
+// matched: 'none' = timeID 가 없는(기록에 못 붙은) 사진만 · 'has' = 붙은 것만
 router.get('/', async (req, res) => {
   try {
-    const { competitionID, discipline, name, limit = 2000 } = req.query
+    const { competitionID, discipline, name, matched, limit = 2000 } = req.query
     const filter = {}
     if (competitionID) filter.competitionID = Number(competitionID)
     if (discipline) filter.discipline = String(discipline)
     if (name) filter.name = { $regex: String(name), $options: 'i' }
+    if (matched === 'none') filter.timeID = null          // null 은 필드가 없는 문서도 함께 잡는다
+    else if (matched === 'has') filter.timeID = { $ne: null }
     const docs = await (await coll())
       .find(filter)
       .limit(Math.min(Number(limit) || 2000, 10000))
@@ -232,10 +252,17 @@ router.put('/:id', async (req, res) => {
     const $set = { updatedAt: new Date() }
     for (const k of EDITABLE) if (body[k] !== undefined) $set[k] = String(body[k] ?? '').trim()
     if ($set.name === '') return res.status(400).json({ error: '선수명을 입력하세요.' })
+    // timeID 는 숫자(또는 미매칭이면 null) — 문자열로 저장하면 times 조인이 깨진다
+    if (body.timeID !== undefined) {
+      const v = String(body.timeID ?? '').trim()
+      if (v === '') $set.timeID = null
+      else if (Number.isFinite(Number(v))) $set.timeID = Number(v)
+      else return res.status(400).json({ error: 'timeID 는 숫자여야 합니다.' })
+    }
     const r = await (await coll()).findOneAndUpdate({ _id }, { $set }, { returnDocument: 'after' })
     const doc = r && (r.value || r)
     if (!doc || !doc._id) return res.status(404).json({ error: 'not found' })
-    res.json({ ok: true, ...Object.fromEntries(EDITABLE.map((k) => [k, doc[k] ?? ''])) })
+    res.json({ ok: true, ...Object.fromEntries(EDITABLE.map((k) => [k, doc[k] ?? ''])), timeID: doc.timeID ?? null })
   } catch (e) {
     res.status(500).json({ error: e.message })
   }

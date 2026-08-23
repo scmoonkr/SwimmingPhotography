@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 이미지 — SwimmingPhotography DB(images) 조회. 대회·영법·선수명 필터, 행 클릭 시 상세 드로어.
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import type { Column } from '~/composables/useMock'
 
 const api = (p = '') => `${useRuntimeConfig().public.apiBase}/api/images${p}`
@@ -9,6 +9,8 @@ const api = (p = '') => `${useRuntimeConfig().public.apiBase}/api/images${p}`
 const competitionID = ref<number | ''>('')
 const discipline = ref('')
 const name = ref('')
+// 매칭 여부 — timeID 가 없는 사진은 기록(times)에 붙지 못한 것
+const matched = ref<'' | 'none' | 'has'>('')
 
 const competitions = ref<any[]>([])
 const disciplines = ref<string[]>([])
@@ -25,6 +27,8 @@ const columns: Column[] = [
   { key: 'genderAge', label: '성별·부', cls: 'muted', get: (r) => [genderLabel(r.gender), r.ageGroup].filter(Boolean).join(' · ') },
   { key: 'team', label: '팀', cls: 'muted' },
   { key: 'discipline', label: '영법', get: (r) => discLabel(r.discipline) },
+  // 기록(times) 연결 — 비어 있으면 미매칭
+  { key: 'timeID', label: 'timeID', cls: 'mono', get: (r) => r.timeID ?? '—' },
   { key: 'scene', label: '장면', cls: 'muted', get: (r) => r.sceneType || r.type || '' },
   { key: 'caption', label: '캡션', get: (r) => r.translations?.ko?.caption || '' },
 ]
@@ -53,6 +57,7 @@ const load = async () => {
     if (competitionID.value) params.competitionID = competitionID.value
     if (discipline.value) params.discipline = discipline.value
     if (name.value.trim()) params.name = name.value.trim()
+    if (matched.value) params.matched = matched.value
     rows.value = await $fetch<any[]>(api(), { params })
   } catch (err: any) {
     rows.value = []
@@ -67,7 +72,7 @@ onMounted(async () => {
   if (competitions.value.length) competitionID.value = competitions.value[0].competitionID
   else await load()
 })
-watch([competitionID, discipline], load)
+watch([competitionID, discipline, matched], load)
 
 // ── 상세 드로어 (편집) ──
 const selected = ref<any | null>(null)
@@ -76,7 +81,8 @@ const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') open.value = false
 
 // 편집 대상 필드 — 서버 PUT /api/images/:id 의 EDITABLE 과 같은 목록.
 // name 은 선수 매칭 키(times.name_unique)라 동명이인이면 "홍길동1" 처럼 번호가 붙은 이름을 넣어야 한다.
-const EDIT_FIELDS = ['name', 'team', 'gender', 'discipline', 'distance', 'type'] as const
+// timeID 도 저장 대상 — 동명이인 후보를 고르면 (영법·거리)가 맞는 기록으로 채워진다
+const EDIT_FIELDS = ['name', 'team', 'gender', 'discipline', 'distance', 'type', 'timeID'] as const
 const GENDER_OPTS = ['', 'men', 'women', 'mixed']
 const DIST_OPTS = ['', '25M', '50M', '100M', '200M', '400M', '800M', '1500M']
 const draft = ref<Record<string, string>>({})
@@ -101,12 +107,33 @@ const homRows = ref<any[]>([])
 const homIsHomonym = ref(false)
 const homMsg = ref('')
 const closeHomonyms = () => { homOpen.value = false; homRows.value = []; homMsg.value = ''; homIsHomonym.value = false }
-// 후보 클릭 → name·team 을 채운다(저장은 하단 '저장' 버튼으로).
-const applyHomonym = (h: any) => {
-  if (!h?.name_unique) return
-  draft.value.name = h.name_unique
-  if (h.team) draft.value.team = h.team
+
+// 후보를 기록 단위로 펼친다 — 화면에는 timeID · 종목 · 거리만 보여준다.
+// (계영은 후보마다 같은 기록이 붙으므로 timeID 로 중복을 없앤다)
+const homTimes = computed(() => {
+  const out: any[] = []
+  const seen = new Set<string>()
+  for (const h of homRows.value) {
+    for (const t of (h.times || [])) {
+      const k = String(t.timeID)
+      if (t.timeID == null || seen.has(k)) continue
+      seen.add(k)
+      out.push({ h, t })
+    }
+  }
+  return out
+})
+
+// 행 클릭 → 그 기록으로 확정. 파일명의 영법·거리가 틀렸으면 기록 값으로 바로잡는다.
+const applyTime = (h: any, t: any) => {
+  if (t?.timeID == null) return
+  if (h?.name_unique) draft.value.name = h.name_unique
+  if (h?.team) draft.value.team = h.team
+  draft.value.timeID = String(t.timeID)
+  if (t.discipline) draft.value.discipline = t.discipline
+  if (t.distance) draft.value.distance = t.distance
   homIsHomonym.value = false
+  homMsg.value = ''
 }
 const showHomonyms = async () => {
   const r = selected.value
@@ -131,7 +158,7 @@ const labelRows = () => {
   const r = selected.value
   if (!r) return [] as [string, any][][]
   return [
-    [['competitionID', r.competitionID], ['competitionName', r.competition]],
+    [['competitionName', r.competition], ['파일', r.filename]],
     [['thumbnail', r.thumbPath || r.thumbnail], ['url', r.path || r.url]],
   ]
 }
@@ -143,8 +170,9 @@ const onSave = async () => {
   saving.value = true; drawerMsg.value = ''
   try {
     const res = await $fetch<any>(api(`/${r._id}`), { method: 'PUT', body: { ...draft.value } })
-    for (const k of EDIT_FIELDS) r[k] = res[k]   // 드로어·목록 즉시 반영(같은 객체 참조)
-    drawerMsg.value = '저장됨'
+    for (const k of EDIT_FIELDS) r[k] = res[k]   // 목록 즉시 반영(같은 객체 참조)
+    open.value = false                            // 저장했으면 드로어를 닫는다
+    notice.value = `${r.filename} 저장됨`
   } catch (err: any) {
     drawerMsg.value = '저장 실패: ' + (err?.data?.error || err?.message || '')
   } finally {
@@ -182,6 +210,11 @@ const onDelete = async () => {
       <select v-model="discipline" class="filter-select" aria-label="영법">
         <option value="">영법 전체</option>
         <option v-for="d in disciplines" :key="d" :value="d">{{ discLabel(d) }}</option>
+      </select>
+      <select v-model="matched" class="filter-select" aria-label="기록 매칭 여부">
+        <option value="">매칭 전체</option>
+        <option value="none">미매칭 (timeID 없음)</option>
+        <option value="has">매칭됨</option>
       </select>
       <input v-model="name" class="filter-input" type="search" placeholder="선수명 검색…" @keydown.enter="load">
       <button class="btn btn-ghost" type="button" @click="load">검색</button>
@@ -236,32 +269,19 @@ const onDelete = async () => {
               <div class="hom-panel">
                 <p v-if="homMsg" class="hom-msg">{{ homMsg }}</p>
                 <p v-else-if="homIsHomonym" class="hom-note">
-                  동명이인입니다 — 이 대회에 <b>{{ draft.name }}</b> 이름의 기록이 없습니다. 아래 name_unique 중 하나로 바꿔주세요.
+                  동명이인입니다 — 이 대회에 <b>{{ draft.name }}</b> 이름의 기록이 없습니다. 아래에서 기록을 고르세요.
                 </p>
-                <p v-else class="hom-note ok">
-                  <b>{{ draft.name }}</b> 로 매칭되는 기록이 있습니다.
-                </p>
-                <table v-if="homRows.length" class="hom-table">
-                  <thead>
-                    <tr><th>name</th><th>name_unique</th><th>gender</th><th>ageGroup</th><th>team</th><th class="num">기록</th></tr>
-                  </thead>
-                  <tbody>
-                    <tr
-                      v-for="(h, i) in homRows" :key="i"
-                      :class="{ cur: h.name_unique === draft.name }"
-                      :title="`name 을 '${h.name_unique}' 로 채웁니다`"
-                      @click="applyHomonym(h)"
-                    >
-                      <td>{{ h.name || '—' }}</td>
-                      <td class="strong">{{ h.name_unique || '—' }}</td>
-                      <td>{{ h.gender ? genderLabel(h.gender) : '—' }}</td>
-                      <td>{{ h.ageGroup || '—' }}</td>
-                      <td>{{ h.team || '—' }}</td>
-                      <td class="num">{{ h.timeCount }}</td>
-                    </tr>
-                  </tbody>
-                </table>
-                <p v-if="homRows.length" class="hom-hint">행을 클릭하면 name 에 채워집니다. 반영하려면 아래 <b>저장</b> 을 누르세요.</p>
+                <!-- 기록 버튼 — timeID · 종목 · 거리. 누르면 그 기록으로 확정된다 -->
+                <div v-if="homTimes.length" class="hom-times">
+                  <button
+                    v-for="({ h, t }) in homTimes" :key="t.timeID" class="tbtn" type="button"
+                    :class="{ cur: String(t.timeID) === String(draft.timeID) }"
+                    :title="`timeID ${t.timeID} 로 연결하고 영법·거리를 맞춥니다`"
+                    @click="applyTime(h, t)"
+                  >
+                    <b>{{ t.timeID }}</b> {{ discLabel(t.discipline) }} {{ t.distance }}
+                  </button>
+                </div>
               </div>
             </div>
             <label class="fld">
@@ -286,6 +306,10 @@ const onDelete = async () => {
             <label class="fld">
               <span class="info-l">type</span>
               <input v-model="draft.type" class="fld-input" type="text" placeholder="BLOCK · SWIM …">
+            </label>
+            <label class="fld">
+              <span class="info-l">timeID <span v-if="!draft.timeID" class="bad">미매칭</span></span>
+              <input v-model="draft.timeID" class="fld-input" type="text" placeholder="기록 연결 (동명이인 후보를 고르면 채워짐)">
             </label>
           </div>
 
@@ -355,23 +379,20 @@ const onDelete = async () => {
 .name-ctl { display: flex; align-items: center; gap: 6px; }
 .name-ctl .fld-input { flex: 1; min-width: 0; }
 .name-ctl .btn-sm { padding: 7px 9px; font-size: 12px; white-space: nowrap; }
-.hom-hint b { color: var(--ink); }
 
 /* 동명이인 후보 패널 */
 .hom-panel { margin-top: 8px; padding: 10px 12px; background: var(--paper-deep); border-radius: 6px; }
 .hom-note { margin: 0 0 8px; font-size: 12.5px; color: var(--bad); line-height: 1.5; }
-.hom-note.ok { color: var(--ink-mute); }
-.hom-msg { margin: 0; font-size: 12.5px; color: var(--ink-mute); }
-.hom-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-.hom-table th, .hom-table td { padding: 5px 8px; text-align: left; border-bottom: 1px solid var(--line-soft); }
-.hom-table th { font-size: 11.5px; font-weight: 600; color: var(--ink-light); }
-.hom-table td { color: var(--ink); }
-.hom-table td.strong { font-weight: 700; }
-.hom-table .num { text-align: right; font-variant-numeric: tabular-nums; }
-.hom-table tbody tr { cursor: pointer; }
-.hom-table tbody tr:hover td { background: var(--paper); }
-.hom-table tr.cur td { background: var(--paper); box-shadow: inset 2px 0 0 var(--orange); }
-.hom-hint { margin: 8px 0 0; font-size: 11.5px; color: var(--ink-light); }
+
+/* 기록 버튼 — timeID · 종목 · 거리. 누르면 그 기록으로 확정된다 */
+.hom-times { display: flex; flex-wrap: wrap; gap: 6px; }
+.tbtn {
+  font-family: var(--sans); font-size: 12px; color: var(--ink); cursor: pointer; white-space: nowrap;
+  background: var(--paper); border: 1px solid var(--line); border-radius: 6px; padding: 6px 11px;
+}
+.tbtn:hover { border-color: var(--orange); }
+.tbtn.cur { border-color: var(--orange); box-shadow: inset 0 0 0 1px var(--orange); }
+.tbtn b { font-variant-numeric: tabular-nums; margin-right: 5px; }
 
 /* 드로어 하단 액션 */
 .drawer-foot {
@@ -386,6 +407,7 @@ const onDelete = async () => {
 .info-duo { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding: 8px 0; border-bottom: 1px solid var(--line-soft); }
 .info-cell { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .info-l { font-size: 11.5px; color: var(--ink-light); }
+.info-l .bad { color: var(--bad); font-weight: 700; margin-left: 4px; }
 .info-v { font-size: 13.5px; color: var(--ink); word-break: break-all; }
 .cap-block { padding: 10px 0; border-bottom: 1px solid var(--line-soft); }
 .cap-text { margin: 4px 0 0; font-size: 13.5px; line-height: 1.55; color: var(--ink); }

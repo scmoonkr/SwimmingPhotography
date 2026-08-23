@@ -21,7 +21,9 @@ export const nuStr = (v) => (Array.isArray(v) ? v.join(',') : String(v ?? ''))
 // 동명이인 조회 — GET /homonyms?competitionID=&name=
 // 이미지의 name 은 times.name_unique 와 같아야 매칭된다.
 // (competitionID + name_unique) 가 없으면 그 이름은 동명이인이라 번호가 붙은 상태이므로,
-// 같은 이름의 후보들을 name_unique 별로 묶어 돌려준다.  (/:id 보다 먼저 등록)
+// 같은 이름의 후보들을 묶어 돌려준다. 후보마다 times 를 함께 주어, 화면에서
+// (영법·거리)가 맞는 기록의 timeID 를 집을 수 있게 한다.  (/:id 보다 먼저 등록)
+const RELAY_DISC = ['FRR', 'MR']
 router.get('/homonyms', async (req, res) => {
   try {
     const { competitionID, name } = req.query
@@ -34,32 +36,59 @@ router.get('/homonyms', async (req, res) => {
     // 지금 이름 그대로 매칭되는 기록이 있는지 — 있으면 동명이인 문제 아님
     const hit = await c.countDocuments({ ...match, name_unique: nm }, { limit: 1 })
 
-    // 후보 — 끝의 번호를 뗀 이름("홍길동1" → "홍길동")으로 같은 이름의 선수를 모은다
+    // 끝의 번호를 뗀 이름("홍길동1" → "홍길동")으로 같은 이름의 기록을 모은다.
+    // 계영은 name 이 명단 문자열("A,B,C,D")이라 name 으로는 안 잡힌다 —
+    // name_unique 가 배열이라 원소 매칭이 되므로 그쪽으로도 건다.
     const base = nm.replace(/\d+$/, '') || nm
-    const candidates = await c.aggregate([
-      { $match: { ...match, name: base } },
-      {
-        $group: {
-          _id: { name_unique: { $ifNull: ['$name_unique', '$name'] }, gender: '$gender', ageGroup: '$ageGroup', team: '$team' },
-          name: { $first: '$name' },
-          timeCount: { $sum: 1 },
-        },
-      },
-      { $sort: { '_id.name_unique': 1 } },
-    ]).toArray()
+    const rows = await c.find(
+      { ...match, $or: [{ name: base }, { name_unique: base }, { name_unique: nm }] },
+      { projection: { timeID: 1, name: 1, name_unique: 1, gender: 1, ageGroup: 1, team: 1, discipline: 1, distance: 1, round: 1, time: 1 } },
+    ).limit(5000).toArray()
 
-    res.json({
-      isHomonym: !hit,
-      base,
-      candidates: candidates.map((g) => ({
-        name: g.name ?? '',
-        name_unique: g._id.name_unique ?? '',
-        gender: g._id.gender ?? '',
-        ageGroup: g._id.ageGroup ?? '',
-        team: g._id.team ?? '',
-        timeCount: g.timeCount,
-      })),
+    const brief = (r) => ({
+      timeID: r.timeID ?? null,
+      discipline: r.discipline || '',
+      distance: r.distance || '',
+      round: r.round || '',
+      time: r.time || '',
+      relay: RELAY_DISC.includes(String(r.discipline || '').toUpperCase()),
     })
+
+    // 후보는 '개인 기록' 단위로 만든다 — 동명이인을 가르는 축이 (name_unique·성별·부·소속) 이라서.
+    const cands = new Map()
+    const keyOf = (r) => JSON.stringify([nuStr(r.name_unique), r.gender ?? '', r.ageGroup ?? '', r.team ?? ''])
+    for (const r of rows) {
+      if (brief(r).relay) continue
+      const k = keyOf(r)
+      if (!cands.has(k)) {
+        cands.set(k, {
+          name: r.name ?? '', name_unique: nuStr(r.name_unique),
+          gender: r.gender ?? '', ageGroup: r.ageGroup ?? '', team: r.team ?? '', times: [],
+        })
+      }
+      cands.get(k).times.push(brief(r))
+    }
+
+    // 계영은 번호를 매기지 않아 명단만으로 어느 동명이인인지 가릴 수 없다.
+    // 그래서 이름이 명단에 든 후보 '전부'에 붙인다. (기록 자체는 같은 한 건이라 timeID 는 어차피 하나)
+    const relays = rows.filter((r) => brief(r).relay)
+    if (relays.length) {
+      // 개인 기록이 하나도 없으면(계영만 뛴 선수) 계영으로 후보를 만든다
+      if (!cands.size) {
+        const r0 = relays[0]
+        cands.set('relay-only', {
+          name: base, name_unique: base,
+          gender: r0.gender ?? '', ageGroup: r0.ageGroup ?? '', team: r0.team ?? '', times: [],
+        })
+      }
+      for (const cand of cands.values()) for (const r of relays) cand.times.push(brief(r))
+    }
+
+    const candidates = [...cands.values()]
+      .map((x) => ({ ...x, timeCount: x.times.length, times: x.times.filter((t) => t.timeID != null) }))
+      .sort((a, b) => String(a.name_unique).localeCompare(String(b.name_unique), 'ko', { numeric: true }))
+
+    res.json({ isHomonym: !hit, base, candidates })
   } catch (e) {
     res.status(500).json({ error: e.message })
   }
