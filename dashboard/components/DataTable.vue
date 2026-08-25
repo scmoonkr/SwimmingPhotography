@@ -20,6 +20,9 @@ const emit = defineEmits<{
 }>()
 
 // 컬럼 값 (중첩 스키마는 c.get 접근자 사용)
+// 삭제 아이콘은 delete 능력이 있는 계정에만 (서버에서도 같은 능력으로 막는다)
+const { can } = useAuth()
+
 const cellVal = (r: Record<string, any>, c: Column) => (c.get ? c.get(r) : r[c.key])
 
 const q = ref('')
@@ -94,7 +97,7 @@ const toggleAll = () => emit('update:selected', allSel.value ? [] : [...filtered
                 <button title="편집" aria-label="편집" @click.stop="emit('rowClick', r)">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
                 </button>
-                <button class="del" title="삭제" aria-label="삭제" @click.stop="emit('deleteRow', r)">
+                <button v-if="can('delete')" class="del" title="삭제" aria-label="삭제" @click.stop="emit('deleteRow', r)">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
                 </button>
               </span>

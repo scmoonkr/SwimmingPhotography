@@ -12,6 +12,10 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ (e: 'close'): void; (e: 'save', v: Record<string, any>): void; (e: 'delete'): void }>()
 
+// 삭제 버튼은 delete 능력이 있는 계정에만 보인다 (속보 전담 계정은 삭제 불가).
+// 서버에서도 같은 능력으로 막으므로, 여기서 숨기는 건 안 되는 버튼을 안 보여주기 위한 것.
+const { can } = useAuth()
+
 // 필드별 편집값
 const form = ref<Record<string, any>>({})
 watch(
@@ -90,7 +94,7 @@ const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') emit('close') }
 
       <footer class="drawer-foot">
         <div class="foot-left">
-          <button v-if="row && row._id" class="btn btn-danger" type="button" @click="emit('delete')">삭제</button>
+          <button v-if="row && row._id && can('delete')" class="btn btn-danger" type="button" @click="emit('delete')">삭제</button>
           <slot name="foot-actions" />
         </div>
         <div class="foot-right">

@@ -4,12 +4,51 @@ import { Router } from 'express'
 import { ObjectId } from 'mongodb'
 import { SP } from '../db.js'
 import { broadcast } from '../sse.js'
+import { canAny } from '../auth.js'
 
 const router = Router()
 const coll = async () => (await SP()).collection('articles')
 
 const toId = (id) => {
   try { return new ObjectId(id) } catch { return null }
+}
+
+// 속보 전담 계정(breaking 만 가진 역할) 보호 —
+// 속보와 일반 기사가 이 라우트를 함께 쓰므로, 경로만으로는 갈라지지 않는다.
+// 그래서 손대려는 '문서의 type' 을 확인한다. 생성은 type 을 breaking_news 로 강제하고,
+// 수정·삭제·게시는 대상이 전부 속보일 때만 통과시킨다.
+const BN = 'breaking_news'
+async function onlyBreaking(req, res, next) {
+  if (canAny(req.user, ['articles'])) return next()      // 기사 권한이 있으면 제한 없음
+  if (!canAny(req.user, ['breaking'])) return res.status(403).json({ error: '이 작업을 할 권한이 없습니다.' })
+  try {
+    // 생성 — 무엇을 보내든 속보로 고정한다
+    if (req.method === 'POST' && req.path === '/') {
+      if (req.body?.type && req.body.type !== BN) return res.status(403).json({ error: '속보만 만들 수 있습니다.' })
+      req.body = { ...req.body, type: BN }
+      return next()
+    }
+    // 일괄 게시·초안 — ids 중 하나라도 속보가 아니면 전체 거부
+    if (req.method === 'POST' && (req.path === '/publish' || req.path === '/unpublish')) {
+      const oids = ((req.body && req.body.ids) || []).map(toId).filter(Boolean)
+      if (!oids.length) return next()                    // 빈 목록은 라우트가 400 으로 답한다
+      const n = await (await coll()).countDocuments({ _id: { $in: oids }, type: BN })
+      if (n !== oids.length) return res.status(403).json({ error: '속보가 아닌 항목이 섞여 있습니다.' })
+      return next()
+    }
+    // 수정·삭제 — 대상 문서가 속보여야 한다
+    const _id = toId(req.params.id)
+    if (!_id) return res.status(400).json({ error: 'invalid id' })
+    const doc = await (await coll()).findOne({ _id }, { projection: { type: 1 } })
+    if (!doc) return res.status(404).json({ error: 'not found' })
+    if (doc.type !== BN) return res.status(403).json({ error: '속보만 수정할 수 있습니다.' })
+    if (req.method === 'PUT' && req.body?.type && req.body.type !== BN) {
+      return res.status(403).json({ error: '속보의 종류는 바꿀 수 없습니다.' })   // 속보를 기사로 바꿔치기 방지
+    }
+    next()
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
 }
 
 // 목록 카드(홈·검색)가 실제로 쓰는 필드만. 본문(translations.*.body)과 이미지 캡션까지 실어 보내면
@@ -76,7 +115,7 @@ router.get('/:id', async (req, res) => {
 })
 
 // 생성
-router.post('/', async (req, res) => {
+router.post('/', onlyBreaking, async (req, res) => {
   try {
     const now = new Date()
     const doc = { ...req.body, createdAt: now, updatedAt: now }
@@ -98,7 +137,7 @@ router.post('/', async (req, res) => {
 })
 
 // 일괄 게시 — { ids: [...] } → status:'published', publishedAt(없으면 현재시각) 설정
-router.post('/publish', async (req, res) => {
+router.post('/publish', onlyBreaking, async (req, res) => {
   try {
     const ids = (req.body && req.body.ids) || []
     const oids = ids.map(toId).filter(Boolean)
@@ -126,7 +165,7 @@ router.post('/publish', async (req, res) => {
 })
 
 // 일괄 초안 — { ids: [...] } → status:'draft' (게시 취소). publishedAt 은 유지.
-router.post('/unpublish', async (req, res) => {
+router.post('/unpublish', onlyBreaking, async (req, res) => {
   try {
     const ids = (req.body && req.body.ids) || []
     const oids = ids.map(toId).filter(Boolean)
@@ -142,7 +181,7 @@ router.post('/unpublish', async (req, res) => {
 })
 
 // 수정
-router.put('/:id', async (req, res) => {
+router.put('/:id', onlyBreaking, async (req, res) => {
   try {
     const _id = toId(req.params.id)
     if (!_id) return res.status(400).json({ error: 'invalid id' })
@@ -163,7 +202,7 @@ router.put('/:id', async (req, res) => {
 })
 
 // 삭제
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', onlyBreaking, async (req, res) => {
   try {
     const _id = toId(req.params.id)
     if (!_id) return res.status(400).json({ error: 'invalid id' })
