@@ -6,7 +6,7 @@ const { t, isEN } = useLang()
 const modalOpen = ref(false)
 
 // 관리자(대시보드) URL — 환경별(runtimeConfig). dev: localhost:6642 / prod: admin.swimmingphotography.com
-const adminUrl = useRuntimeConfig().public.adminUrl
+const adminUrl = "/"; // useRuntimeConfig().public.adminUrl
 
 const NOTICE = () => t(
   '본 웹사이트는 현재 테스트 과정 중에 있으며 실제로 운영중이지 않습니다.',
