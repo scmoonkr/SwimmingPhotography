@@ -41,11 +41,11 @@ const marqueeItems = computed(() => [NOTICE()])
 
       <p class="legal">
         <span>{{ t('수영사진 · Swimming Photography · ⓒ 2026 무단 전재 및 재배포 금지', 'Swimming Photography · ⓒ 2026 All rights reserved.') }}</span>
-        <span class="reg-detail">{{ t(
+        <!-- <span class="reg-detail">{{ t(
           ' · 정기간행물 등록번호 인천,아 33333호 · 등록연월일 2026년 6월 28일 · 발행·편집인 문성중 · 발행소 인천광역시 · 전화 333-333-3333',
           ' · Periodical Reg. No. Incheon,A 33333 · Registered Jun 28, 2026 · Publisher·Editor Seongjung MOON · Published in Incheon · Tel 333-333-3333',
-        ) }}</span>
-        <button type="button" class="foot-info" aria-label="연락처 안내" title="연락처 안내" @click="modalOpen = true">i</button>
+        ) }}</span> -->
+        <!-- <button type="button" class="foot-info" aria-label="연락처 안내" title="연락처 안내" @click="modalOpen = true">i</button> -->
       </p>
     </div>
   </footer>
