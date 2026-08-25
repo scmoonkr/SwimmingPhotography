@@ -12,10 +12,22 @@ const toId = (id) => {
   try { return new ObjectId(id) } catch { return null }
 }
 
+// 목록 카드(홈·검색)가 실제로 쓰는 필드만. 본문(translations.*.body)과 이미지 캡션까지 실어 보내면
+// 500건 기준 응답이 7MB 에 달해 홈 SSR 이 무거워진다 — 같은 건수를 0.4MB 로 줄인다.
+const CARD_PROJECTION = {
+  slug: 1, type: 1, status: 1,
+  publishedAt: 1, createdAt: 1, created: 1, updatedAt: 1,
+  visibility: 1,
+  'media.thumb': 1, 'media.coverImage': 1, 'media.images.url': 1,
+  'translations.ko.title': 1, 'translations.ko.categories': 1,
+  'translations.en.title': 1, 'translations.en.categories': 1,
+}
+
 // 목록. type/status 외에 category(searchCategories 포함), q(제목 부분검색) 지원.
+// fields=card 면 카드용 필드만 추려 보낸다(홈·검색처럼 목록만 그리는 화면용).
 router.get('/', async (req, res) => {
   try {
-    const { type, status, category, q, slug, featured, dateFrom, hasImage, limit = 200 } = req.query
+    const { type, status, category, q, slug, featured, dateFrom, hasImage, fields, limit = 200 } = req.query
     const filter = {}
     if (type) filter.type = type
     if (status) filter.status = status          // 전체(미지정) / published / draft
@@ -40,7 +52,7 @@ router.get('/', async (req, res) => {
       ]
     }
     const docs = await (await coll())
-      .find(filter)
+      .find(filter, fields === 'card' ? { projection: CARD_PROJECTION } : undefined)
       .sort({ publishedAt: -1, createdAt: -1 })
       .limit(Number(limit) || 200)
       .toArray()

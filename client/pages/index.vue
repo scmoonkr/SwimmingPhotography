@@ -2,20 +2,13 @@
 // 홈 갤러리 — 그리드/리스트 토글, 분야 필터, featured, 월 그룹.
 // 기사 목록·featured 모두 DB(/api/articles) 연동.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { normArticle, catKo, articleDate } from '~/utils/articleList'
+import { normArticle, catKo, articleDate, imgUrl } from '~/utils/articleList'
 
 const { isEN, t } = useLang()
 
-// 이미지 URL 정규화 — http 면 그대로, '/' 나 로컬 'images/' 는 로컬 절대경로,
-// 그 외(R2 상대경로 등)는 CLOUD_PUBLIC_URL 을 앞에 붙인다.
+// 이미지 URL 정규화 (검색 페이지와 공유 — utils/articleList)
 const cloudBase = (useRuntimeConfig().public.cloudPublicUrl as string) || ''
-const img = (p: string) => {
-  const s = String(p || '')
-  if (!s) return ''
-  if (/^https?:\/\//.test(s) || s.startsWith('/')) return s
-  if (/^images\//i.test(s)) return '/' + s
-  return cloudBase ? cloudBase.replace(/\/+$/, '') + '/' + s : '/' + s
-}
+const img = (p: string) => imgUrl(p, cloudBase)
 
 // ── 뷰(grid/list) ── 쿠키로 저장 → SSR 이 처음부터 저장된 뷰로 렌더(그리드↔리스트 깜박임·이중 클래스 방지).
 // (localStorage 는 마운트 후에야 읽혀 SSR grid → 클라 list 전환 시 썸네일이 깜박였다 사라지는 FOUC 발생)
@@ -116,7 +109,7 @@ const metaLine = (a: any) => [fmtDate(a.date), fmtRecord(a.record), pick(a, 'eve
 
 // ── 기사 목록 (DB 연동) : 발행 기사 최신순, 홈 노출(showInHome) 대상만 ──
 const { data: listData } = await useAsyncData('home:articles', () =>
-  $fetch<any[]>('/api/articles', { params: { type: 'article', status: 'published', limit: 200 } })
+  $fetch<any[]>('/api/articles', { params: { type: 'article', status: 'published', fields: 'card', limit: 1000 } })
     .catch(() => [] as any[]),
 )
 const docs = computed(() => (listData.value || []).filter((d: any) => d.slug && (!d.visibility || d.visibility.showInHome !== false)))
@@ -134,7 +127,8 @@ const groups = computed(() => months.value.map((ym) => ({ ym, label: labelOf(ym)
 // ── featured (그리드 상단, 큰 1 + 옆 2) : visibility.isFeatured 기사 최신순 ──
 // 목록과 같은 fetch 에서 파생 — 대시보드에서 isFeatured 를 켜면 자동 반영. 첫 장이 hero(big).
 const featImg = (d: any) => d?.media?.coverImage || (d?.media?.images && d.media.images[0]?.url) || d?.media?.thumb || ''
-const feat = computed(() => (listData.value || []).filter((d: any) => d.slug && d.visibility?.isFeatured).slice(0, 3).map((d, i) => ({
+// 사진이 없는 기사는 featured 칸이 빈 상자가 되므로 이미지가 있는 것만 올린다.
+const feat = computed(() => (listData.value || []).filter((d: any) => d.slug && d.visibility?.isFeatured && featImg(d)).slice(0, 3).map((d, i) => ({
   slug: d.slug,
   img: featImg(d),
   cat: catKo(d.translations?.ko?.categories),
@@ -146,6 +140,8 @@ const feat = computed(() => (listData.value || []).filter((d: any) => d.slug && 
 })))
 const featCat = (f: any) => (isEN.value ? (f.catEN || f.cat) : f.cat)
 const featTitle = (f: any) => (isEN.value ? (f.titleEN || f.title) : f.title)
+// featured 로 위에 크게 실린 기사는 아래 그리드에서 뺀다(리스트에는 그대로 다 보인다).
+const featSlugs = computed(() => new Set(feat.value.map((f) => f.slug)))
 
 // ── 속보 박스 (메뉴 바로 밑, 높이 = 그리드 썸네일과 동일 · 그리드·리스트 공통) ──
 const { items: bkItems, hasItems: hasBreaking, load: loadBreaking, pick: bkPick, open: bkOpen } = useBreaking()
@@ -274,7 +270,8 @@ watch([bkItems, view, isEN], () => nextTick().then(syncBBHeight))
       <template v-for="g in groups" :key="g.ym">
         <div class="month-group">{{ g.label }}</div>
         <NuxtLink
-          v-for="(a, i) in g.rows" :key="g.ym + i" class="row" :class="{ 'no-thumb': !a.thumb }" :to="'/article/' + a.slug"
+          v-for="(a, i) in g.rows" :key="g.ym + i" class="row"
+          :class="{ 'no-thumb': !a.thumb, 'is-feat': featSlugs.has(a.slug) }" :to="'/article/' + a.slug"
           :data-cat="a.cat" :data-region="a.region" :data-competition="a.competition"
         >
           <span class="thumb" aria-hidden="true">
@@ -359,6 +356,8 @@ body.view-grid .items { display: grid; grid-template-columns: repeat(auto-fill, 
 body.view-grid .row { display: flex; flex-direction: column; gap: 9px; }
 /* 사진 없는 기사: 그리드에서는 숨기고 리스트에서만 노출 */
 body.view-grid .row.no-thumb { display: none; }
+/* featured 로 위에 이미 실린 기사: 그리드에서 중복되지 않게 숨긴다(리스트에는 노출) */
+body.view-grid .row.is-feat { display: none; }
 body.view-grid .thumb { display: block; aspect-ratio: 4 / 3; border-radius: 0; }
 body.view-grid .promo-thumb { background: #000; display: flex; align-items: center; justify-content: center; overflow: hidden; }
 body.view-grid .promo-thumb img { display: block; width: 100%; height: auto; }

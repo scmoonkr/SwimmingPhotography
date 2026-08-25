@@ -28,6 +28,17 @@ export function catKo(cats: any): string {
   return CAT_KO[raw.toLowerCase()] || (['경기', '현장', '인물'].includes(raw) ? raw : '경기')
 }
 
+// 이미지 URL 정규화 — http 면 그대로, '/' 나 로컬 'images/' 는 로컬 절대경로,
+// 그 외(R2 상대경로 등)는 스토리지 공개 베이스(cloudBase)를 앞에 붙인다.
+// 홈·검색이 공유한다 — 검색 쪽에만 베이스가 빠져 썸네일이 404 나던 문제가 있었다.
+export function imgUrl(p: string, cloudBase = ''): string {
+  const s = String(p || '')
+  if (!s) return ''
+  if (/^https?:\/\//.test(s) || s.startsWith('/')) return s
+  if (/^images\//i.test(s)) return '/' + s
+  return cloudBase ? cloudBase.replace(/\/+$/, '') + '/' + s : '/' + s
+}
+
 // 목록 날짜 — 발행일(publishedAt) 우선, 없으면 생성일(createdAt/created)로 폴백.
 // (발행 전 초안이나 publishedAt 이 빈 문서도 월 그룹에 노출되도록)
 export function articleDate(d: any): string {
