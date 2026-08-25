@@ -371,7 +371,7 @@ body.view-grid .thumb-date { display: block; }
 body.view-grid .c-athlete, body.view-grid .c-event, body.view-grid .c-record, body.view-grid .c-meta { display: none; }
 
 /* 리스트 뷰 */
-body.view-list .row { display: grid; grid-template-columns: 122px 1fr 80px 185px 98px; column-gap: var(--frame-gap); align-items: center; padding: 14px 0; border-bottom: 1px solid var(--line-soft); }
+body.view-list .row { display: grid; grid-template-columns: 122px 1fr 80px 185px 98px; column-gap: var(--frame-gap); padding: 14px 0; border-bottom: 1px solid var(--line-soft); }
 body.view-list .items { padding-top: 0; margin-top: 0; }
 body.view-list .thumb { display: none; }
 body.view-list .promo-row { display: none; }
