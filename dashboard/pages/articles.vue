@@ -72,6 +72,61 @@ const draftSelected = () => setStatus('/unpublish', pubChecked.value, '초안 �
 const splitList = (v: string) => (v || '').split(',').map((s) => s.trim()).filter(Boolean)
 
 // docs/schema.md 매핑 — 드로어 편집 필드 (get/set)
+// ── 유튜브 영상 블록 ──────────────────────────────────────
+// 본문 blocks 안의 { type:'video', url } 하나로 다룬다. 렌더러(articleHtml)가 보는 것도 type==='video' 다.
+// ko·en blocks 는 같은 인덱스끼리 짝지어 렌더되므로, 넣고 뺄 때 두 배열을 같은 자리에서 함께 손봐야
+// 뒤쪽 문단들의 영문이 어긋나지 않는다.
+const blocksOf = (r: any, lang: string) => r?.translations?.[lang]?.content?.blocks
+const isVideo = (b: any) => b?.type === 'video' || b?.provider === 'youtube'
+const findVideoBlock = (r: any) => (blocksOf(r, 'ko') || []).find(isVideo)
+
+// 넣을 자리 — 개요(event.summary) 다음, 첫 경기 결과(event.result) 앞.
+// 둘 다 없으면 맨 뒤에 붙인다.
+const videoSlot = (blocks: any[]) => {
+  const result = blocks.findIndex((b: any) => b?.type === 'event' && b?.source === 'result')
+  if (result >= 0) return result
+  let summary = -1
+  blocks.forEach((b: any, i: number) => { if (b?.type === 'event' && b?.source === 'summary') summary = i })
+  return summary >= 0 ? summary + 1 : blocks.length
+}
+
+// 영상 캡션 — 렌더러가 ko 블록의 caption 을 figcaption(art-caption) 으로 그린다.
+const setVideoCaption = (r: any, caption: string) => {
+  const b = findVideoBlock(r)
+  if (!b) return                                // 영상이 없으면 캡션만 따로 둘 자리가 없다
+  if (caption) b.caption = caption
+  else delete b.caption
+}
+
+const setVideoBlock = (r: any, url: string) => {
+  const ko = blocksOf(r, 'ko')
+  if (!Array.isArray(ko)) return
+  // 다른 언어는 ko 와 길이가 같을 때만 함께 손댄다 — 어긋난 문서를 더 어긋나게 만들지 않는다.
+  const langs = ['ko', 'en', 'ja'].filter((l) => {
+    const bs = blocksOf(r, l)
+    return Array.isArray(bs) && (l === 'ko' || bs.length === ko.length)
+  })
+  const at = ko.findIndex(isVideo)
+
+  if (!url) {                                   // 비웠으면 제거
+    if (at < 0) return
+    for (const l of langs) {
+      const bs = blocksOf(r, l)
+      if (isVideo(bs[at])) bs.splice(at, 1)
+    }
+    return
+  }
+  if (at >= 0) {                                // 이미 있으면 위치는 두고 URL 만 교체
+    for (const l of langs) {
+      const b = blocksOf(r, l)[at]
+      if (isVideo(b)) { b.url = url; b.type = 'video' }
+    }
+    return
+  }
+  const pos = videoSlot(ko)                     // 새로 넣기
+  for (const l of langs) blocksOf(r, l).splice(pos, 0, { type: 'video', url })
+}
+
 const fields: Field[] = [
   {
     key: 'type', label: '기사 유형', type: 'select', options: ['기사', '속보'], span: 1,
@@ -83,9 +138,9 @@ const fields: Field[] = [
     get: (r) => r.translations?.ko?.title ?? '',
     set: (r, v) => { r.translations.ko.title = v; r.slug = slugify(v); r.translations.ko.seoTitle = v },
   },
-  // 이미지 썸네일 줄 (읽기전용)
+  // 이미지 썸네일 줄 (읽기전용) — 출처와 한 줄
   {
-    key: 'images', label: '이미지', type: 'thumbs',
+    key: 'images', label: '이미지', type: 'thumbs', span: 2,
     get: (r) => {
       const urls = (r.media?.images || []).map((im: any) => im?.url).filter(Boolean)
       if (!urls.length && r.media?.thumb) urls.push(r.media.thumb)
@@ -93,19 +148,21 @@ const fields: Field[] = [
     },
     set: () => {},
   },
-  // 유튜브 URL (읽기전용) — content 블록에서 추출
-  {
-    key: 'youtube', label: '유튜브', type: 'link',
-    get: (r) => {
-      const b = (r.translations?.ko?.content?.blocks || []).find((x: any) => x?.provider === 'youtube' || /youtu\.?be/i.test(String(x?.url || '')))
-      return b?.url || ''
-    },
-    set: () => {},
-  },
   {
     key: 'reporter', label: '출처', type: 'text', span: 2,
     get: (r) => r.reporter?.name ?? '',
     set: (r, v) => { r.reporter.name = v; r.reporter.nameEng = v === '편집부' ? 'Editorial Team' : v },
+  },
+  // 유튜브 URL — 비우면 영상이 빠지고, 넣으면 개요와 첫 경기 결과 사이에 들어간다.
+  {
+    key: 'youtube', label: '유튜브 URL (개요와 첫 결과 사이)', type: 'text', span: 2,
+    get: (r) => findVideoBlock(r)?.url || '',
+    set: (r, v) => setVideoBlock(r, String(v ?? '').trim()),
+  },
+  {
+    key: 'youtubeCaption', label: '유튜브 캡션 (영상 아래 설명)', type: 'text', span: 2,
+    get: (r) => findVideoBlock(r)?.caption || '',
+    set: (r, v) => setVideoCaption(r, String(v ?? '').trim()),
   },
   {
     key: 'status', label: '상태', type: 'checkbox', options: ['게시됨', '초안'], span: 1,
@@ -126,6 +183,12 @@ const fields: Field[] = [
     key: 'featured', label: 'featured', type: 'checkbox', options: ['featured', '일반'], span: 1,
     get: (r) => !!r.visibility?.isFeatured,
     set: (r, v) => { if (!r.visibility) r.visibility = {}; r.visibility.isFeatured = !!v },
+  },
+  // slug (표시전용) — 기사 URL. 저장하면 제목에서 다시 만들어지므로 여기서 고치지는 않는다.
+  {
+    key: 'slug', label: 'slug (URL)', type: 'meta', span: 1,
+    get: (r) => r.slug || '',
+    set: () => {},
   },
   {
     key: 'tags', label: '태그 (searchTags)', type: 'text',

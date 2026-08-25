@@ -145,7 +145,7 @@ const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') emit('close') }
 .field-area { resize: vertical; line-height: 1.6; }
 
 /* 표시전용 필드 */
-.field-meta { font-size: 13.5px; color: var(--ink); padding: 2px 0; }
+.field-meta { font-size: 13.5px; color: var(--ink); padding: 2px 0; word-break: break-all; }
 .field-thumbs { display: flex; flex-wrap: wrap; gap: 8px; }
 .field-thumbs .thumb-img {
   width: 96px; height: 72px; object-fit: cover; border-radius: 6px;
