@@ -31,7 +31,7 @@ const marqueeItems = computed(() => [NOTICE()])
         <NuxtLink to="/introduction">{{ t('소개', 'About') }}</NuxtLink>
         <NuxtLink to="/agreement">{{ t('규약', 'Guidelines') }}</NuxtLink>
         <NuxtLink to="/submission">{{ t('제보', 'Submit') }}</NuxtLink>
-        <a class="fn-admin" :href="adminUrl">{{ t('관리자', 'Admin') }}</a>
+        <!-- <a class="fn-admin" :href="adminUrl">{{ t('관리자', 'Admin') }}</a> -->
       </nav>
 
       <p class="promise">{{ t(
