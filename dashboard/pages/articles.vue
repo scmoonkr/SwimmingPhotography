@@ -20,24 +20,42 @@ const hasImage = ref(false)     // 이미지 있는 기사만
 const rows = ref<any[]>([])
 const errorMsg = ref('')
 
+// 쪽 나누기 — 기사가 500건이 넘어 한 번에 다 받으면 무겁고, 서버 기본 limit(200) 밖의
+// 기사는 아예 목록에 오지도 않았다. 필요한 쪽만 서버에서 받아온다.
+const PAGE_SIZE = 50
+const page = ref(1)
+const total = ref(0)
+
 const load = async () => {
   errorMsg.value = ''
   try {
-    const params: Record<string, any> = { type: TYPE }
+    const params: Record<string, any> = { type: TYPE, sort: 'created', withTotal: '1', limit: PAGE_SIZE, skip: (page.value - 1) * PAGE_SIZE }
     if (category.value) params.category = category.value
-    if (q.value.trim()) params.q = q.value.trim()
+    // 검색어가 숫자뿐이면 제목이 아니라 대회ID 로 찾는다 (3614 → competitionID: 3614)
+    const term = q.value.trim()
+    if (term) {
+      if (/^\d+$/.test(term)) params.competitionID = Number(term)
+      else params.q = term
+    }
     if (status.value) params.status = status.value
     if (dateFrom.value) params.dateFrom = dateFrom.value
     if (featured.value) params.featured = 'true'
     if (hasImage.value) params.hasImage = 'true'
-    const data = await $fetch<any[]>(api(), { params })
-    // 작성일(createdAt) 최근순
-    rows.value = (data || []).slice().sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
+    // 정렬(작성일 최근순)은 서버가 한다 — 쪽마다 따로 정렬하면 순서가 어긋난다.
+    const data = await $fetch<any>(api(), { params })
+    rows.value = data?.rows || []
+    total.value = data?.total ?? rows.value.length
   } catch (err: any) {
     rows.value = []
+    total.value = 0
     errorMsg.value = err?.data?.error || err?.message || '불러오기 실패'
   }
 }
+
+// 쪽 이동 — 다른 쪽의 선택은 화면에 없으니 함께 비운다
+const goPage = (p: number) => { page.value = p; checked.value = []; load() }
+// 필터가 바뀌면 첫 쪽부터
+const reload = () => { page.value = 1; checked.value = []; load() }
 onMounted(load)
 
 const selected = ref<Record<string, any> | null>(null)
@@ -260,20 +278,20 @@ const onDrawerDelete = async () => {
   <div>
     <!-- 필터 바: 분류 + 제목 검색 + 기사 등록 -->
     <div class="filter-bar">
-      <select v-model="category" class="filter-select" aria-label="분류" @change="load">
+      <select v-model="category" class="filter-select" aria-label="분류" @change="reload">
         <option value="">전체 분류</option>
         <option v-for="c in BN_CATEGORIES" :key="c.v" :value="c.v">{{ c.l }}</option>
       </select>
-      <select v-model="status" class="filter-select" aria-label="상태" @change="load">
+      <select v-model="status" class="filter-select" aria-label="상태" @change="reload">
         <option value="">전체</option>
         <option value="published">게시됨</option>
         <option value="draft">초안</option>
       </select>
-      <input v-model="dateFrom" class="filter-select" type="date" aria-label="작성일자(이후)" title="작성일자 ≥" @change="load">
-      <label class="filter-check"><input v-model="featured" type="checkbox" @change="load"> featured</label>
-      <label class="filter-check"><input v-model="hasImage" type="checkbox" @change="load"> 이미지</label>
-      <input v-model="q" class="filter-input" type="search" placeholder="제목 검색…" @keydown.enter="load">
-      <button class="btn btn-ghost" type="button" @click="load">검색</button>
+      <input v-model="dateFrom" class="filter-select" type="date" aria-label="작성일자(이후)" title="작성일자 ≥" @change="reload">
+      <label class="filter-check"><input v-model="featured" type="checkbox" @change="reload"> featured</label>
+      <label class="filter-check"><input v-model="hasImage" type="checkbox" @change="reload"> 이미지</label>
+      <input v-model="q" class="filter-input" type="search" placeholder="제목 검색 · 숫자는 대회ID…" @keydown.enter="reload">
+      <button class="btn btn-ghost" type="button" @click="reload">검색</button>
       <span class="filter-spacer" />
       <button
         class="btn btn-ghost" type="button"
@@ -294,7 +312,8 @@ const onDrawerDelete = async () => {
     <DataTable
       :columns="e.columns" :rows="rows" clickable hide-search hide-actions
       selectable :selected="checked" @update:selected="checked = $event"
-      @row-click="openRow"
+      :page="page" :total="total" :page-size="PAGE_SIZE"
+      @row-click="openRow" @update:page="goPage"
     />
 
     <DetailDrawer

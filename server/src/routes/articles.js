@@ -13,6 +13,32 @@ const toId = (id) => {
   try { return new ObjectId(id) } catch { return null }
 }
 
+// 기사 본문의 video 블록을 선수(athletes) 문서의 json.video 로 옮겨 적는다.
+// 기사 쪽에서 유튜브를 넣거나 고치면 소스 payload 도 같은 값을 갖게 되어,
+// 다음에 export_athletes 로 다시 뽑아도 영상이 그대로 따라온다.
+// 영상이 없는 기사는 아무것도 하지 않는다(선수 쪽 값을 지우지 않는다).
+async function syncVideoToAthlete(doc) {
+  try {
+    const blocks = doc?.translations?.ko?.content?.blocks
+    if (!Array.isArray(blocks)) return
+    const v = blocks.find((b) => b?.type === 'video' && b?.url)
+    if (!v) return
+    // 선수 문서 키 — athletes 라우터의 athleteKey 와 같은 조합
+    const key = {
+      competitionID: (doc.competitionID != null && doc.competitionID !== '') ? Number(doc.competitionID) : null,
+      name: String(doc.name || ''),
+      gender: String(doc.gender || ''),
+      ageGroup: String(doc.ageGroup || ''),
+      team: String(doc.team || ''),
+    }
+    if (!key.name) return
+    await (await SP()).collection('athletes').updateOne(
+      key,
+      { $set: { 'json.video': { url: String(v.url), caption: String(v.caption || '') } } },
+    )
+  } catch { /* 본체 저장은 이미 끝났다 — 되돌려 적기 실패로 응답을 깨지 않는다 */ }
+}
+
 // 속보 전담 계정(breaking 만 가진 역할) 보호 —
 // 속보와 일반 기사가 이 라우트를 함께 쓰므로, 경로만으로는 갈라지지 않는다.
 // 그래서 손대려는 '문서의 type' 을 확인한다. 생성은 type 을 breaking_news 로 강제하고,
@@ -66,13 +92,14 @@ const CARD_PROJECTION = {
 // fields=card 면 카드용 필드만 추려 보낸다(홈·검색처럼 목록만 그리는 화면용).
 router.get('/', async (req, res) => {
   try {
-    const { type, status, category, q, slug, featured, dateFrom, hasImage, fields, limit = 200 } = req.query
+    const { type, status, category, q, slug, competitionID, featured, dateFrom, hasImage, fields, skip, withTotal, sort, limit = 200 } = req.query
     const filter = {}
     if (type) filter.type = type
     if (status) filter.status = status          // 전체(미지정) / published / draft
     if (slug) filter.slug = String(slug)
     if (category) filter.searchCategories = String(category)
     if (q) filter['translations.ko.title'] = { $regex: String(q), $options: 'i' }
+    if (competitionID !== undefined && String(competitionID).trim() !== '') filter.competitionID = Number(competitionID)
     // 홈 상단 하이라이트: visibility.isFeatured=true 인 기사만
     if (featured === 'true' || featured === '1') filter['visibility.isFeatured'] = true
     // 작성일자(createdAt) >= dateFrom — createdAt 이 문자열/Date 혼재라 $toDate 로 변환해 비교
@@ -90,11 +117,24 @@ router.get('/', async (req, res) => {
         { 'media.thumb': { $nin: [null, ''] } },
       ]
     }
-    const docs = await (await coll())
+    const c = await coll()
+    const cursor = c
       .find(filter, fields === 'card' ? { projection: CARD_PROJECTION } : undefined)
-      .sort({ publishedAt: -1, createdAt: -1 })
-      .limit(Number(limit) || 200)
-      .toArray()
+      // 기본은 게시일 최신순(공개 사이트 기준). sort=created 면 작성일 최신순(대시보드 목록).
+      // 마지막 _id 는 동점 깨기 — 같은 배치로 만든 기사들은 createdAt·publishedAt 이 전부 같아서,
+      // 이게 없으면 skip 으로 쪽을 넘길 때 순서가 뒤바뀌어 같은 기사가 두 쪽에 나오고 어떤 기사는 아예 안 나온다.
+      .sort(sort === 'created'
+        ? { createdAt: -1, publishedAt: -1, _id: -1 }
+        : { publishedAt: -1, createdAt: -1, _id: -1 })
+    const from = Math.max(0, Number(skip) || 0)
+    if (from) cursor.skip(from)
+    const docs = await cursor.limit(Number(limit) || 200).toArray()
+
+    // 쪽 나누기용 — 같은 조건의 전체 건수가 있어야 마지막 쪽을 알 수 있다.
+    // 옵트인이라 기존 호출자(배열을 그대로 받는 쪽)는 응답 모양이 바뀌지 않는다.
+    if (withTotal === '1' || withTotal === 'true') {
+      return res.json({ rows: docs, total: await c.countDocuments(filter), skip: from, limit: Number(limit) || 200 })
+    }
     res.json(docs)
   } catch (e) {
     res.status(500).json({ error: e.message })
@@ -130,6 +170,7 @@ router.post('/', onlyBreaking, async (req, res) => {
         publishedAt: saved.publishedAt || '',
       })
     }
+    await syncVideoToAthlete(saved)
     res.status(201).json(saved)
   } catch (e) {
     res.status(500).json({ error: e.message })
@@ -195,6 +236,7 @@ router.put('/:id', onlyBreaking, async (req, res) => {
     )
     const doc = r && (r.value || r)
     if (!doc || !doc._id) return res.status(404).json({ error: 'not found' })
+    await syncVideoToAthlete(doc)
     res.json(doc)
   } catch (e) {
     res.status(500).json({ error: e.message })
