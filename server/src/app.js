@@ -14,7 +14,7 @@ import imagesRouter from './routes/images.js'
 import countsRouter from './routes/counts.js'
 import streamRouter from './routes/stream.js'
 import authRouter from './routes/auth.js'
-import { userFromRequest, canAny } from './auth.js'
+import { userFromRequest, serviceUser, canAny } from './auth.js'
 
 // 모노레포 루트의 .env 를 로드 (서버 cwd 와 무관하게)
 const __dirname = path.dirname(fileURLToPath(import.meta.url)) // server/src
@@ -45,7 +45,8 @@ app.use('/api', async (req, res, next) => {
   if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next()
   if (req.path.startsWith('/auth/')) return next()
   try {
-    const u = await userFromRequest(req)
+    // 사람은 세션 쿠키로, 배치 스크립트는 X-API-Key 로 들어온다
+    const u = serviceUser(req) || await userFromRequest(req)
     if (!u) return res.status(401).json({ error: '로그인이 필요합니다.' })
     req.user = u
     const section = req.path.split('/')[1] || ''

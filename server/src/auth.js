@@ -91,6 +91,19 @@ async function ensureTtl() {
   try { await (await sessions()).createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }) } catch { /* 권한 없으면 만료 검사로 대체 */ }
 }
 
+// ── 서비스 키 (사람이 아닌 호출자) ────────────────────────
+// 배치 스크립트처럼 로그인 화면을 거칠 수 없는 호출자용. .env 의 SERVICE_API_KEY 와 같은 값을
+// X-API-Key 헤더로 보내면 통과한다. 권한은 editor 수준으로 고정 — 키가 새더라도 계정(users)은 못 건드린다.
+const SERVICE_ROLE = 'editor'
+export function serviceUser(req) {
+  const want = String(process.env.SERVICE_API_KEY || '')
+  if (want.length < 16) return null            // 키를 안 정했거나 너무 짧으면 이 통로 자체를 닫는다
+  const got = String(req.headers?.['x-api-key'] || '')
+  if (got.length !== want.length) return null  // timingSafeEqual 은 길이가 같아야 한다
+  if (!crypto.timingSafeEqual(Buffer.from(got), Buffer.from(want))) return null
+  return { username: 'service', name: '서비스 키', role: SERVICE_ROLE, can: capsOf(SERVICE_ROLE), isService: true }
+}
+
 // 요청의 쿠키에서 세션 토큰을 읽는다 (cookie-parser 없이 직접 파싱)
 export function readToken(req) {
   const raw = req.headers?.cookie || ''
