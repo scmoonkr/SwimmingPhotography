@@ -40,7 +40,12 @@ export default defineNuxtConfig({
         },
       ],
       link: [
-        { rel: 'icon', type: 'image/png', href: '/images/favicon.png' },
+        // 사파리는 <link rel=icon> 보다 루트 /favicon.ico 를 먼저 본다 — 없으면 아이콘이 안 나온다.
+        // (원본 favicon.png 은 256x235 로 정사각이 아니라 사파리가 더 까다롭게 군다)
+        { rel: 'icon', href: '/favicon.ico', sizes: '48x48' },
+        { rel: 'icon', type: 'image/png', href: '/favicon-32.png', sizes: '32x32' },
+        { rel: 'icon', type: 'image/png', href: '/favicon-192.png', sizes: '192x192' },
+        { rel: 'apple-touch-icon', href: '/apple-touch-icon.png', sizes: '180x180' },
         { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
         { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: '' },
         {
