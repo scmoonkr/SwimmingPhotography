@@ -2,7 +2,7 @@
 // 검색 결과 — 쿼리(q > cat > city > competition > event > athlete)로 DB 기사를 필터링해 월별로 렌더.
 // 그리드/리스트 토글 · "다른 내용 찾아보기"(재검색) · "전체 기사 보기" 링크.
 // 뷰 상태는 index와의 전역 CSS 충돌을 피하려 body 대신 로컬 래퍼(.search-page.view-*) 클래스로 제어.
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import { normArticle, imgUrl } from '~/utils/articleList'
 
 const { isEN, t } = useLang()
@@ -61,6 +61,14 @@ const onVtClick = () => { setView(view.value === 'grid' ? 'list' : 'grid'); vtPr
 // ── 재검색 패널 ──
 const showSearch = ref(false)
 const searchQ = ref('')
+const searchInput = ref<HTMLInputElement | null>(null)
+// 홈의 검색 칩과 같은 동작 — 패널을 열고 입력칸으로 포커스.
+// v-show 라 DOM 은 있지만 display:none 상태에서는 focus 가 먹지 않으므로 nextTick 뒤에 준다.
+const openSearch = async () => {
+  showSearch.value = true
+  await nextTick()
+  searchInput.value?.focus()
+}
 const onSearchEnter = () => { const q = searchQ.value.trim(); if (q) navigateTo({ path: '/search', query: { q } }) }
 
 // ── 포맷 헬퍼 (index와 동일) ──
@@ -154,11 +162,11 @@ useHead({ title: computed(() => (isEN.value ? 'Search — Swimming Photography' 
 <template>
   <div class="search-page" :class="'view-' + view">
     <!-- 툴바: 결과 타이틀(좌) + 보기 전환(우) -->
-    <div class="toolbar">
+    <div class="toolbar" :class="{ 'is-searching': showSearch }">
       <div v-show="!showSearch" class="result-head">
         <!-- eslint-disable-next-line vue/no-v-html -->
         <h1 class="result-title" v-html="resultTitle.html" />
-        <button class="research-link" type="button" @click="showSearch = true">{{ t('다른 내용 찾아보기', 'Search for something else') }}</button>
+        <button class="research-link" type="button" @click="openSearch">{{ t('다른 내용 찾아보기', 'Search for something else') }}</button>
         <NuxtLink class="research-link" to="/">{{ t('전체 기사 보기', 'All articles') }}</NuxtLink>
       </div>
       <button
@@ -171,10 +179,12 @@ useHead({ title: computed(() => (isEN.value ? 'Search — Swimming Photography' 
 
     <!-- 재검색 패널 -->
     <div v-show="showSearch" class="search-panel">
+      <div class="search-heading">{{ t('도시, 대회, 종목, 선수, 제목 검색', 'Search by city, meet, event, athlete, or title') }}</div>
       <input
+        ref="searchInput"
         v-model="searchQ" type="search" class="search-input" aria-label="검색"
         :placeholder="t('검색어를 입력한 후 엔터를 눌러주세요.', 'Type your search, then press Enter.')"
-        @keydown.enter="onSearchEnter" @blur="showSearch = false"
+        @keydown.enter="onSearchEnter" @keydown.esc="showSearch = false" @blur="showSearch = false"
       >
     </div>
 
@@ -204,6 +214,9 @@ useHead({ title: computed(() => (isEN.value ? 'Search — Swimming Photography' 
 <style scoped>
 /* 툴바 */
 .toolbar { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; padding: 0 0 14px; margin-bottom: 4px; }
+/* 재검색 창을 열면 툴바 내용이 모두 숨겨진다 — 아래 여백만 남아 검색창이 한 줄 밀려 보였다.
+   홈(index.vue)의 툴바처럼 여백 없이 접어 두 화면의 검색창 위치를 같게 한다. */
+.toolbar.is-searching { padding: 0; margin-bottom: 0; }
 .result-head { display: flex; align-items: baseline; gap: 4px; flex-wrap: wrap; }
 .result-title { font-family: var(--serif); font-size: 13px; font-weight: 500; line-height: 1.6; color: var(--ink-mute); margin: 0; }
 .result-title :deep(strong) { color: var(--ink); font-weight: 700; }
@@ -218,10 +231,12 @@ useHead({ title: computed(() => (isEN.value ? 'Search — Swimming Photography' 
 .view-toggle:hover .vt-dim, .view-toggle:hover .vt-sep { color: var(--ink-mute); }
 
 /* 재검색 인풋 */
-.search-panel { padding: 6px 0 16px; }
-.search-input { width: 100%; font-family: var(--serif); font-size: 22px; color: var(--ink); background: none; border: none; border-bottom: 2px solid var(--ink); padding: 10px 2px; line-height: 1.3; }
+/* 홈(index.vue)의 검색 패널과 같은 규격 — 두 화면의 검색창이 달라 보이지 않게 한다 */
+.search-panel { padding: 0; }
+.search-heading { font-family: var(--serif); font-size: 12.5px; font-weight: 400; color: var(--ink-mute); padding: 0 0 10px; }
+.search-input { width: 100%; font-family: var(--serif); font-size: 22px; color: var(--ink); background: var(--paper-deep); border: none; border-radius: 2px; padding: 18px 20px; line-height: 1.3; }
 .search-input::placeholder { color: var(--ink-light); font-size: 16px; }
-.search-input:focus { outline: none; border-bottom-color: var(--orange); }
+.search-input:focus { outline: none; box-shadow: inset 0 -2px 0 var(--orange); }
 
 /* 콘텐츠 공통 */
 .items { margin: 6px 0 8px; }

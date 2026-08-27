@@ -272,6 +272,23 @@ export function wireArticleInteractions(el: HTMLElement, opts: { en: () => boole
     cleanups.push(() => { document.removeEventListener('keydown', onKey); modal.classList.remove('open') })
   })()
 
+  // ── 사이드바 기사 찾아보기(#sideSearch) → /search?q= ──
+  // form 에 submit 처리가 없어 엔터를 눌러도 같은 주소로 되돌아오기만 했다.
+  ;(() => {
+    const form = el.querySelector<HTMLFormElement>('#sideSearch')
+    const input = el.querySelector<HTMLInputElement>('#sideSearchInput')
+    if (!form || !input) return
+    const onSubmit = (e: Event) => {
+      e.preventDefault()
+      const q = input.value.trim()
+      if (!q) { input.focus(); return }
+      // 홈 검색 칩과 같은 목적지
+      window.location.href = '/search?q=' + encodeURIComponent(q)
+    }
+    form.addEventListener('submit', onSubmit)
+    cleanups.push(() => form.removeEventListener('submit', onSubmit))
+  })()
+
   return {
     cleanup: () => cleanups.forEach((fn) => fn()),
     refreshLang: () => langRefreshers.forEach((fn) => fn()),
