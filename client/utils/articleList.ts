@@ -4,6 +4,8 @@
 
 export interface ArticleCard {
   slug: string
+  name: string          // 선수명 — 홈 목록 정렬 기준
+  hasVideo: boolean     // 본문에 유튜브 video 블록이 있는가
   cat: string; catENG: string
   title: string; titleENG: string
   thumb: string
@@ -52,6 +54,8 @@ export function normArticle(d: any): ArticleCard {
   const en = d?.translations?.en || {}
   return {
     slug: d?.slug || '',
+    name: d?.name || '',
+    hasVideo: ((d?.translations?.ko?.content?.blocks) || []).some((b: any) => b?.type === 'video'),
     cat: catKo(ko.categories),
     catENG: (en.categories || [])[0] || '',
     title: ko.title || '',

@@ -115,7 +115,17 @@ const { data: listData } = await useAsyncData('home:articles', () =>
 const docs = computed(() => (listData.value || []).filter((d: any) => d.slug && (!d.visibility || d.visibility.showInHome !== false)))
 
 // ── 목록/그룹 ──
-const sorted = computed(() => docs.value.map(normArticle).sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0)))
+// 월(YYYY-MM)은 최신부터, 같은 달 안에서는 선수명 가나다순.
+// 월 묶음이 이어져 있어야 아래 groups 가 같은 달을 두 번 만들지 않는다.
+const sorted = computed(() => docs.value.map(normArticle).sort((a, b) => {
+  const ay = ymOf(a), by = ymOf(b)
+  if (ay !== by) return ay < by ? 1 : -1
+  const an = String(a.name || a.title), bn = String(b.name || b.title)   // 선수명이 없으면(속보 등) 제목으로
+  // 영문 이름을 먼저, 그 다음 한글. (ko 로케일은 한글을 앞에 두므로 직접 가른다)
+  const al = /^[A-Za-z]/.test(an.trim()), bl = /^[A-Za-z]/.test(bn.trim())
+  if (al !== bl) return al ? -1 : 1
+  return an.localeCompare(bn, 'ko', { numeric: true })
+}))
 const filtered = computed(() => sorted.value.filter((a) => curCat.value === 'all' || a.cat === curCat.value))
 const months = computed(() => {
   const out: string[] = []; let prev = ''
@@ -279,7 +289,14 @@ watch([bkItems, view, isEN], () => nextTick().then(syncBBHeight))
             <img v-if="a.thumb" class="thumb-img" :src="img(a.thumb)" alt="" decoding="async">
             <span class="thumb-date">{{ fmtDate(a.date) }}</span>
           </span>
-          <span class="c-title"><span class="c-cat">{{ pick(a, 'cat') }}</span><span class="c-bar"> | </span>{{ pick(a, 'title') }}</span>
+          <span class="c-title">
+            <span class="c-cat">{{ pick(a, 'cat') }}</span><span class="c-bar"> | </span>{{ pick(a, 'title') }}
+            <!-- 사진·영상 유무 (리스트 뷰에서만 보임) -->
+            <span class="c-marks" aria-hidden="true">
+              <svg v-if="a.thumb" class="mk" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10.5" r="1.5"/><path d="m4 17 5-5 4 4 3-3 4 4"/></svg>
+              <svg v-if="a.hasVideo" class="mk" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2.5" y="5" width="19" height="14" rx="3"/><path d="M10 9.5v5l4.5-2.5z" fill="currentColor" stroke="none"/></svg>
+            </span>
+          </span>
           <span class="c-meta">{{ metaLine(a) }}</span>
           <span class="c-date">{{ fmtDate(a.date) }}</span>
           <span class="c-athlete">{{ pick(a, 'athlete') }}</span>
@@ -372,13 +389,22 @@ body.view-grid .thumb-date { display: block; }
 body.view-grid .c-athlete, body.view-grid .c-event, body.view-grid .c-record, body.view-grid .c-meta { display: none; }
 
 /* 리스트 뷰 */
-body.view-list .row { display: grid; grid-template-columns: 122px 1fr 80px 185px 98px; column-gap: var(--frame-gap); padding: 14px 0; border-bottom: 1px solid var(--line-soft); }
+/* 날짜 + 제목 두 칸. 선수·종목·기록 칸은 채울 값이 없어(normArticle 이 빈 문자열) 자리만
+   차지하며 제목을 가운데서 접히게 만들었다 — 리스트에서는 아예 빼고 제목이 끝까지 가게 한다. */
+body.view-list .row { display: grid; grid-template-columns: 122px 1fr; column-gap: var(--frame-gap); padding: 14px 0; border-bottom: 1px solid var(--line-soft); }
+body.view-list .c-athlete, body.view-list .c-event, body.view-list .c-record { display: none; }
 body.view-list .items { padding-top: 0; margin-top: 0; }
 body.view-list .thumb { display: none; }
 body.view-list .promo-row { display: none; }
 body.view-list .c-meta { display: none; }
 body.view-list .c-date { font-size: 12.5px; color: var(--ink-light); font-variant-numeric: tabular-nums; white-space: nowrap; order: 1; }
 body.view-list .c-title { font-family: var(--serif); font-weight: 500; font-size: 15.5px; line-height: 1.4; color: var(--ink); order: 2; }
+
+/* 사진·영상 표시 — 옅게, 작게. 리스트에서만 */
+.c-marks { display: none; }
+body.view-list .c-marks { display: inline-flex; align-items: center; gap: 4px; margin-left: 7px; vertical-align: -1px; }
+body.view-list .c-marks .mk { width: 13px; height: 13px; color: var(--ink-light); opacity: .55; }
+body.view-list .row:hover .c-marks .mk { opacity: .85; }
 body.view-list .row:hover .c-title { color: var(--orange-deep); }
 body.view-list .c-athlete { font-size: 13px; color: var(--ink-mute); order: 3; }
 body.view-list .c-event { font-size: 13px; color: var(--ink-mute); order: 4; }
