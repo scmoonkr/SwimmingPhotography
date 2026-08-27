@@ -422,7 +422,7 @@ export function buildArticleLayout(doc: any, opts: BuildOpts = {}): string {
           <a href="/?cat=%EB%8C%80%ED%9A%8C" data-en="Meets">대회</a>
           <a href="/?cat=%EC%9D%B8%EB%AC%BC" data-en="Athlete">인물</a>
           <a href="/?cat=%ED%98%84%EC%9E%A5" data-en="On Site">현장</a>
-          <a href="/breakingnews" data-en="Breaking">속보</a>
+          <a class="ko-only" href="/breakingnews" data-en="Breaking">속보</a>
         </div>
       </div>
       <div class="side-module mobile-hide">

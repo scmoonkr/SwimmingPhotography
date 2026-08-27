@@ -66,13 +66,35 @@ useHead(() => {
 const root = ref<HTMLElement | null>(null)
 let wiring: ArticleWiring | null = null
 
+// 진입 시 로고·헤더를 지나 본문 첫 줄(브레드크럼)부터 보이도록 한 칸 내린다.
+// 브레드크럼과 사이드바 '자세히 보기' 는 같은 높이에서 시작하므로 둘이 함께 맨 위에 온다.
+const scrollToArticleTop = () => {
+  if (!import.meta.client) return
+  if (window.location.hash) return              // 앵커로 들어왔으면 그 위치를 존중한다
+  const align = () => {
+    const el = root.value?.querySelector<HTMLElement>('.breadcrumb')
+    if (!el) return
+    // 사이드바는 sticky(top:20px) 라 화면 맨 위에 붙이면 '자세히 보기' 가 20px 아래에 걸린다.
+    // 브레드크럼을 그 높이에 맞춰야 둘이 같은 선에 놓인다.
+    const side = root.value?.querySelector<HTMLElement>('.sidebar')
+    const stickyTop = side ? (parseFloat(getComputedStyle(side).top) || 0) : 0
+    const y = el.getBoundingClientRect().top + window.scrollY - stickyTop
+    window.scrollTo({ top: Math.max(0, Math.round(y)), behavior: 'auto' })
+  }
+  // 상단 속보 티커가 마운트 뒤에 들어오면서 38px 만큼 밀린다 — 자리가 잡힌 뒤 한 번 더 맞춘다.
+  requestAnimationFrame(align)
+  setTimeout(align, 400)
+}
+
 const teardown = () => { wiring?.cleanup(); wiring = null }
 const wire = async () => {
   await nextTick()
   if (!root.value || !html.value) return
   teardown()
   applyI18n(root.value, isEN.value)
+  root.value.classList.toggle('is-en', isEN.value)
   wiring = wireArticleInteractions(root.value, { en: () => isEN.value })
+  scrollToArticleTop()
 }
 
 // 마운트 후 1회 wiring(초기 로드·하이드레이션) + slug/데이터 변경 시 재구성.
@@ -82,7 +104,10 @@ onMounted(wire)
 watch(html, wire)
 // 언어 전환 시 정적 라벨(i18n) + JS 채운 요소 갱신
 watch(isEN, () => {
-  if (root.value) applyI18n(root.value, isEN.value)
+  if (root.value) {
+    applyI18n(root.value, isEN.value)
+    root.value.classList.toggle('is-en', isEN.value)   // 국문 전용 요소(속보) 표시 전환
+  }
   wiring?.refreshLang()
 })
 onBeforeUnmount(teardown)

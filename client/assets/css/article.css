@@ -207,6 +207,9 @@
   .gallery.single .gallery-next,
   .gallery.single .gallery-dots { display: none; }   /* 1장이면 넘김 버튼·점 없음 */
 
+  /* 국문 전용 요소 — 영문에서는 감춘다(속보는 영문 독자에게 제공하지 않는다) */
+  .article-page.is-en .ko-only { display: none; }
+
   /* 유튜브 영상 (본문 블록 · 클릭 후 로드 facade) */
   /* 아래(캡션 포함) 여백은 본문 시작 여백(.art-body padding-top)과 같은 22px */
   .art-video { margin: 22px 0 22px; }
