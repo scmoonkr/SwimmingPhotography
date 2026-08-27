@@ -5,7 +5,7 @@
 import { catKo } from './articleList'
 
 // 한글 분야 → 영문. 문서에 en.categories 가 없을 때 쓰는 폴백.
-const CAT_EN: Record<string, string> = { 경기: 'Meet', 현장: 'On-site', 인물: 'Athlete' }
+const CAT_EN: Record<string, string> = { 대회: 'Meet', 현장: 'On-site', 인물: 'Athlete' }
 
 const esc = (s: any) => String(s ?? '')
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -356,7 +356,7 @@ export function buildArticleLayout(doc: any, opts: BuildOpts = {}): string {
       const thumbStyle = r.thumb ? ` style="background-image:url('${escA(imgUrl(r.thumb))}')"` : ''
       return `<a class="lg-card" href="/article/${escA(r.slug)}">
           <span class="lg-thumb"${thumbStyle}></span>
-          <span class="lg-title"><span class="lg-cat"${attrEn(r.categoryEn || '')}>${esc(r.category || '경기')}</span><span${attrEn(r.titleEn || '')}>${esc(r.title)}</span></span>
+          <span class="lg-title"><span class="lg-cat"${attrEn(r.categoryEn || '')}>${esc(r.category || '대회')}</span><span${attrEn(r.titleEn || '')}>${esc(r.title)}</span></span>
           <span class="lg-date"${attrEn(r.date ? enDate(r.date) : '')}>${esc(koDate(r.date || ''))}</span>
         </a>`
     }).join('')
@@ -399,7 +399,7 @@ export function buildArticleLayout(doc: any, opts: BuildOpts = {}): string {
     // 날짜·분야·제목 모두 data-en 부여 (아래 '최근 기사' 목록과 동일 기준)
     const lis = related.slice(0, 4).map((r) =>
       `<li><a href="/article/${escA(r.slug)}"><span class="d"${attrEn(r.date ? enDate(r.date) : '')}>${esc(koDate(r.date || ''))}</span>`
-      + `<span class="t"><span class="s-cat"${attrEn(r.categoryEn || '')}>${esc(r.category || '경기')}</span>`
+      + `<span class="t"><span class="s-cat"${attrEn(r.categoryEn || '')}>${esc(r.category || '대회')}</span>`
       + `<span${attrEn(r.titleEn || '')}>${esc(r.title)}</span></span></a></li>`).join('')
     sideLatest = `
       <div class="side-module mobile-hide">
@@ -419,7 +419,7 @@ export function buildArticleLayout(doc: any, opts: BuildOpts = {}): string {
       <div class="side-module mobile-hide">
         <h3 data-en="Browse by category">분야 바로가기</h3>
         <div class="side-chips">
-          <a href="/?cat=%EA%B2%BD%EA%B8%B0" data-en="Meets">경기</a>
+          <a href="/?cat=%EB%8C%80%ED%9A%8C" data-en="Meets">대회</a>
           <a href="/?cat=%EC%9D%B8%EB%AC%BC" data-en="Athlete">인물</a>
           <a href="/?cat=%ED%98%84%EC%9E%A5" data-en="On Site">현장</a>
           <a href="/breakingnews" data-en="Breaking">속보</a>

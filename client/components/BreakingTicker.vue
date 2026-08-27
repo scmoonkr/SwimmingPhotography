@@ -24,7 +24,8 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKey))
 
 <template>
   <!-- 상단 티커 (전체가 하나의 링크 → /breakingnews) -->
-  <NuxtLink v-show="hasItems" class="bk-ticker" to="/breakingnews" aria-label="속보 전체 보기">
+  <!-- 속보는 국문 독자용 — 영문에서는 티커를 띄우지 않는다 (홈 필터 칩·속보 박스와 같은 규칙) -->
+  <NuxtLink v-show="hasItems && !isEN" class="bk-ticker" to="/breakingnews" aria-label="속보 전체 보기">
     <div class="bk-ticker-inner">
       <span class="bk-ticker-label">{{ t('속보', 'Breaking') }}</span>
       <div class="bk-ticker-viewport">

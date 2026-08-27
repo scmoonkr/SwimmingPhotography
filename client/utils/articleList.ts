@@ -18,14 +18,16 @@ export interface ArticleCard {
 // 카테고리 슬러그(영문) → 한글 표준 라벨. 홈 필터·표시는 한글(경기/현장/인물) 기준이지만
 // 일부 기사는 searchCategories 형식(meet/athlete/…)으로 저장돼 있어 매핑해 준다. 이미 한글이면 그대로.
 const CAT_KO: Record<string, string> = {
-  meet: '경기', meets: '경기', competition: '경기', competitions: '경기', result: '경기', results: '경기',
+  meet: '대회', meets: '대회', competition: '대회', competitions: '대회', result: '대회', results: '대회',
   athlete: '인물', athletes: '인물', people: '인물', person: '인물', masters: '인물', youth: '인물',
   onsite: '현장', 'on-site': '현장', field: '현장', event: '현장', events: '현장', facility: '현장', club: '현장',
 }
 export function catKo(cats: any): string {
   const raw = String((Array.isArray(cats) ? cats[0] : cats) || '').trim()
-  if (!raw) return '경기'
-  return CAT_KO[raw.toLowerCase()] || (['경기', '현장', '인물'].includes(raw) ? raw : '경기')
+  if (!raw) return '대회'
+  // DB 에 저장된 "경기" 도 화면에서는 "대회" 로 보여준다
+  if (raw === '경기') return '대회'
+  return CAT_KO[raw.toLowerCase()] || (['대회', '현장', '인물'].includes(raw) ? raw : '대회')
 }
 
 // 이미지 URL 정규화 — http 면 그대로, '/' 나 로컬 'images/' 는 로컬 절대경로,

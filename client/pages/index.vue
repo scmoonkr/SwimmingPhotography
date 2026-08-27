@@ -58,11 +58,11 @@ const onVtClick = () => { setView(view.value === 'grid' ? 'list' : 'grid'); vtPr
 
 // ── 분야 필터 ──
 const cats = [
-  { k: '경기', en: 'Meets' },
+  { k: '대회', en: 'Meets' },
   { k: '현장', en: 'On Site' },
   { k: '인물', en: 'Athlete' },
 ]
-const curCat = ref('경기')
+const curCat = ref('대회')
 
 // ── 검색 ──
 const showSearch = ref(false)
@@ -172,7 +172,7 @@ function humanTime(s: string) {
 // 전체폭 썸네일 높이(수백px)가 박제되는 버그를 막는다. (minmax(190px,1fr)·gap 20 / 모바일 2열·gap 14)
 function syncBBHeight() {
   const box = bbBox.value, list = bbList.value
-  if (!box || !list || !hasBreaking.value) return
+  if (!box || !list || !hasBreaking.value || isEN.value) return   // 영문에서는 박스를 감추므로 계산도 하지 않는다
   const itemsEl = document.getElementById('items')
   const w = (itemsEl && itemsEl.clientWidth) || box.clientWidth
   if (w) {
@@ -205,7 +205,8 @@ watch([bkItems, view, isEN], () => nextTick().then(syncBBHeight))
           v-for="c in cats" :key="c.k" class="chip"
           :class="{ active: curCat === c.k }" @click="curCat = c.k"
         >{{ t(c.k, c.en) }}</button>
-        <NuxtLink class="chip chip-link" to="/breakingnews">{{ t('속보', 'Breaking') }}</NuxtLink>
+        <!-- 속보는 국문 독자용 — 영문에서는 메뉴에서 뺀다 -->
+        <NuxtLink v-if="!isEN" class="chip chip-link" to="/breakingnews">{{ t('속보', 'Breaking') }}</NuxtLink>
         <button class="chip chip-search" type="button" @click="openSearch">{{ t('검색', 'Search') }}</button>
       </div>
       <button
@@ -228,7 +229,7 @@ watch([bkItems, view, isEN], () => nextTick().then(syncBBHeight))
     </div>
 
     <!-- 속보 박스 (그리드·리스트 공통 · 메뉴 바로 밑 · 높이 = 그리드 썸네일과 동일 · 헤드 없음) -->
-    <div v-show="hasBreaking" ref="bbBox" class="breaking-box">
+    <div v-show="hasBreaking && !isEN" ref="bbBox" class="breaking-box">
       <div ref="bbList" class="bb-list">
         <button
           v-for="it in topBreaking" :key="it.id" type="button" class="bb-item"
