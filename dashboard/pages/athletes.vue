@@ -140,6 +140,7 @@ const eventStats = ref<{ events: Record<string, any>; heats: any[] }>({ events: 
 const loadAthleteData = async (r: any) => {
   selected.value = r
   teamStats.value = null; teamData.value = null; recordsByEvent.value = {}; pbByEvent.value = {}; activeTab.value = 0; genJson.value = ''; note.value = ''
+  youtubeUrl.value = ''; youtubeCaption.value = ''
   athleteImages.value = []
   eventStats.value = { events: {}, heats: [] }
   // 선수 이미지 (images 컬렉션: name·gender·team·ageGroup 매칭)
@@ -155,7 +156,13 @@ const loadAthleteData = async (r: any) => {
   // 저장분(SP.athletes) 있으면 llm(생성기사)·note 표시
   try {
     const saved = await $fetch<any>(api('/saved'), { params: { name: r.name, competitionID: competitionID.value || '', gender: r.gender || '', ageGroup: r.ageGroup || '', team: r.team || '' } })
-    if (saved) { genJson.value = saved.llm || ''; note.value = saved.note || '' }
+    if (saved) {
+      genJson.value = saved.llm || ''
+      note.value = saved.note || ''
+      // 영상은 payload(json) 에 들어 있다
+      youtubeUrl.value = saved.json?.video?.url || ''
+      youtubeCaption.value = saved.json?.video?.caption || ''
+    }
   } catch {}
   if (r.team) {
     try { teamStats.value = await $fetch(api('/team-stats'), { params: { team: r.team, competitionID: competitionID.value || undefined } }) } catch {}
@@ -275,6 +282,9 @@ const onAddSave = async (form: Record<string, any>) => {
 const genLoading = ref(false)
 const genJson = ref('')
 const note = ref('') // LLM 참고 메모 (payload 에 포함)
+// 유튜브 영상 — payload(json) 에 담아 저장한다. 기사 생성 때 video 블록의 재료가 된다.
+const youtubeUrl = ref('')
+const youtubeCaption = ref('')
 // 드로어에 표시된 내용(선수·팀통계·종목별 기록 비교)을 그대로 JSON payload 로 구성 (LLM 입력)
 const buildPayload = () => {
   const a = selected.value
@@ -303,6 +313,10 @@ const buildPayload = () => {
     athlete: { name: a.name, gender: genderLabel(a.gender), group: a.group, ageGroup: a.ageGroup, team: a.team, sido: a.sido },
     note: note.value || '',
     images: athleteImages.value.map((im: any) => ({ type: im.type, url: im.path ?? im.url })),
+    // 유튜브 — 넣었을 때만. 기사에서는 개요와 첫 결과 사이에 video 블록으로 들어간다.
+    video: youtubeUrl.value.trim()
+      ? { url: youtubeUrl.value.trim(), caption: youtubeCaption.value.trim() }
+      : null,
     events,
     // 선수가 뛴 heat 의 전체 출전선수·start (성별·영법 한글)
     heats: (eventStats.value.heats || []).map((h: any) => ({
@@ -391,8 +405,31 @@ const copyPayload = async () => {
   }
 }
 
-// ── 드로어 저장 — json(소스 payload)+llm(생성 기사)+note 를 SP.athletes 에 upsert ──
+// ── 드로어 저장 ──
+// '저장'  : json(소스 payload — 유튜브 url·캡션 포함) + note
+// 'llm저장': llm(생성 기사 JSON) 만. 서버가 llm 을 받으면 articles 컬렉션에도 함께 upsert 한다.
+// 둘을 나눈 이유 — 기사 본문(llm)은 길고 실수로 덮어쓰면 되돌리기 어렵다.
 const saving = ref(false)
+const savingLlm = ref(false)
+const saveLlm = async () => {
+  const a = selected.value
+  if (!a) return
+  if (!genJson.value.trim()) { alert('저장할 생성 기사 JSON 이 비어 있습니다.'); return }
+  try { JSON.parse(genJson.value) } catch { alert('생성 기사 JSON 이 올바른 JSON 이 아닙니다.'); return }
+  savingLlm.value = true
+  try {
+    await $fetch(api('/save'), {
+      method: 'POST',
+      // json·note 는 보내지 않는다 — '저장' 버튼이 맡는 값이라 여기서 덮으면 안 된다.
+      body: { name: a.name, gender: a.gender, group: a.group, ageGroup: a.ageGroup, team: a.team, competitionID: competitionID.value || null, llm: genJson.value },
+    })
+    notice.value = `llm 저장됨 — ${a.name}`
+  } catch (err: any) {
+    alert('llm 저장 실패: ' + (err?.data?.error || err?.message || ''))
+  } finally {
+    savingLlm.value = false
+  }
+}
 const saveAthlete = async () => {
   const a = selected.value
   if (!a) return
@@ -400,9 +437,10 @@ const saveAthlete = async () => {
   try {
     await $fetch(api('/save'), {
       method: 'POST',
-      body: { name: a.name, gender: a.gender, group: a.group, ageGroup: a.ageGroup, team: a.team, competitionID: competitionID.value || null, json: buildPayload(), llm: genJson.value, note: note.value },
+      // llm 은 보내지 않는다 — 아래 saveLlm(llm저장 버튼)이 따로 맡는다.
+      body: { name: a.name, gender: a.gender, group: a.group, ageGroup: a.ageGroup, team: a.team, competitionID: competitionID.value || null, json: buildPayload(), note: note.value },
     })
-    notice.value = `저장됨 — ${a.name}`
+    notice.value = `저장됨 — ${a.name} (유튜브·메모)`
   } catch (err: any) {
     alert('저장 실패: ' + (err?.data?.error || err?.message || ''))
   } finally {
@@ -585,12 +623,16 @@ onMounted(async () => {
             <div v-if="fmtDisciplines(selectedComp.disciplines)" class="comp-disc">{{ fmtDisciplines(selectedComp.disciplines) }}</div>
           </div>
 
-          <!-- 선수 이미지 (images 컬렉션) -->
-          <div v-if="athleteImages.length" class="ath-images">
-            <a v-for="(im, i) in athleteImages" :key="i" class="ath-img" :href="im.url" target="_blank" rel="noopener">
-              <img :src="im.thumbnail || im.url" alt="">
-              <span v-if="im.type" class="ath-img-type">{{ im.type }}</span>
-            </a>
+          <!-- 유튜브 영상 — payload(json) 에 저장된다. 저장 버튼을 눌러야 반영된다. -->
+          <div class="yt-row">
+            <label class="yt-fld">
+              <span class="yt-l">유튜브 URL</span>
+              <input v-model="youtubeUrl" class="yt-input" type="text" placeholder="https://youtu.be/…">
+            </label>
+            <label class="yt-fld">
+              <span class="yt-l">캡션 (영상 아래 설명)</span>
+              <input v-model="youtubeCaption" class="yt-input" type="text" placeholder="결승 레이스 영상. 촬영=편집부">
+            </label>
           </div>
 
           <div class="times-head">기록 ({{ timeTabs.length }})</div>
@@ -620,6 +662,9 @@ onMounted(async () => {
             <div class="gen-actions">
               <button class="btn btn-primary" type="button" :disabled="genLoading" @click="generateArticle">
                 {{ genLoading ? '생성 중…' : '기사LLM생성' }}
+              </button>
+              <button class="btn btn-ghost" type="button" :disabled="savingLlm || !selected" @click="saveLlm">
+                {{ savingLlm ? '저장 중…' : 'llm저장' }}
               </button>
               <button class="btn btn-ghost" type="button" :disabled="!timeTabs.length" @click="copyPayload">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" /></svg>
@@ -705,11 +750,16 @@ onMounted(async () => {
 .comp-counts b { color: var(--ink); font-weight: 800; font-variant-numeric: tabular-nums; }
 .comp-disc { margin-top: 8px; font-size: 12px; color: var(--ink-mute); line-height: 1.6; }
 
-/* 선수 이미지 스트립 */
-.ath-images { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 4px; }
-.ath-img { position: relative; width: 92px; height: 68px; border-radius: 6px; overflow: hidden; border: 1px solid var(--line); background: var(--paper-deep); }
-.ath-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.ath-img-type { position: absolute; left: 0; bottom: 0; padding: 1px 5px; font-size: 10px; font-weight: 700; color: #fff; background: rgba(26, 26, 26, .66); border-top-right-radius: 4px; }
+/* 유튜브 입력 (선수 이미지 스트립 자리) */
+.yt-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 0 4px; }
+.yt-fld { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.yt-l { font-size: 11.5px; color: var(--ink-light); }
+.yt-input {
+  font-family: var(--sans); font-size: 13px; color: var(--ink); background: var(--paper);
+  border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; width: 100%;
+}
+.yt-input:focus { outline: none; border-color: var(--orange); }
+@media (max-width: 720px) { .yt-row { grid-template-columns: 1fr; } }
 .times-head { font-size: 12px; font-weight: 700; color: var(--ink-mute); margin: 18px 0 4px; }
 .rec-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 12px; }
 .rec-tab { font-family: var(--sans); font-size: 12.5px; color: var(--ink-mute); background: var(--paper-deep); border: 1px solid transparent; border-radius: 6px; padding: 6px 12px; cursor: pointer; }

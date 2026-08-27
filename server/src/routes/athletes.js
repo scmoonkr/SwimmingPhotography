@@ -346,26 +346,35 @@ router.get('/event-stats', async (req, res) => {
     const OK = { time: { $type: 'string', $ne: '' }, status: { $nin: ['DQ', 'DNS'] } }
     const mine = await t.find(
       { competitionID: cid, name: String(name), ...OK },
-      { projection: { gender: 1, discipline: 1, distance: 1, course: 1, ageGroup: 1, round: 1, heat: 1, time: 1, timeStamp: 1 } },
+      { projection: { gender: 1, discipline: 1, distance: 1, course: 1, ageGroup: 1, round: 1, heat: 1, time: 1, timeStamp: 1, isMasters: 1, isAdult: 1 } },
     ).toArray()
 
     // 종목(gender·discipline·distance·course) 별
     const evMap = new Map()
     for (const m of mine) {
       const key = `${m.discipline}|${m.distance}|${m.course}`
-      if (!evMap.has(key)) evMap.set(key, { gender: m.gender, discipline: m.discipline, distance: m.distance, course: m.course, myTs: m.timeStamp })
+      if (!evMap.has(key)) evMap.set(key, { gender: m.gender, discipline: m.discipline, distance: m.distance, course: m.course, myTs: m.timeStamp, isMasters: m.isMasters, isAdult: m.isAdult })
       else if (m.timeStamp != null && m.timeStamp < evMap.get(key).myTs) evMap.get(key).myTs = m.timeStamp // 선수 최고기록 기준
     }
     const secDiff = (a, b) => (a != null && b != null && isFinite(a - b)) ? Math.abs((a - b) * 86400).toFixed(2) : ''
     const events = {}
     for (const [key, ev] of evMap) {
       const evMatch = { competitionID: cid, gender: ev.gender, discipline: ev.discipline, distance: ev.distance, course: ev.course, ...OK }
+      // 종목 집계는 선수와 같은 구분 안에서만 낸다.
+      // 마스터즈/선수부(isMasters), 성인부/학생부(isAdult)는 같은 종목이라도 서로 겨루지 않는다 —
+      // 구분 없이 뽑으면 성인부 선수 기사에 학생부 기록이 최고 기록으로 실린다.
+      // athleteCount·startCount 도 같은 기준이어야 "N명 중 1위" 의 짝이 맞는다.
+      // (team 집계와 heats 는 종목 전체 기준 그대로 — export_athletes.js 와 같은 규칙)
+      const division = {}
+      if (typeof ev.isMasters === 'boolean') division.isMasters = ev.isMasters
+      if (typeof ev.isAdult === 'boolean') division.isAdult = ev.isAdult
+      const divMatch = { ...evMatch, ...division }
       const [agg] = await t.aggregate([
-        { $match: evMatch },
+        { $match: divMatch },
         { $group: { _id: null, names: { $addToSet: '$name' }, starts: { $sum: 1 } } },
       ]).toArray()
-      const [best] = await t.find(evMatch, { projection: { name: 1, team: 1, time: 1, timeStamp: 1 } }).sort({ timeStamp: 1 }).limit(1).toArray()
-      const [goldRec] = await t.find({ ...evMatch, round: { $regex: '결승|결선|final', $options: 'i' } }, { projection: { name: 1, team: 1, time: 1, timeStamp: 1 } }).sort({ timeStamp: 1 }).limit(1).toArray()
+      const [best] = await t.find(divMatch, { projection: { name: 1, team: 1, time: 1, timeStamp: 1 } }).sort({ timeStamp: 1 }).limit(1).toArray()
+      const [goldRec] = await t.find({ ...divMatch, round: { $regex: '결승|결선|final', $options: 'i' } }, { projection: { name: 1, team: 1, time: 1, timeStamp: 1 } }).sort({ timeStamp: 1 }).limit(1).toArray()
       const gr = goldRec || best
       const [tm] = await t.aggregate([
         { $match: { ...evMatch, team: String(team || '') } },
@@ -445,10 +454,16 @@ router.post('/save', async (req, res) => {
     const { name, group, json, llm, note, competitionID, ageGroup } = req.body || {}
     if (!name) return res.status(400).json({ error: '선수명(name)이 필요합니다.' })
     const key = athleteKey(req.body)
+    // 보내온 필드만 건드린다 — 드로어의 '저장'(payload)과 'llm저장'이 서로를 지우지 않게.
+    // (예전처럼 llm 을 무조건 '' 로 덮으면 payload 만 저장해도 생성 기사가 날아간다)
+    const $set = { ...key, savedAt: new Date() }
+    if (json !== undefined) $set.json = json ?? null
+    if (llm !== undefined) $set.llm = llm ?? ''
+    if (note !== undefined) $set.note = note ?? ''
     const r = await (await SP()).collection('athletes').updateOne(
       key,
       {
-        $set: { ...key, json: json ?? null, llm: llm ?? '', note: note ?? '', savedAt: new Date() },
+        $set,
         // 키가 아닌 부가정보 — 신규 문서일 때만 채운다(기록가져오기 재집계값을 덮지 않도록).
         $setOnInsert: { group: String(group || '') },
       },
