@@ -22,14 +22,15 @@ const errorMsg = ref('')
 
 // 쪽 나누기 — 기사가 500건이 넘어 한 번에 다 받으면 무겁고, 서버 기본 limit(200) 밖의
 // 기사는 아예 목록에 오지도 않았다. 필요한 쪽만 서버에서 받아온다.
-const PAGE_SIZE = 50
+const PAGE_SIZE = 1000
 const page = ref(1)
 const total = ref(0)
 
 const load = async () => {
   errorMsg.value = ''
   try {
-    const params: Record<string, any> = { type: TYPE, sort: 'created', withTotal: '1', limit: PAGE_SIZE, skip: (page.value - 1) * PAGE_SIZE }
+    // fields=list — 표가 그리는 열만 받는다. 편집에 필요한 전체 문서는 행을 클릭할 때 따로 받는다.
+    const params: Record<string, any> = { type: TYPE, fields: 'list', sort: 'created', withTotal: '1', limit: PAGE_SIZE, skip: (page.value - 1) * PAGE_SIZE }
     if (category.value) params.category = category.value
     // 검색어가 숫자뿐이면 제목이 아니라 대회ID 로 찾는다 (3614 → competitionID: 3614)
     const term = q.value.trim()
@@ -226,7 +227,24 @@ const fields: Field[] = [
   },
 ]
 
-const openRow = (r: Record<string, any>) => { isNew.value = false; selected.value = r; open.value = true }
+// 목록 행은 표시용 필드만 담고 있다. 편집·저장은 전체 문서라야 하므로
+// (부분 문서로 저장하면 빠진 필드가 통째로 날아간다) 열 때 그 기사 하나를 다시 받는다.
+const rowLoading = ref(false)
+const openRow = async (r: Record<string, any>) => {
+  isNew.value = false
+  selected.value = r            // 먼저 열어 두고(제목 등 표시), 전체 문서로 교체한다
+  open.value = true
+  if (!r?._id) return
+  rowLoading.value = true
+  try {
+    selected.value = await $fetch<any>(api(`/${r._id}`))
+  } catch (err: any) {
+    errorMsg.value = '기사를 불러오지 못했습니다: ' + (err?.data?.error || err?.message || '')
+    open.value = false
+  } finally {
+    rowLoading.value = false
+  }
+}
 const openNew = () => { isNew.value = true; selected.value = blankArticle(TYPE); open.value = true }
 
 const nowStamp = () => {

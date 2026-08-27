@@ -50,7 +50,9 @@ export const hasImage = (r: any): boolean =>
   !!(r?.media?.images?.length || r?.media?.thumb || r?.media?.coverImage)
 export const hasYoutube = (r: any): boolean => {
   const blocks = r?.translations?.ko?.content?.blocks || []
-  return blocks.some((b: any) => b?.provider === 'youtube' || /youtu\.?be/i.test(String(b?.url || '')))
+  // 렌더러(articleHtml)와 같은 기준은 type==='video' 다. 옛 표기(provider·youtu.be URL)도 함께 받는다.
+  return blocks.some((b: any) =>
+    b?.type === 'video' || b?.provider === 'youtube' || /youtu\.?be/i.test(String(b?.url || '')))
 }
 
 // title 로부터 slug 생성 (한글·영문·숫자 유지, 나머지는 하이픈)

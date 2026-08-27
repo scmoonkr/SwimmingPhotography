@@ -81,11 +81,28 @@ async function onlyBreaking(req, res, next) {
 // 500건 기준 응답이 7MB 에 달해 홈 SSR 이 무거워진다 — 같은 건수를 0.4MB 로 줄인다.
 const CARD_PROJECTION = {
   slug: 1, type: 1, status: 1,
+  name: 1,                       // 홈 목록의 선수명 정렬용
   publishedAt: 1, createdAt: 1, created: 1, updatedAt: 1,
   visibility: 1,
   'media.thumb': 1, 'media.coverImage': 1, 'media.images.url': 1,
   'translations.ko.title': 1, 'translations.ko.categories': 1,
   'translations.en.title': 1, 'translations.en.categories': 1,
+  // 영상 유무만 보면 되므로 블록의 type 만. 본문(text)은 응답 대부분을 차지해 빼둔다.
+  'translations.ko.content.blocks.type': 1,
+}
+
+// 대시보드 기사 표가 그리는 열만. 본문(blocks[].text)이 응답의 대부분이라 그것만 빼도
+// 500건 응답이 6.2MB → 1MB 아래로 줄어든다. 블록은 이미지·유튜브 유무 판정에만 쓰므로
+// type·url 두 필드만 남긴다. 행을 클릭하면 대시보드가 그 기사 하나를 전체로 다시 받는다.
+const LIST_PROJECTION = {
+  slug: 1, type: 1, status: 1,
+  createdAt: 1, publishedAt: 1, updatedAt: 1,
+  competitionID: 1, name: 1, ageGroup: 1, team: 1, gender: 1,
+  'visibility.isFeatured': 1,
+  'reporter.name': 1,
+  'media.thumb': 1, 'media.coverImage': 1, 'media.images.url': 1,
+  'translations.ko.title': 1, 'translations.ko.categories': 1,
+  'translations.ko.content.blocks.type': 1, 'translations.ko.content.blocks.url': 1,
 }
 
 // 목록. type/status 외에 category(searchCategories 포함), q(제목 부분검색) 지원.
@@ -119,7 +136,8 @@ router.get('/', async (req, res) => {
     }
     const c = await coll()
     const cursor = c
-      .find(filter, fields === 'card' ? { projection: CARD_PROJECTION } : undefined)
+      .find(filter, fields === 'card' ? { projection: CARD_PROJECTION }
+        : fields === 'list' ? { projection: LIST_PROJECTION } : undefined)
       // 기본은 게시일 최신순(공개 사이트 기준). sort=created 면 작성일 최신순(대시보드 목록).
       // 마지막 _id 는 동점 깨기 — 같은 배치로 만든 기사들은 createdAt·publishedAt 이 전부 같아서,
       // 이게 없으면 skip 으로 쪽을 넘길 때 순서가 뒤바뀌어 같은 기사가 두 쪽에 나오고 어떤 기사는 아예 안 나온다.
