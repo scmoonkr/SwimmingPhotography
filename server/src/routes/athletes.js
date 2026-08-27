@@ -432,12 +432,24 @@ const athleteKey = (q = {}) => ({
   team: String(q.team || ''),
 })
 
+// unique 는 대회 안에서 선수를 유일하게 가리킨다(동명이인은 "홍길동1" 처럼 번호가 붙는다).
+// 이름이 바뀌면 위 복합 키로는 기존 문서를 못 찾아 새 문서를 만들려다
+// { unique: 1 } 유니크 인덱스에 걸린다(E11000). unique 가 오면 그걸 매칭 키로 쓴다.
+const athleteMatch = (q = {}) => {
+  const uq = String(q.unique || '').trim()
+  if (!uq) return athleteKey(q)
+  return {
+    competitionID: (q.competitionID != null && q.competitionID !== '') ? Number(q.competitionID) : null,
+    unique: uq,
+  }
+}
+
 // 드로어 저장분 조회 — SP.athletes 의 json(소스)·llm(생성기사)·note
 router.get('/saved', async (req, res) => {
   try {
     if (!req.query.name) return res.json(null)
     const doc = await (await SP()).collection('athletes').findOne(
-      athleteKey(req.query),
+      athleteMatch(req.query),
       { projection: { json: 1, llm: 1, note: 1, savedAt: 1 } },
     )
     res.json(doc || null)
@@ -454,14 +466,17 @@ router.post('/save', async (req, res) => {
     const { name, group, json, llm, note, competitionID, ageGroup } = req.body || {}
     if (!name) return res.status(400).json({ error: '선수명(name)이 필요합니다.' })
     const key = athleteKey(req.body)
+    const match = athleteMatch(req.body)          // unique 가 오면 그것으로 찾는다
     // 보내온 필드만 건드린다 — 드로어의 '저장'(payload)과 'llm저장'이 서로를 지우지 않게.
     // (예전처럼 llm 을 무조건 '' 로 덮으면 payload 만 저장해도 생성 기사가 날아간다)
+    // key 를 $set 에 담아 두면 이름이 바뀌었을 때 문서의 name 도 함께 갱신된다.
     const $set = { ...key, savedAt: new Date() }
+    if (req.body.unique) $set.unique = String(req.body.unique).trim()
     if (json !== undefined) $set.json = json ?? null
     if (llm !== undefined) $set.llm = llm ?? ''
     if (note !== undefined) $set.note = note ?? ''
     const r = await (await SP()).collection('athletes').updateOne(
-      key,
+      match,
       {
         $set,
         // 키가 아닌 부가정보 — 신규 문서일 때만 채운다(기록가져오기 재집계값을 덮지 않도록).
@@ -475,7 +490,14 @@ router.post('/save', async (req, res) => {
     let result = null
     if (llm) {
       const cid = (competitionID != null && competitionID !== '') ? Number(competitionID) : null
-      const akey = { competitionID: cid, ageGroup: String(ageGroup || ''), name: String(name) }
+      // articles 도 같은 이유로 unique 를 우선 키로 쓴다.
+      // name·ageGroup 은 아래 $set 으로 항상 최신값이 들어가므로 hasArticle 조회는 그대로 동작한다.
+      const uq = String(req.body.unique || '').trim()
+      const akey = uq
+        ? { competitionID: cid, unique: uq }
+        : { competitionID: cid, ageGroup: String(ageGroup || ''), name: String(name) }
+      const aFields = { competitionID: cid, ageGroup: String(ageGroup || ''), name: String(name) }
+      if (uq) aFields.unique = uq
       let article = null
       try { article = JSON.parse(llm) } catch { return res.status(400).json({ error: 'genJson 이 유효한 JSON 이 아닙니다.' }) }
       if (article && typeof article === 'object' && !Array.isArray(article)) {
@@ -514,7 +536,7 @@ router.post('/save', async (req, res) => {
 
         const ar = await (await SP()).collection('articles').updateOne(
           akey,
-          { $set: { ...article, ...akey } },          // 키(competitionID·ageGroup·name)는 항상 akey 로 고정
+          { $set: { ...article, ...aFields } },       // 식별 필드(competitionID·ageGroup·name·unique)는 항상 고정
           { upsert: true },
         )
         result = { upserted: !!ar.upsertedCount, modified: ar.modifiedCount }
