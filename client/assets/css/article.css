@@ -207,6 +207,32 @@
   .gallery.single .gallery-next,
   .gallery.single .gallery-dots { display: none; }   /* 1장이면 넘김 버튼·점 없음 */
 
+  /* 읽을거리 본문 (마크다운 블록) — 본문 문단과 같은 톤, 줄바꿈은 <br> 로 유지된다 */
+  .art-md { margin: 22px 0 0; }
+  .art-md > *:first-child { margin-top: 0; }
+  .art-md p { margin: 0 0 18px; }
+  .art-md h2 { font-size: calc(20px * var(--read-fs)); font-weight: 700; margin: 30px 0 12px; }
+  .art-md h3 { font-size: calc(17.5px * var(--read-fs)); font-weight: 700; margin: 24px 0 10px; }
+  .art-md h4, .art-md h5 { font-size: calc(16px * var(--read-fs)); font-weight: 700; margin: 20px 0 8px; }
+  .art-md ul, .art-md ol { margin: 0 0 18px; padding-left: 1.4em; }
+  .art-md li { margin-bottom: 6px; }
+  .art-md blockquote {
+    margin: 22px 0; padding: 2px 0 2px 16px; border-left: 1px solid var(--orange);
+    color: var(--ink-soft);
+  }
+  .art-md a { color: var(--orange-deep); text-decoration: underline; text-underline-offset: 2px; }
+  .art-md img { display: block; width: 100%; height: auto; border-radius: 3px; margin: 22px 0; }
+  .art-md hr { border: none; border-top: 1px solid var(--line); margin: 28px 0; }
+  .art-md code {
+    font-family: var(--mono); font-size: .9em; background: var(--paper-deep);
+    padding: 1px 5px; border-radius: 3px;
+  }
+  .art-md pre.md-code {
+    margin: 22px 0; padding: 14px 16px; background: var(--paper-deep); border-radius: 4px;
+    overflow-x: auto; font-family: var(--mono); font-size: 13.5px; line-height: 1.6;
+  }
+  .art-md pre.md-code code { background: none; padding: 0; }
+
   /* 국문 전용 요소 — 영문에서는 감춘다(속보는 영문 독자에게 제공하지 않는다) */
   .article-page.is-en .ko-only { display: none; }
 

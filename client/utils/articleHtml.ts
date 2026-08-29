@@ -85,6 +85,95 @@ const ytId = (url: any) => {
 // data-en 은 값이 있을 때만 부여 (없으면 EN 모드에서 한글이 그대로 노출되도록)
 const attrEn = (en: string) => (en ? ` data-en="${escA(en)}"` : '')
 
+// ── 마크다운 (읽을거리 본문 blocks 의 { type:'markdown', text }) ───────────────
+// 외부 라이브러리 없이 기사에 필요한 문법만 옮긴다.
+// 안전: 먼저 esc() 로 이스케이프한 뒤 마크다운을 적용하므로 원문에 HTML 을 써도 태그로 살아나지 않는다.
+const mdInline = (raw: string) => {
+  let t = esc(raw)
+  // 코드 조각을 먼저 빼둔다 — 그 안의 * _ 는 강조로 바꾸지 않는다
+  const code: string[] = []
+  t = t.replace(/`([^`]+)`/g, (_m, c) => `@@CODE${code.push(`<code>${c}</code>`) - 1}@@`)
+  t = t
+    .replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (_m, alt, src) => `<img src="${escA(src)}" alt="${escA(alt)}" loading="lazy">`)
+    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_m, txt, href) => `<a href="${escA(href)}" target="_blank" rel="noopener">${txt}</a>`)
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[^*\w])\*([^*\n]+)\*/g, '$1<em>$2</em>')
+    .replace(/(^|[^_\w])_([^_\n]+)_/g, '$1<em>$2</em>')
+    .replace(/~~([^~]+)~~/g, '<del>$1</del>')
+  return t.replace(/@@CODE(\d+)@@/g, (_m, i) => code[+i])
+}
+
+const mdToHtml = (src: string) => {
+  const lines = String(src ?? '').replace(/\r\n?/g, '\n').split('\n')
+  const out: string[] = []
+  let para: string[] = []            // 이어지는 문단 줄 — 한 줄 바꿈은 <br> 로 살린다
+  let list: string[] = []
+  let listType: 'ul' | 'ol' | '' = ''
+  let quote: string[] = []
+  let fence: string[] | null = null  // ``` 코드 블록
+  let fenceLang = ''
+
+  const flushPara = () => {
+    if (!para.length) return
+    out.push(`<p>${para.map(mdInline).join('<br>')}</p>`)
+    para = []
+  }
+  const flushList = () => {
+    if (!list.length) return
+    out.push(`<${listType}>${list.map((li) => `<li>${mdInline(li)}</li>`).join('')}</${listType}>`)
+    list = []; listType = ''
+  }
+  const flushQuote = () => {
+    if (!quote.length) return
+    out.push(`<blockquote>${quote.map(mdInline).join('<br>')}</blockquote>`)
+    quote = []
+  }
+  const flushAll = () => { flushPara(); flushList(); flushQuote() }
+
+  for (const line of lines) {
+    // 코드 블록 안은 그대로 둔다
+    const fenceM = line.match(/^\s*```\s*(\S*)\s*$/)
+    if (fenceM) {
+      if (fence) {
+        out.push(`<pre class="md-code"${fenceLang ? ` data-lang="${escA(fenceLang)}"` : ''}><code>${esc(fence.join('\n'))}</code></pre>`)
+        fence = null; fenceLang = ''
+      } else { flushAll(); fence = []; fenceLang = fenceM[1] || '' }
+      continue
+    }
+    if (fence) { fence.push(line); continue }
+
+    if (!line.trim()) { flushAll(); continue }                                  // 빈 줄 = 문단 나눔
+    if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) { flushAll(); out.push('<hr>'); continue }
+
+    const h = line.match(/^\s*(#{1,4})\s+(.*)$/)
+    if (h) { flushAll(); const n = h[1].length + 1; out.push(`<h${n}>${mdInline(h[2])}</h${n}>`); continue }
+
+    const q = line.match(/^\s*>\s?(.*)$/)
+    if (q) { flushPara(); flushList(); quote.push(q[1]); continue }
+    flushQuote()
+
+    const ul = line.match(/^\s*[-*+]\s+(.*)$/)
+    const ol = line.match(/^\s*\d+[.)]\s+(.*)$/)
+    if (ul || ol) {
+      flushPara()
+      const t: 'ul' | 'ol' = ul ? 'ul' : 'ol'
+      if (listType && listType !== t) flushList()
+      listType = t
+      list.push(ul ? ul[1] : (ol as RegExpMatchArray)[1])
+      continue
+    }
+    flushList()
+    para.push(line.trim())
+  }
+  if (fence) out.push(`<pre class="md-code"><code>${esc(fence.join('\n'))}</code></pre>`)
+  flushAll()
+  return out.join('')
+}
+
+// 영문 본문은 통째로 바꿔야 하므로 data-en-html 을 쓴다(applyI18n 이 innerHTML 을 갈아끼운다).
+const attrEnHtml = (html: string) => (html ? ` data-en-html="${escA(html)}"` : '')
+
+
 // 기록표 '구분' 열의 영문 약어. 문서의 en.rows[].segment 는 "World Record" 처럼 길어
 // 표가 넓어지므로 약어를 우선 쓴다. 공백은 무시하고 맞춘다("이번 대회" = "이번대회").
 const RECORD_SEG_EN: Record<string, string> = {
@@ -230,6 +319,11 @@ export function buildArticleLayout(doc: any, opts: BuildOpts = {}): string {
           <thead><tr><th data-en="Category">구분</th><th data-en="Time">기록</th><th data-en="Note">비고</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>`)
+    } else if (b.type === 'markdown') {
+      // 읽을거리 본문 — 마크다운 한 덩어리. 영문은 같은 자리 블록의 text 를 쓴다.
+      const html = mdToHtml(b.text || '')
+      const enHtml = eb ? mdToHtml(eb.text || '') : ''
+      if (html || enHtml) bodyParts.push(`<div class="art-md"${attrEnHtml(enHtml)}>${html}</div>`)
     } else if (b.type === 'video') {
       // 유튜브 영상 — 클릭 후 로드(facade). 검증된 ID만 임베드, 아니면 링크 폴백.
       const id = ytId(b.url)
