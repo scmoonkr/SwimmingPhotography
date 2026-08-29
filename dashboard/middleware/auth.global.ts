@@ -6,7 +6,8 @@
 const NEED: Record<string, string[]> = {
   '/': ['data'],
   '/breaking-news': ['breaking'],
-  '/articles': ['articles'],
+  '/meets': ['articles'],
+  '/stories': ['articles'],
   '/competitions': ['data'],
   '/athletes': ['data'],
   '/times': ['data'],

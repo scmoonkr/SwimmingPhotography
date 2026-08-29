@@ -30,6 +30,8 @@ export interface Field {
   half?: boolean   // 한 줄에 둘씩 배치 (span 2 = 반 줄). 기본: 한 줄 전체(span 4)
   span?: 1 | 2 | 3 | 4  // 4열 그리드에서 차지할 칸 수 (half 보다 우선, 세밀 배치용)
   rows?: number    // textarea 줄 수 (기본 7)
+  // 입력칸 오른쪽 끝의 작은 동작 버튼(예: 제목 → slug 확인). 누르면 드로어가 action 이벤트를 올린다.
+  action?: { icon?: 'search'; title?: string }
   get: (row: any) => any   // thumbs 는 url 배열, 그 외는 문자열 반환
   set: (row: any, value: any) => void
 }
@@ -101,6 +103,19 @@ const mkArticle = (o: {
 export const SIDO_LIST = ['서울', '부산', '대구', '인천', '대전', '울산', '세종', '경기', '강원', '충북', '충남', '전북', '전남', '광주', '경북', '경남', '제주', '해외']
 
 // 속보 분류 목록 (value=searchCategories 슬러그, label=표시)
+// 기사 유형(type1) — 표·필터·드로어가 함께 쓴다.
+export const ARTICLE_TYPES = [
+  { v: 'record', l: '경기기록' },
+  { v: 'breaking_news', l: '속보' },
+  { v: 'athlete', l: '인물' },
+  { v: 'venue', l: '현장' },
+  { v: 'notice', l: '안내' },
+  { v: 'column', l: '칼럼' },
+]
+export const typeLabel = (v: string) => ARTICLE_TYPES.find((t) => t.v === v)?.l || v || ''
+// 읽을거리(stories) 가 다루는 유형
+export const STORY_TYPES = ['athlete', 'venue', 'notice', 'column']
+
 export const BN_CATEGORIES = [
   { v: 'meet', l: '경기' },
   { v: 'record', l: '기록' },
@@ -218,7 +233,7 @@ const DATA: Record<string, Entity> = {
     title: '기사', en: 'Articles', subtitle: '기사를 작성하고 관리합니다.',
     columns: [
       { key: 'title', label: '제목', cls: 'strong', get: (r) => r.translations?.ko?.title || '' },
-      { key: 'type', label: '유형', cls: 'muted', get: (r) => (r.type === 'breaking_news' ? '속보' : '기사') },
+      { key: 'type', label: '유형', cls: 'muted', get: (r) => typeLabel(r.type1) || (r.type === 'breaking_news' ? '속보' : '기사') },
       { key: 'status', label: '상태', type: 'badge', get: (r) => (r.status === 'published' ? '게시됨' : '초안') },
       { key: 'featured', label: 'featured', cls: 'num', get: (r) => (r.visibility?.isFeatured ? '★' : '') },
       { key: 'reporter', label: '출처', cls: 'muted', get: (r) => r.reporter?.name || '' },
@@ -227,7 +242,7 @@ const DATA: Record<string, Entity> = {
       { key: 'createdAt', label: '작성', cls: 'mono', get: (r) => String(r.createdAt || '').slice(0, 10) },
       { key: 'publishedAt', label: '게시', cls: 'mono', get: (r) => String(r.publishedAt || '').slice(0, 10) },
     ],
-    rows: [], // 실제 데이터는 API(/api/articles?type=article)에서 로드
+    rows: [], // 실제 데이터는 API(/api/articles?type1=…)에서 로드
   },
 
   competitions: {

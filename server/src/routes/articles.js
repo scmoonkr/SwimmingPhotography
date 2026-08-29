@@ -1,13 +1,25 @@
 // articles 컬렉션 CRUD (SwimmingPhotography DB) — 속보 등 기사.
-// GET /api/articles?type=breaking_news&status=published&limit=100
+// GET /api/articles?type1=breaking_news&status=published&limit=100
+// 기사 유형은 type1 로 가른다 — record(경기기록)·breaking_news(속보)·athlete·venue·notice·column.
 import { Router } from 'express'
+import multer from 'multer'
 import { ObjectId } from 'mongodb'
 import { SP } from '../db.js'
+import { putObject, deleteObject } from '../r2.js'
 import { broadcast } from '../sse.js'
 import { canAny } from '../auth.js'
 
 const router = Router()
 const coll = async () => (await SP()).collection('articles')
+
+// 이미지 업로드 (읽을거리 기사용) — competitions 라우터와 같은 규격
+const IMAGE_EXT = /\.(jpe?g|png|gif|webp|avif)$/i
+const safeName = (s) => String(s).replace(/[^\w.\-가-힣]/g, '_')
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024, files: 50 },   // 장당 20MB, 최대 50장
+  fileFilter: (req, file, cb) => cb(null, IMAGE_EXT.test(file.originalname)),
+})
 
 const toId = (id) => {
   try { return new ObjectId(id) } catch { return null }
@@ -95,7 +107,7 @@ const CARD_PROJECTION = {
 // 500건 응답이 6.2MB → 1MB 아래로 줄어든다. 블록은 이미지·유튜브 유무 판정에만 쓰므로
 // type·url 두 필드만 남긴다. 행을 클릭하면 대시보드가 그 기사 하나를 전체로 다시 받는다.
 const LIST_PROJECTION = {
-  slug: 1, type: 1, status: 1,
+  slug: 1, type: 1, type1: 1, status: 1,
   createdAt: 1, publishedAt: 1, updatedAt: 1,
   competitionID: 1, name: 1, ageGroup: 1, team: 1, gender: 1,
   'visibility.isFeatured': 1,
@@ -109,9 +121,16 @@ const LIST_PROJECTION = {
 // fields=card 면 카드용 필드만 추려 보낸다(홈·검색처럼 목록만 그리는 화면용).
 router.get('/', async (req, res) => {
   try {
-    const { type, status, category, q, slug, competitionID, featured, dateFrom, hasImage, fields, skip, withTotal, sort, limit = 200 } = req.query
+    const { type, type1, status, category, q, slug, competitionID, featured, dateFrom, hasImage, fields, skip, withTotal, sort, limit = 200 } = req.query
     const filter = {}
     if (type) filter.type = type
+    // type1 — 기사 유형(record·breaking_news·athlete·venue·notice·column).
+    // 쉼표로 여러 개를 받는다(읽을거리 페이지가 네 종류를 한 번에 본다).
+    if (type1) {
+      const list = String(type1).split(',').map((v) => v.trim()).filter(Boolean)
+      if (list.length === 1) filter.type1 = list[0]
+      else if (list.length > 1) filter.type1 = { $in: list }
+    }
     if (status) filter.status = status          // 전체(미지정) / published / draft
     if (slug) filter.slug = String(slug)
     if (category) filter.searchCategories = String(category)
@@ -213,7 +232,7 @@ router.post('/publish', onlyBreaking, async (req, res) => {
       { $set: { status: 'published', updatedAt: now } },
     )
     // 속보는 게시 즉시 실시간 push
-    const pubDocs = await c.find({ _id: { $in: oids }, type: 'breaking_news' }).toArray()
+    const pubDocs = await c.find({ _id: { $in: oids }, type1: 'breaking_news' }).toArray()
     for (const d of pubDocs) {
       broadcast('breaking', { _id: String(d._id), title: d.translations?.ko?.title || '', publishedAt: d.publishedAt || '' })
     }
@@ -269,6 +288,72 @@ router.delete('/:id', onlyBreaking, async (req, res) => {
     const r = await (await coll()).deleteOne({ _id })
     if (!r.deletedCount) return res.status(404).json({ error: 'not found' })
     res.status(204).end()
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// ── 이미지 업로드 — multipart 'files' → R2 올린 뒤 media.images 에 추가 ──
+// 대회 이미지와 같은 방식. 첫 장은 썸네일·커버가 비어 있으면 함께 채운다(홈 그리드가 썸네일을 쓴다).
+router.post('/:id/images', upload.array('files', 50), async (req, res) => {
+  try {
+    const _id = toId(req.params.id)
+    if (!_id) return res.status(400).json({ error: 'invalid id' })
+    const c = await coll()
+    const doc0 = await c.findOne({ _id }, { projection: { slug: 1, 'media.thumb': 1, 'media.coverImage': 1 } })
+    if (!doc0) return res.status(404).json({ error: 'not found' })
+    const files = req.files || []
+    if (!files.length) return res.json({ added: 0, images: [] })
+
+    const prefix = `SP-articles-${doc0.slug || String(_id)}`
+    const now = new Date()
+    const items = []
+    for (const f of files) {
+      const name = safeName(f.originalname)
+      const { url } = await putObject(`${prefix}/${name}`, f.buffer, f.mimetype)
+      items.push({ imageId: null, url, key: `${prefix}/${name}`, filename: name, size: f.size, uploadedAt: now })
+    }
+    const $set = { updatedAt: new Date() }
+    if (!doc0.media?.thumb) $set['media.thumb'] = items[0].url
+    if (!doc0.media?.coverImage) $set['media.coverImage'] = items[0].url
+
+    const r = await c.findOneAndUpdate(
+      { _id },
+      { $push: { 'media.images': { $each: items } }, $set },
+      { returnDocument: 'after' },
+    )
+    const doc = r && (r.value || r)
+    res.json({ added: items.length, results: items, images: (doc && doc.media && doc.media.images) || items, media: doc && doc.media })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// ── 이미지 삭제 — { url } 로 media.images 에서 빼고 R2 오브젝트도 지운다 ──
+router.delete('/:id/images', async (req, res) => {
+  try {
+    const _id = toId(req.params.id)
+    if (!_id) return res.status(400).json({ error: 'invalid id' })
+    const url = req.body && req.body.url
+    if (!url) return res.status(400).json({ error: 'url 이 필요합니다.' })
+    const c = await coll()
+    const cur = await c.findOne({ _id }, { projection: { media: 1 } })
+    const target = ((cur && cur.media && cur.media.images) || []).find((im) => im.url === url)
+
+    const $set = { updatedAt: new Date() }
+    // 지운 사진이 썸네일·커버였다면 남은 첫 장으로 옮긴다
+    const rest = ((cur && cur.media && cur.media.images) || []).filter((im) => im.url !== url)
+    if (cur?.media?.thumb === url) $set['media.thumb'] = rest[0]?.url || ''
+    if (cur?.media?.coverImage === url) $set['media.coverImage'] = rest[0]?.url || ''
+
+    const r = await c.findOneAndUpdate(
+      { _id },
+      { $pull: { 'media.images': { url } }, $set },
+      { returnDocument: 'after' },
+    )
+    const doc = r && (r.value || r)
+    if (target?.key) { try { await deleteObject(target.key) } catch { /* 오브젝트가 이미 없어도 문서에서는 지운다 */ } }
+    res.json({ ok: true, images: (doc && doc.media && doc.media.images) || [], media: doc && doc.media })
   } catch (e) {
     res.status(500).json({ error: e.message })
   }

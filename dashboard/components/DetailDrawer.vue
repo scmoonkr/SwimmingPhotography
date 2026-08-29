@@ -10,7 +10,12 @@ const props = defineProps<{
   row: Record<string, any> | null
   width?: string   // 드로어 폭 (기본 min(460px, 92vw))
 }>()
-const emit = defineEmits<{ (e: 'close'): void; (e: 'save', v: Record<string, any>): void; (e: 'delete'): void }>()
+const emit = defineEmits<{
+  (e: 'close'): void
+  (e: 'save', v: Record<string, any>): void
+  (e: 'delete'): void
+  (e: 'action', key: string, value: any): void      // 입력칸 안의 동작 버튼
+}>()
 
 // 삭제 버튼은 delete 능력이 있는 계정에만 보인다 (속보 전담 계정은 삭제 불가).
 // 서버에서도 같은 능력으로 막으므로, 여기서 숨기는 건 안 되는 버튼을 안 보여주기 위한 것.
@@ -18,6 +23,8 @@ const { can } = useAuth()
 
 // 필드별 편집값
 const form = ref<Record<string, any>>({})
+// 편집 중(저장 전) 값 — 부모가 copyJSON·parseJSON 처럼 폼을 직접 다뤄야 할 때 쓴다.
+defineExpose({ form })
 watch(
   () => props.row,
   (r) => {
@@ -87,6 +94,18 @@ const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') emit('close') }
             </template>
             <span v-else class="field-meta">—</span>
           </div>
+          <!-- 오른쪽 끝에 동작 버튼이 붙는 입력칸 -->
+          <span v-else-if="f.action" class="field-wrap">
+            <input v-model="form[f.key]" class="field-input has-act" type="text">
+            <button
+              class="field-act" type="button" :title="f.action.title || '확인'"
+              @click.prevent="emit('action', f.key, form[f.key])"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" />
+              </svg>
+            </button>
+          </span>
           <input v-else v-model="form[f.key]" class="field-input" type="text">
         </label>
         <slot name="body-bottom" :row="row" />
@@ -143,6 +162,17 @@ const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') emit('close') }
 }
 .field-input:focus { outline: none; border-color: var(--orange); background: var(--paper); }
 .field-area { resize: vertical; line-height: 1.6; }
+
+/* 입력칸 오른쪽 끝의 동작 버튼 */
+.field-wrap { position: relative; display: block; }
+.field-input.has-act { padding-right: 34px; }
+.field-act {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  width: 24px; height: 24px; padding: 0; border: none; background: none; cursor: pointer;
+  color: var(--ink-light); display: inline-flex; align-items: center; justify-content: center;
+}
+.field-act svg { width: 15px; height: 15px; }
+.field-act:hover { color: var(--orange); }
 
 /* 표시전용 필드 */
 .field-meta { font-size: 13.5px; color: var(--ink); padding: 2px 0; word-break: break-all; }

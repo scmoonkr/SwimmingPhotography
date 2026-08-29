@@ -4,7 +4,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import '~/assets/css/article.css'
 import { buildArticleLayout, type RelatedItem } from '~/utils/articleHtml'
-import { catKo, articleDate } from '~/utils/articleList'
+import { catKo, articleDate, PUBLIC_TYPES } from '~/utils/articleList'
 import { wireArticleInteractions, type ArticleWiring } from '~/utils/articleInteractions'
 
 const { isEN } = useLang()
@@ -21,7 +21,7 @@ const { data, error } = await useAsyncData(
     // 같은 대회(없으면 최근) 기사 목록 — 현재 글 제외
     let related: RelatedItem[] = []
     try {
-      const others = await $fetch<any[]>('/api/articles', { params: { type: 'article', status: 'published', limit: 12 } })
+      const others = await $fetch<any[]>('/api/articles', { params: { type1: PUBLIC_TYPES, status: 'published', limit: 12 } })
       related = (others || [])
         .filter((d) => d.slug && d.slug !== slug.value)
         .slice(0, 5)

@@ -8,9 +8,10 @@ const router = Router()
 router.get('/', async (req, res) => {
   try {
     const [sp, br, ma] = await Promise.all([SP(), BR(), MA()])
-    const [breakingNews, article, competitions, venues, times, athletes, teams, images] = await Promise.all([
-      sp.collection('articles').countDocuments({ type: 'breaking_news' }),
-      sp.collection('articles').countDocuments({ type: 'article' }),
+    const [breakingNews, article, story, competitions, venues, times, athletes, teams, images] = await Promise.all([
+      sp.collection('articles').countDocuments({ type1: 'breaking_news' }),
+      sp.collection('articles').countDocuments({ type1: 'record' }),
+      sp.collection('articles').countDocuments({ type1: { $in: ['athlete', 'venue', 'notice', 'column'] } }),
       sp.collection('competitions').countDocuments(),
       sp.collection('venues').countDocuments(),
       sp.collection('times').countDocuments(),
@@ -18,7 +19,7 @@ router.get('/', async (req, res) => {
       br.collection('teams').countDocuments(),
       ma.collection('images').countDocuments(),
     ])
-    res.json({ breakingNews, article, competitions, venues, times, athletes, teams, images, startList: 0 })
+    res.json({ breakingNews, article, story, competitions, venues, times, athletes, teams, images, startList: 0 })
   } catch (e) {
     res.status(500).json({ error: e.message })
   }

@@ -14,7 +14,8 @@ const count = (key: string) => dbCounts.value[key] ?? (data[key]?.rows.length ??
 const nav = [
   { to: '/', label: '개요', en: 'Overview', key: '', need: ['data'], icon: '<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/>' },
   { to: '/breaking-news', label: 'Breaking News', en: 'Breaking', key: 'breakingNews', need: ['breaking'], icon: '<path d="M13 2 3 14h9l-1 8 10-12h-9l1-8Z"/>' },
-  { to: '/articles', label: 'Articles', en: 'Articles', key: 'article', need: ['articles'], icon: '<path d="M4 3h16v18l-3-2-3 2-3-2-3 2-3-2-1 1V3Z"/><path d="M8 7h8M8 11h8M8 15h5"/>' },
+  { to: '/meets', label: 'Articles(Meet)', en: 'Articles(Meet)', key: 'article', need: ['articles'], icon: '<path d="M4 3h16v18l-3-2-3 2-3-2-3 2-3-2-1 1V3Z"/><path d="M8 7h8M8 11h8M8 15h5"/>' },
+  { to: '/stories', label: 'Articles(Story)', en: 'Articles(Story)', key: 'story', need: ['articles'], icon: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/><path d="M9 7h7M9 11h7"/>' },
   { to: '/competitions', label: 'Competitions', en: 'Competitions', key: 'competitions', need: ['data'], icon: '<path d="M6 9a6 6 0 0 0 12 0V4H6Z"/><path d="M6 5H3v2a3 3 0 0 0 3 3M18 5h3v2a3 3 0 0 1-3 3"/><path d="M12 15v4M8 21h8"/>' },
   { to: '/athletes', label: 'Athletes', en: 'Athletes', key: 'athletes', need: ['data'], icon: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>' },
   { to: '/times', label: 'Times', en: 'Times', key: 'times', need: ['data'], icon: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>' },

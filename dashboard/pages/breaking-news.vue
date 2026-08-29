@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 속보 — MongoDB(articles, type=breaking_news)에 연결. Express(/api/articles) 경유.
+// 속보 — MongoDB(articles, type1=breaking_news)에 연결. Express(/api/articles) 경유.
 import { onMounted, ref } from 'vue'
 import { useEntity, slugify, blankArticle, BN_CATEGORIES } from '~/composables/useMock'
 import type { Field } from '~/composables/useMock'
@@ -19,7 +19,7 @@ const load = async () => {
   loading.value = true
   errorMsg.value = ''
   try {
-    const params: Record<string, any> = { type: 'breaking_news' }
+    const params: Record<string, any> = { type1: 'breaking_news' }
     if (category.value) params.category = category.value
     if (q.value.trim()) params.q = q.value.trim()
     rows.value = await $fetch(api(), { params })
@@ -74,7 +74,7 @@ const fields: Field[] = [
 ]
 
 const openRow = (r: Record<string, any>) => { isNew.value = false; selected.value = r; open.value = true }
-const openNew = () => { isNew.value = true; selected.value = blankArticle(); open.value = true }
+const openNew = () => { isNew.value = true; selected.value = { ...blankArticle(), type1: 'breaking_news' }; open.value = true }
 
 const nowStamp = () => {
   const d = new Date()
@@ -84,7 +84,8 @@ const nowStamp = () => {
 
 const onSave = async (v: Record<string, any>) => {
   // 편집 대상은 깊은 복사본에 적용 (원본은 재조회로 갱신)
-  const base = isNew.value ? blankArticle() : JSON.parse(JSON.stringify(selected.value))
+  const base = isNew.value ? { ...blankArticle(), type1: 'breaking_news' } : JSON.parse(JSON.stringify(selected.value))
+  base.type1 = 'breaking_news'          // 이 페이지의 문서는 언제나 속보
   fields.forEach((f) => f.set(base, v[f.key]))
   saving.value = true
   try {

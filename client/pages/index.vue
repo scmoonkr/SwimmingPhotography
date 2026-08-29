@@ -2,7 +2,7 @@
 // 홈 갤러리 — 그리드/리스트 토글, 분야 필터, featured, 월 그룹.
 // 기사 목록·featured 모두 DB(/api/articles) 연동.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { normArticle, catKo, articleDate, imgUrl } from '~/utils/articleList'
+import { normArticle, catKo, articleDate, imgUrl, PUBLIC_TYPES } from '~/utils/articleList'
 
 const { isEN, t } = useLang()
 
@@ -109,7 +109,7 @@ const metaLine = (a: any) => [fmtDate(a.date), fmtRecord(a.record), pick(a, 'eve
 
 // ── 기사 목록 (DB 연동) : 발행 기사 최신순, 홈 노출(showInHome) 대상만 ──
 const { data: listData } = await useAsyncData('home:articles', () =>
-  $fetch<any[]>('/api/articles', { params: { type: 'article', status: 'published', fields: 'card', limit: 1000 } })
+  $fetch<any[]>('/api/articles', { params: { type1: PUBLIC_TYPES, status: 'published', fields: 'card', limit: 1000 } })
     .catch(() => [] as any[]),
 )
 const docs = computed(() => (listData.value || []).filter((d: any) => d.slug && (!d.visibility || d.visibility.showInHome !== false)))

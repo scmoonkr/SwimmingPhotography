@@ -1,5 +1,5 @@
 // 공용 속보(Breaking News) — docs/html/assets/breaking.js 를 Nuxt 반응형으로 이식.
-// 데이터: MongoDB(SwimmingPhotography.articles, type=breaking_news, status=published).
+// 데이터: MongoDB(SwimmingPhotography.articles, type1=breaking_news, status=published).
 //   → /api/articles 로 조회 (Nitro routeRules 가 Express:6640 으로 프록시). 최신순 정렬.
 //   API 실패 시 정적 폴백(public/data/breaking.json).
 // 상단 티커(BreakingTicker) · 홈 속보 박스(index) · 속보 페이지(breakingnews)가 같은 상태를 공유하고,
@@ -55,7 +55,7 @@ export const useBreaking = () => {
     if (loaded.value) return
     try {
       const docs = await $fetch<any[]>('/api/articles', {
-        params: { type: 'breaking_news', status: 'published', limit: 500 },
+        params: { type1: 'breaking_news', status: 'published', limit: 500 },
       })
       items.value = sortDesc((docs || []).map(fromDoc))
     } catch {

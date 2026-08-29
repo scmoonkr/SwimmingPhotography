@@ -1,16 +1,20 @@
 <script setup lang="ts">
-// 기사 — SwimmingPhotography DB(articles, type=article). Express(/api/articles) 경유.
+// 대회 기사 — SwimmingPhotography DB(articles, type1=record·breaking_news). Express(/api/articles) 경유.
 // 속보(breaking_news) 페이지와 동일 구조, type 만 다름.
 import { computed, onMounted, ref } from 'vue'
-import { useEntity, slugify, blankArticle, BN_CATEGORIES } from '~/composables/useMock'
+import { useEntity, slugify, blankArticle, BN_CATEGORIES, ARTICLE_TYPES, typeLabel } from '~/composables/useMock'
 import type { Field } from '~/composables/useMock'
 
 const TYPE = 'article'
+// 이 페이지가 다루는 기사 유형(type1). 대회 기록 기사와 속보.
+const PAGE_TYPES = ['record', 'breaking_news']
+const TYPE_OPTIONS_V = ARTICLE_TYPES.filter((t) => PAGE_TYPES.includes(t.v))   // 필터용 {v,l}
+const TYPE_OPTIONS = TYPE_OPTIONS_V.map((t) => t.l)                             // 드로어 select 용 라벨
+const type1 = ref('record')          // 필터 — 기본은 경기기록
 const e = useEntity('article')
 const api = (p = '') => `${useRuntimeConfig().public.apiBase}/api/articles${p}`
 
-// ── 필터 (분류 + 상태 + 작성일자 + featured + 이미지 + 제목) ──
-const category = ref('')
+// ── 필터 (상태 + 작성일자 + featured + 이미지 + 제목) ──
 const q = ref('')
 const status = ref('')          // '' 전체 / published 게시됨 / draft 초안
 const dateFrom = ref('')        // 작성일자(createdAt) >= 이 날짜
@@ -30,8 +34,8 @@ const load = async () => {
   errorMsg.value = ''
   try {
     // fields=list — 표가 그리는 열만 받는다. 편집에 필요한 전체 문서는 행을 클릭할 때 따로 받는다.
-    const params: Record<string, any> = { type: TYPE, fields: 'list', sort: 'created', withTotal: '1', limit: PAGE_SIZE, skip: (page.value - 1) * PAGE_SIZE }
-    if (category.value) params.category = category.value
+    // type 대신 type1 로 거른다(기사 유형). 비우면 이 페이지가 다루는 유형 전체.
+    const params: Record<string, any> = { type1: type1.value || PAGE_TYPES.join(','), fields: 'list', sort: 'created', withTotal: '1', limit: PAGE_SIZE, skip: (page.value - 1) * PAGE_SIZE }
     // 검색어가 숫자뿐이면 제목이 아니라 대회ID 로 찾는다 (3614 → competitionID: 3614)
     const term = q.value.trim()
     if (term) {
@@ -148,9 +152,15 @@ const setVideoBlock = (r: any, url: string) => {
 
 const fields: Field[] = [
   {
-    key: 'type', label: '기사 유형', type: 'select', options: ['기사', '속보'], span: 1,
-    get: (r) => (r.type === 'breaking_news' ? '속보' : '기사'),
-    set: (r, v) => { r.type = v === '속보' ? 'breaking_news' : 'article' },
+    key: 'type1', label: '기사 유형', type: 'select', options: TYPE_OPTIONS, span: 1,
+    get: (r) => typeLabel(r.type1) || TYPE_OPTIONS[0],
+    set: (r, v) => {
+      const hit = ARTICLE_TYPES.find((t) => t.l === v)
+      if (!hit) return
+      r.type1 = hit.v
+      // 속보는 문서의 type 도 함께 맞춰야 속보 페이지·공개 티커에 잡힌다.
+      r.type = hit.v === 'breaking_news' ? 'breaking_news' : 'article'
+    },
   },
   {
     key: 'title', label: '제목', type: 'text', span: 3,
@@ -245,7 +255,7 @@ const openRow = async (r: Record<string, any>) => {
     rowLoading.value = false
   }
 }
-const openNew = () => { isNew.value = true; selected.value = blankArticle(TYPE); open.value = true }
+const openNew = () => { isNew.value = true; selected.value = { ...blankArticle(TYPE), type1: type1.value || 'record' }; open.value = true }
 
 const nowStamp = () => {
   const d = new Date()
@@ -296,9 +306,9 @@ const onDrawerDelete = async () => {
   <div>
     <!-- 필터 바: 분류 + 제목 검색 + 기사 등록 -->
     <div class="filter-bar">
-      <select v-model="category" class="filter-select" aria-label="분류" @change="reload">
-        <option value="">전체 분류</option>
-        <option v-for="c in BN_CATEGORIES" :key="c.v" :value="c.v">{{ c.l }}</option>
+      <select v-model="type1" class="filter-select" aria-label="기사 유형" @change="reload">
+        <option value="">유형 전체</option>
+        <option v-for="t in TYPE_OPTIONS_V" :key="t.v" :value="t.v">{{ t.l }}</option>
       </select>
       <select v-model="status" class="filter-select" aria-label="상태" @change="reload">
         <option value="">전체</option>

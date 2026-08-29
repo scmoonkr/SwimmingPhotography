@@ -254,7 +254,7 @@ export async function buildHybridArticle(data, opts = {}) {
   }
   const doc = {
     slug: `article-${dateISO.replace(/-/g, '')}-${romanSlug(a.name)}`,
-    type: 'article', status: 'draft', langDefault: 'ko', availableLangs: ['ko'],
+    type: 'article', type1: 'record', status: 'draft', langDefault: 'ko', availableLangs: ['ko'],
     sourceType: 'ai_generated', generationJobId: null,
     reporter: { name: '편집부', nameEng: 'Editorial Team', email: 'press@medalbank.com' },
     relations: { competitionId: data.competitionInfo?.competitionID ?? null, venueId: null, athleteId: null, teamId: null, timeIds: null, imageIds: null, startListIds: null },

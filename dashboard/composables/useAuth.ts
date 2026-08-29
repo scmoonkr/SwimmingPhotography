@@ -65,7 +65,7 @@ export function useAuth() {
   const isAdmin = computed(() => can('users'))
 
   // 로그인 직후·권한 없는 경로에서 보낼 곳 — 그 계정이 실제로 쓸 수 있는 첫 화면.
-  const homePath = () => (can('data') ? '/' : can('breaking') ? '/breaking-news' : can('articles') ? '/articles' : '/')
+  const homePath = () => (can('data') ? '/' : can('breaking') ? '/breaking-news' : can('articles') ? '/meets' : '/')
 
   return { user, checked, isAdmin, can, homePath, refresh, ensure, login, logout, changePassword, changeName, api }
 }

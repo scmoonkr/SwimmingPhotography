@@ -2,6 +2,10 @@
 // index.vue(홈 목록)·search.vue(검색)가 공유. 문서의 중첩 구조(translations/payload/media)에서
 // 카드 렌더에 필요한 값만 평탄화한다. ENG 값이 없으면 '' → 화면에서 한글로 폴백.
 
+// 공개 사이트가 보여주는 기사 유형(type1) — 속보(breaking_news)만 뺀 전부.
+// 서버는 쉼표 목록을 $in 으로 받는다.
+export const PUBLIC_TYPES = 'record,athlete,venue,notice,column'
+
 export interface ArticleCard {
   slug: string
   name: string          // 선수명 — 홈 목록 정렬 기준

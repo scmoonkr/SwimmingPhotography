@@ -3,7 +3,7 @@
 // 그리드/리스트 토글 · "다른 내용 찾아보기"(재검색) · "전체 기사 보기" 링크.
 // 뷰 상태는 index와의 전역 CSS 충돌을 피하려 body 대신 로컬 래퍼(.search-page.view-*) 클래스로 제어.
 import { computed, nextTick, onMounted, ref } from 'vue'
-import { normArticle, imgUrl } from '~/utils/articleList'
+import { normArticle, imgUrl, PUBLIC_TYPES } from '~/utils/articleList'
 
 const { isEN, t } = useLang()
 const route = useRoute()
@@ -15,7 +15,7 @@ const img = (p: string) => imgUrl(p, cloudBase)
 
 // ── 기사 목록 (DB 연동) : 발행 기사 중 검색 노출(showInSearch) 대상 ──
 const { data: listData } = await useAsyncData('search:articles', () =>
-  $fetch<any[]>('/api/articles', { params: { type: 'article', status: 'published', fields: 'card', limit: 1000 } })
+  $fetch<any[]>('/api/articles', { params: { type1: PUBLIC_TYPES, status: 'published', fields: 'card', limit: 1000 } })
     .catch(() => [] as any[]),
 )
 const docs = computed(() => (listData.value || []).filter((d: any) => d.slug && (!d.visibility || d.visibility.showInSearch !== false)))
