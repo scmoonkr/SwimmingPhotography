@@ -66,8 +66,8 @@ async function onlyBreaking(req, res, next) {
       req.body = { ...req.body, type: BN }
       return next()
     }
-    // 일괄 게시·초안 — ids 중 하나라도 속보가 아니면 전체 거부
-    if (req.method === 'POST' && (req.path === '/publish' || req.path === '/unpublish')) {
+    // 일괄 게시·초안·게시일자 — ids 중 하나라도 속보가 아니면 전체 거부
+    if (req.method === 'POST' && ['/publish', '/unpublish', '/published-at'].includes(req.path)) {
       const oids = ((req.body && req.body.ids) || []).map(toId).filter(Boolean)
       if (!oids.length) return next()                    // 빈 목록은 라우트가 400 으로 답한다
       const n = await (await coll()).countDocuments({ _id: { $in: oids }, type: BN })
@@ -253,6 +253,29 @@ router.post('/unpublish', onlyBreaking, async (req, res) => {
       { $set: { status: 'draft', updatedAt: new Date() } },
     )
     res.json({ matched: r.matchedCount, modified: r.modifiedCount })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// 일괄 게시일자 — { ids: [...], date: 'YYYY-MM-DD' } → publishedAt 을 그 날짜로 바꾼다.
+// status 는 건드리지 않는다 — 초안은 초안 그대로, 날짜만 고치는 기능이다.
+// 시각은 UTC 자정으로 둔다: 목록·공개 사이트가 ISO 앞 10자리로 날짜를 보여주므로
+// KST 자정(=전날 15:00Z)으로 저장하면 하루 전으로 표시된다.
+router.post('/published-at', onlyBreaking, async (req, res) => {
+  try {
+    const ids = (req.body && req.body.ids) || []
+    const date = String((req.body && req.body.date) || '').trim()
+    const oids = ids.map(toId).filter(Boolean)
+    if (!oids.length) return res.status(400).json({ error: 'ids 가 비어 있습니다.' })
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: '날짜 형식이 올바르지 않습니다 (YYYY-MM-DD).' })
+    const at = new Date(`${date}T00:00:00.000Z`)
+    if (Number.isNaN(at.getTime())) return res.status(400).json({ error: '없는 날짜입니다.' })
+    const r = await (await coll()).updateMany(
+      { _id: { $in: oids } },
+      { $set: { publishedAt: at, updatedAt: new Date() } },
+    )
+    res.json({ matched: r.matchedCount, modified: r.modifiedCount, publishedAt: at })
   } catch (e) {
     res.status(500).json({ error: e.message })
   }

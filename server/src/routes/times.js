@@ -48,6 +48,9 @@ router.get('/homonyms', async (req, res) => {
     const brief = (r) => ({
       timeID: r.timeID ?? null,
       discipline: r.discipline || '',
+      // team — 동명이인은 (영법·거리) 만으로는 못 가른다. 기록마다 소속을 함께 준다.
+      // (계영 기록은 후보 여럿에 붙으므로 후보의 team 이 아니라 이 값을 봐야 맞다.)
+      team: r.team || '',
       distance: r.distance || '',
       round: r.round || '',
       time: r.time || '',

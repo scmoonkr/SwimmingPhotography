@@ -108,7 +108,8 @@ const homIsHomonym = ref(false)
 const homMsg = ref('')
 const closeHomonyms = () => { homOpen.value = false; homRows.value = []; homMsg.value = ''; homIsHomonym.value = false }
 
-// 후보를 기록 단위로 펼친다 — 화면에는 timeID · 종목 · 거리만 보여준다.
+// 후보를 기록 단위로 펼친다 — 화면에는 timeID · 종목 · 소속 · 거리를 보여준다.
+// (동명이인은 영법·거리가 같은 기록이 여럿이라 소속까지 봐야 어느 선수인지 갈린다.)
 // (계영은 후보마다 같은 기록이 붙으므로 timeID 로 중복을 없앤다)
 const homTimes = computed(() => {
   const out: any[] = []
@@ -128,7 +129,8 @@ const homTimes = computed(() => {
 const applyTime = (h: any, t: any) => {
   if (t?.timeID == null) return
   if (h?.name_unique) draft.value.name = h.name_unique
-  if (h?.team) draft.value.team = h.team
+  // 계영 기록은 후보 여럿에 붙으므로 기록 자체의 team 을 우선한다
+  if (t?.team || h?.team) draft.value.team = t?.team || h.team
   draft.value.timeID = String(t.timeID)
   if (t.discipline) draft.value.discipline = t.discipline
   if (t.distance) draft.value.distance = t.distance
@@ -271,15 +273,17 @@ const onDelete = async () => {
                 <p v-else-if="homIsHomonym" class="hom-note">
                   동명이인입니다 — 이 대회에 <b>{{ draft.name }}</b> 이름의 기록이 없습니다. 아래에서 기록을 고르세요.
                 </p>
-                <!-- 기록 버튼 — timeID · 종목 · 거리. 누르면 그 기록으로 확정된다 -->
+                <!-- 기록 버튼 — timeID · 종목 · 소속 · 거리. 누르면 그 기록으로 확정된다 -->
                 <div v-if="homTimes.length" class="hom-times">
                   <button
                     v-for="({ h, t }) in homTimes" :key="t.timeID" class="tbtn" type="button"
                     :class="{ cur: String(t.timeID) === String(draft.timeID) }"
-                    :title="`timeID ${t.timeID} 로 연결하고 영법·거리를 맞춥니다`"
+                    :title="`${h.name_unique}${h.ageGroup ? ` · ${h.ageGroup}` : ''} — timeID ${t.timeID} 로 연결하고 영법·소속·거리를 맞춥니다`"
                     @click="applyTime(h, t)"
                   >
-                    <b>{{ t.timeID }}</b> {{ discLabel(t.discipline) }} {{ t.distance }}
+                    <b>{{ t.timeID }}</b> {{ discLabel(t.discipline) }}
+                    <span v-if="t.team || h.team" class="tteam">{{ t.team || h.team }}</span>
+                    {{ t.distance }}
                   </button>
                 </div>
               </div>
@@ -384,7 +388,7 @@ const onDelete = async () => {
 .hom-panel { margin-top: 8px; padding: 10px 12px; background: var(--paper-deep); border-radius: 6px; }
 .hom-note { margin: 0 0 8px; font-size: 12.5px; color: var(--bad); line-height: 1.5; }
 
-/* 기록 버튼 — timeID · 종목 · 거리. 누르면 그 기록으로 확정된다 */
+/* 기록 버튼 — timeID · 종목 · 소속 · 거리. 누르면 그 기록으로 확정된다 */
 .hom-times { display: flex; flex-wrap: wrap; gap: 6px; }
 .tbtn {
   font-family: var(--sans); font-size: 12px; color: var(--ink); cursor: pointer; white-space: nowrap;
@@ -393,6 +397,8 @@ const onDelete = async () => {
 .tbtn:hover { border-color: var(--orange); }
 .tbtn.cur { border-color: var(--orange); box-shadow: inset 0 0 0 1px var(--orange); }
 .tbtn b { font-variant-numeric: tabular-nums; margin-right: 5px; }
+/* 소속 — 동명이인을 가르는 값이라 눈에 띄게 둔다 */
+.tbtn .tteam { color: var(--orange); font-weight: 600; }
 
 /* 드로어 하단 액션 */
 .drawer-foot {

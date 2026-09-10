@@ -86,6 +86,13 @@ const fileInput = ref<HTMLInputElement | null>(null)
 const queue = ref<{ file: File; preview: string }[]>([])
 const uploading = ref(false)
 const uploadMsg = ref('')
+const upProgress = ref('')
+// 한 요청에 담는 장수 — 원본이 장당 수 MB 라 한 번에 다 보내면 요청 하나가 너무 무거워지고,
+// 진행률도 움직이지 않는다. 묶음으로 끊어 보내면 (몇째 / 전체 · 파일명) 을 계속 보여줄 수 있다.
+const BATCH = 4
+// 진행률 표기 — "전송 4 / 120  DSC_0001.jpg"
+const prog = (label: string, n: number, total: number, filename = '') =>
+  `${label} ${n} / ${total}${filename ? `  ${filename}` : ''}`
 const IMAGE_RE = /\.(jpe?g|png|gif|webp|avif)$/i
 // 저장된(서버) 이미지 목록 — 드로어 대상 대회의 images
 const savedImages = computed<any[]>(() => (selected.value?.images || []))
@@ -105,20 +112,36 @@ const doUpload = async () => {
   const id = selected.value?._id
   if (!id) { uploadMsg.value = '먼저 대회를 저장하세요.'; return }
   if (!queue.value.length || uploading.value) return
-  uploading.value = true; uploadMsg.value = ''
+  uploading.value = true; uploadMsg.value = ''; upProgress.value = ''
+  // 묶음으로 나눠 보낸다 — 중간에 끊겨도 앞 묶음은 이미 저장돼 있으므로,
+  // 실패하면 아직 못 올린 것만 큐에 남겨 다시 누를 수 있게 한다.
+  const targets = queue.value.slice()
+  const total = targets.length
+  let done = 0, added = 0
   try {
-    const fd = new FormData()
-    for (const { file } of queue.value) fd.append('files', file)
-    const r = await $fetch<any>(api(`/${id}/images`), { method: 'POST', body: fd })
-    if (selected.value) selected.value.images = r.images // 드로어 즉시 반영
-    queue.value.forEach((q) => URL.revokeObjectURL(q.preview))
-    queue.value = []
-    uploadMsg.value = `${r.added}장 업로드 완료`
+    for (let s = 0; s < total; s += BATCH) {
+      const chunk = targets.slice(s, s + BATCH)
+      const fd = new FormData()
+      for (const { file } of chunk) fd.append('files', file)
+      const last = chunk[chunk.length - 1].file.name
+      upProgress.value = prog('전송', done + chunk.length, total, last)
+      const r = await $fetch<any>(api(`/${id}/images`), { method: 'POST', body: fd })
+      if (selected.value) selected.value.images = r.images // 드로어 즉시 반영
+      added += r.added || 0
+      done += chunk.length
+      upProgress.value = prog('저장', done, total, last)
+      // 올린 것은 큐에서 바로 빼 미리보기도 함께 줄어들게 한다
+      for (const q of chunk) URL.revokeObjectURL(q.preview)
+      queue.value = queue.value.filter((q) => !chunk.includes(q))
+    }
+    uploadMsg.value = `${added}장 업로드 완료`
     await load()
   } catch (err: any) {
-    uploadMsg.value = '업로드 실패: ' + (err?.data?.error || err?.message || '')
+    // 앞 묶음은 이미 저장됐으므로 어디까지 됐는지 알려준다
+    uploadMsg.value = `업로드 실패(${done}/${total} 저장됨): ` + (err?.data?.error || err?.message || '')
+    if (done) await load()
   } finally {
-    uploading.value = false
+    uploading.value = false; upProgress.value = ''
   }
 }
 
@@ -320,6 +343,7 @@ const onDrawerDelete = async () => {
             >{{ uploading ? '업로드 중…' : `${queue.length}장 업로드` }}</button>
           </div>
           <p v-if="isNew" class="up-note">대회를 먼저 저장하면 이미지를 올릴 수 있습니다.</p>
+          <p v-else-if="uploading && upProgress" class="up-note up-prog" :title="upProgress">{{ upProgress }}</p>
           <p v-else-if="uploadMsg" class="up-note">{{ uploadMsg }}</p>
         </div>
       </template>
@@ -394,4 +418,6 @@ const onDrawerDelete = async () => {
 }
 .up-hint { font-size: 12px; color: var(--ink-mute); }
 .up-note { font-size: 12px; color: var(--ink-mute); }
+/* 진행률 — 파일명이 길어도 드로어가 밀리지 않도록 자른다 */
+.up-prog { font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 </style>

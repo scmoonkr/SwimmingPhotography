@@ -88,7 +88,7 @@
           '<a href="introduction.html" data-en="About">소개</a>' +
           '<a href="agreement.html" data-en="Guidelines">규약</a>' +
           '<a href="submission.html" data-en="Submit">제보</a>' +
-          '<a class="fn-admin" href="" data-en="Admin">관리자1</a>' +
+          '<a class="fn-admin" href="backend" data-en="Admin">관리자</a>' +
         '</nav>' +
         '<p class="promise" data-en="All content on Swimming Photography comes from our own on-site reporting or from tips by swimmers whose identity has been verified through trusted institutions. If a source prefers, we vouch for their identity while keeping them anonymous. This project runs in parallel with, but separately from, Medalbank Aquatics, the swimming magazine.">수영사진(Swimming Photography)의 모든 컨텐츠는 직접 취재하거나 또는 신뢰할 수 있는 기관을 통해 본인 인증이 완료된 수영인의 제보를 기반으로 합니다. 제보자가 원치 않는 경우, 신원은 보증하지만 익명으로 처리 할 수 있습니다. 본 프로젝트는 메달뱅크아쿠아틱스 매거진과는 별개로 병행하여 운영됩니다.</p>' +
         '<p class="legal"><span data-en="Swimming Photography · ⓒ 2026 All rights reserved.">수영사진 · Swimming Photography · ⓒ 2026 무단 전재 및 재배포 금지</span><span class="reg-detail" data-en=" · Periodical Reg. No. Incheon,A 33333 · Registered Jun 28, 2026 · Publisher·Editor Seongjung MOON · Published in Incheon · Tel 333-333-3333"> · 정기간행물 등록번호 인천,아 33333호 · 등록연월일 2026년 6월 28일 · 발행·편집인 문성중 · 발행소 인천광역시 · 전화 333-333-3333</span>' +

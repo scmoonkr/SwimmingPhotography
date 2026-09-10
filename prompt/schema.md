@@ -12,6 +12,7 @@
 {
   "slug": "article-YYYYMMDD-{선수명 로마자 소문자}",
   "type": "article",
+  "type1": "record",
   "status": "draft",
   "langDefault": "ko",
   "availableLangs": ["ko"],
@@ -103,6 +104,8 @@
 
 ## 필드 채움 규칙
 
+- `type1: "record"` — 기사 유형. 대시보드(meets)와 사이트가 이 값으로 기사를 가른다. **빠뜨리면 목록에 아예 안 나온다.**
+  (record 경기기록 · breaking_news 속보 · athlete 선수 · venue 수영장 · notice 공지 · column 칼럼. 대회 기록 기사는 항상 record)
 - `status: "draft"`, `publishedAt: null` — AI 초안은 항상 발행 전 상태. 검수 후 발행 시 status=published, corrections에 「발행」 추가.
 - `payload.data`의 단일 필드(event·rank·time·record)는 **성적이 가장 좋은 주 종목**, `events` 배열에 출전 종목 전부.
 - **학생부(미성년 가능) 선수**: `riskLevel: "medium"`, reviewMemo에 「보호자 동의(규약 17.2) 확인 후 발행」 명시. 본문 풀네임·소속 표기는 정상.

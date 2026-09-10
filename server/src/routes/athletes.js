@@ -8,6 +8,7 @@ import { Router } from 'express'
 import { SP, BR } from '../db.js'
 import { publicUrl } from '../r2.js'
 import { callLLM } from '../llm.js'
+import { buildHybridArticle } from '../articleBuild.js'
 
 const router = Router()
 const coll = async () => (await SP()).collection('times')
@@ -755,6 +756,19 @@ router.post('/generate-article', async (req, res) => {
     const out = await callLLM({ system: sys, user, temperature: 0.3, maxTokens })
     // finishReason='length' 면 max_tokens 초과로 잘린 것 → 프런트에서 경고
     res.json({ content: out.content, finishReason: out.finishReason, usage: out.usage, provider: out.provider, model: out.model })
+  } catch (e) {
+    res.status(502).json({ error: e.message })
+  }
+})
+
+// 하이브리드 기사 생성 — 기록 블록(result·recordTable·team·stat)은 코드로, title·lead 등은 LLM으로.
+router.post('/generate-hybrid', async (req, res) => {
+  try {
+    const data = (req.body && req.body.data) || req.body || {}
+    const name = data?.athlete?.name || data?.name
+    if (!name) return res.status(400).json({ error: '선수 데이터가 없습니다.' })
+    const { doc, meta } = await buildHybridArticle(data)
+    res.json({ content: JSON.stringify(doc, null, 2), finishReason: meta.finishReason || 'stop', usage: meta.usage, provider: meta.provider, model: meta.model })
   } catch (e) {
     res.status(502).json({ error: e.message })
   }

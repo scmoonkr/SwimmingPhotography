@@ -70,7 +70,7 @@ const isNew = ref(false)
 // ── 체크박스 선택 + 일괄 게시/초안 ──
 // 게시 버튼: 선택된 '초안' 기사만 게시. 초안 버튼: 선택된 '게시됨' 기사만 초안으로.
 const checked = ref<Record<string, any>[]>([])
-const busy = ref<'' | 'publish' | 'draft'>('')
+const busy = ref<'' | 'publish' | 'draft' | 'pubdate'>('')
 const draftChecked = computed(() => checked.value.filter((r) => r.status !== 'published'))
 const pubChecked = computed(() => checked.value.filter((r) => r.status === 'published'))
 
@@ -91,6 +91,42 @@ const setStatus = async (path: '/publish' | '/unpublish', targets: Record<string
 }
 const publishSelected = () => setStatus('/publish', draftChecked.value, '게시', 'publish')
 const draftSelected = () => setStatus('/unpublish', pubChecked.value, '초안 전환', 'draft')
+
+// 게시일수정 — 선택한 기사들의 게시일자(publishedAt)를 바꾼다. 상태(게시됨·초안)는 건드리지 않는다.
+// 날짜는 모달에서 따로 받는다 — 필터의 날짜를 쓰면 그 날짜로 목록이 걸러져
+// 정작 바꾸려는 기사를 고를 수가 없다.
+const pdOpen = ref(false)
+const pdDate = ref('')
+const pdMsg = ref('')
+const today = () => {
+  const d = new Date()
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+const openPubDate = () => {
+  if (!checked.value.length || busy.value) return
+  pdDate.value = today()
+  pdMsg.value = ''
+  pdOpen.value = true
+}
+const closePubDate = () => { if (busy.value !== 'pubdate') pdOpen.value = false }
+const applyPubDate = async () => {
+  if (busy.value) return
+  const ids = checked.value.map((r) => r._id).filter(Boolean)
+  const date = pdDate.value
+  if (!ids.length || !date) return          // 날짜가 비면 버튼이 잠겨 있어 여기 오지 않는다
+  busy.value = 'pubdate'; pdMsg.value = ''
+  try {
+    await $fetch(api('/published-at'), { method: 'POST', body: { ids, date } })
+    pdOpen.value = false
+    checked.value = []
+    await load()                            // 표의 '게시' 열에 바뀐 날짜가 보인다
+  } catch (err: any) {
+    pdMsg.value = '바꾸지 못했습니다: ' + (err?.data?.error || err?.message || '')
+  } finally {
+    busy.value = ''
+  }
+}
 
 const splitList = (v: string) => (v || '').split(',').map((s) => s.trim()).filter(Boolean)
 
@@ -329,6 +365,10 @@ const onDrawerDelete = async () => {
         class="btn btn-ghost" type="button"
         :disabled="!pubChecked.length || !!busy" @click="draftSelected"
       >{{ busy === 'draft' ? '초안 전환 중…' : (pubChecked.length ? `초안 (${pubChecked.length})` : '초안') }}</button>
+      <button
+        class="btn btn-ghost" type="button" title="선택한 기사의 게시일자를 바꿉니다"
+        :disabled="!checked.length || !!busy" @click="openPubDate"
+      >{{ checked.length ? `게시일수정 (${checked.length})` : '게시일수정' }}</button>
       <button class="btn btn-primary" type="button" @click="openNew">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
         기사 등록
@@ -343,6 +383,28 @@ const onDrawerDelete = async () => {
       :page="page" :total="total" :page-size="PAGE_SIZE"
       @row-click="openRow" @update:page="goPage"
     />
+
+    <!-- 게시일자 변경 — 선택한 기사에 적용할 날짜를 여기서 받는다 -->
+    <div v-if="pdOpen" class="pd" @keydown.esc="closePubDate">
+      <div class="pd-ov" @click="closePubDate" />
+      <div class="pd-box" role="dialog" aria-modal="true" aria-label="게시일자 변경">
+        <div class="pd-head">
+          <h2>게시일자 변경</h2>
+          <button class="pd-x" type="button" aria-label="닫기" @click="closePubDate">×</button>
+        </div>
+        <div class="pd-body">
+          <p class="pd-note">선택한 <b>{{ checked.length }}건</b>의 게시일자를 아래 날짜로 바꿉니다. 상태(게시됨·초안)는 그대로 둡니다.</p>
+          <input v-model="pdDate" class="pd-input" type="date" aria-label="게시일자" @keydown.enter="applyPubDate">
+          <p v-if="pdMsg" class="pd-msg">{{ pdMsg }}</p>
+        </div>
+        <div class="pd-foot">
+          <button class="btn btn-ghost" type="button" :disabled="busy === 'pubdate'" @click="closePubDate">취소</button>
+          <button class="btn btn-primary" type="button" :disabled="!pdDate || busy === 'pubdate'" @click="applyPubDate">
+            {{ busy === 'pubdate' ? '바꾸는 중…' : '변경' }}
+          </button>
+        </div>
+      </div>
+    </div>
 
     <DetailDrawer
       :open="open" :title="isNew ? '기사 등록' : '기사 상세 · 편집'"
@@ -371,4 +433,26 @@ const onDrawerDelete = async () => {
   margin-bottom: 14px; padding: 10px 14px; border-radius: 6px;
   background: var(--bad-bg); color: var(--bad); font-size: 13px;
 }
+
+/* 게시일자 변경 모달 */
+.pd { position: fixed; inset: 0; z-index: 1200; }
+.pd-ov { position: absolute; inset: 0; background: rgba(26, 26, 26, .38); }
+.pd-box {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: min(420px, 94vw); background: var(--paper);
+  border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 24px 60px rgba(26, 26, 26, .22);
+}
+.pd-head { display: flex; align-items: center; justify-content: space-between; padding: 15px 20px; border-bottom: 1px solid var(--line); }
+.pd-head h2 { font-size: 15px; font-weight: 700; color: var(--ink); }
+.pd-x { border: none; background: none; cursor: pointer; font-size: 22px; line-height: 1; color: var(--ink-light); padding: 0; }
+.pd-x:hover { color: var(--ink); }
+.pd-body { padding: 18px 20px; }
+.pd-note { margin: 0 0 12px; font-size: 13px; color: var(--ink); line-height: 1.6; }
+.pd-input {
+  font-family: var(--sans); font-size: 13.5px; color: var(--ink); background: var(--paper);
+  border: 1px solid var(--line); border-radius: 6px; padding: 9px 12px; width: 100%;
+}
+.pd-input:focus { outline: none; border-color: var(--orange); }
+.pd-msg { margin: 10px 0 0; font-size: 12.5px; color: var(--bad); }
+.pd-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 0 20px 18px; }
 </style>

@@ -8,7 +8,17 @@ import { publicUrl, putObject, deleteObject } from '../r2.js'
 
 const router = Router()
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024, files: 2000 } })
-const safeName = (s) => String(s).replace(/[^\w.\-가-힣]/g, '_')
+// 파일명 정리 — 한글은 살리고 나머지 특수문자만 '_' 로 바꾼다.
+// NFC 로 먼저 맞춘다: 자모 분리(NFD)로 온 한글은 '가-힣' 범위 밖이라 통째로 '_' 가 돼버린다.
+const safeName = (s) => String(s).normalize('NFC').replace(/[^\w.\-가-힣]/g, '_')
+// multer 는 multipart 의 filename 을 latin1 로 읽는다 — 한글이 깨진 바이트열로 들어온다.
+// UTF-8 로 되돌려 보고, 되돌린 값이 다시 latin1 로 원본과 같을 때(= 유효한 UTF-8 바이트열)만 쓴다.
+// (이미 제대로 디코딩된 파일명을 두 번 건드리지 않도록 하는 안전장치)
+const utf8Name = (v) => {
+  const raw = String(v ?? '')
+  const fixed = Buffer.from(raw, 'latin1').toString('utf8')
+  return Buffer.from(fixed, 'utf8').toString('latin1') === raw ? fixed : raw
+}
 const coll = async () => (await SP()).collection('images')
 const toId = (v) => { try { return new ObjectId(String(v)) } catch { return null } }
 
@@ -40,12 +50,20 @@ router.get('/competitions', async (req, res) => {
 })
 
 // 파일명 파싱 결과 → times 매칭 (업로드 전 확인용)
-// POST { competitionID, items: [{ filename, name, gender, discipline, distance }] }
+// POST { competitionID, items: [{ filename, name, team, gender, discipline, distance }] }
 // 매칭 키
 //   개인       : competitionID + name_unique + gender + discipline + distance
 //   계영(FRR·MR): competitionID + name_unique + discipline + distance
-//     계영은 gender·team 을 보지 않는다 — 멤버 명단(name_unique)이 이미 그 팀의 조합이라
-//     男/女/혼성 표기가 파일명과 달라도 같은 팀으로 봐야 하고, team 은 파일명에 없다.
+//     계영은 gender 를 보지 않는다 — 멤버 명단(name_unique)이 이미 그 팀의 조합이라
+//     男/女/혼성 표기가 파일명과 달라도 같은 팀으로 봐야 한다.
+//   team 은 파일명에 있지만 1차 키로 쓰지 않는다 — 파일명의 팀 표기가 times.team 과
+//   글자 그대로 같다는 보장이 없어(약칭·공백) 키로 걸면 오히려 못 찾는다.
+//   대신 두 군데서 '가르는 힌트' 로 쓴다.
+//     ① 여러 건이 잡혔을 때 좁힌다 (좁혀서 0건이면 좁히지 않는다)
+//     ② 한 건도 못 찾았을 때 — 동명이인이라 name_unique 에 번호가 붙은 경우다.
+//        times.name 은 번호를 붙이기 전의 원래 이름이므로 (원래 이름 + 팀) 으로 다시 찾는다.
+//        팀으로 '한 선수' 로 좁혀질 때만 쓴다 — 못 좁히면 그대로 '없음' 이다.
+//        (파일명에 홍길동1 처럼 번호를 적는 방법도 그대로 쓸 수 있다)
 //   times.name_unique 는 names 와 같은 문자열 배열이다.
 //   개인 ["홍길동1"] 은 그 값 하나로 맞추고,
 //   계영 ["임승욱","주의현","신우진","최성호"] 은 파일명에 멤버 한 명만 적히므로
@@ -66,7 +84,9 @@ router.post('/match', async (req, res) => {
     // 계영("A,B,C,D")은 콤마로 끊은 배열 전체 일치로 따로 건다. 최종 판정은 아래 join 비교로 한다.
     const or = []
     const singles = names.filter((n) => !n.includes(','))
-    if (singles.length) or.push({ name_unique: { $in: singles } })
+    // name 으로도 건다 — 동명이인이면 name_unique 는 "김수정2" 인데 name 은 "김수정" 이라
+    // name_unique 만 걸면 후보 자체가 안 잡힌다(아래 팀 폴백용).
+    if (singles.length) or.push({ name_unique: { $in: singles } }, { name: { $in: singles } })
     for (const n of names.filter((x) => x.includes(','))) {
       or.push({ name_unique: n.split(',').map((s) => s.trim()).filter(Boolean) })
     }
@@ -77,25 +97,50 @@ router.post('/match', async (req, res) => {
       ).limit(20000).toArray()
       : []
 
-    // 계영은 gender 를 키에서 뺀다(team 은 파일명에 없어 아예 안 본다) — 이름·영법·거리만.
+    // 계영은 gender 를 키에서 뺀다 — 이름·영법·거리만.
     const keyOf = (nm, g, d, dist) => (isRelay(d)
       ? ['R', nm, d, dist]
       : ['I', nm, g, d, dist]).map((v) => String(v ?? '')).join('|')
     // name_unique.includes(파일명의 name) 이 되도록 '원소 각각'을 키로 건다.
     // (개인은 원소가 하나라 그 이름 하나, 계영은 멤버 각각. 명단 전체를 적은 파일명도 받도록 join 도 함께.)
     const idx = new Map()
-    const put = (k, r) => { if (!idx.has(k)) idx.set(k, []); idx.get(k).push(r) }
+    const put = (m, k, r) => { if (!m.has(k)) m.set(k, []); m.get(k).push(r) }
+    // 번호를 붙이기 전의 원래 이름(times.name) 인덱스 — 개인 기록만. 위 ② 폴백에 쓴다.
+    const baseIdx = new Map()
     for (const r of rows) {
       const arr = Array.isArray(r.name_unique) ? r.name_unique : (r.name_unique ? [String(r.name_unique)] : [])
       const keys = new Set([...arr, ...(arr.length > 1 ? [arr.join(',')] : [])].filter(Boolean))
-      for (const k of keys) put(keyOf(k, r.gender, r.discipline, r.distance), r)
+      for (const k of keys) put(idx, keyOf(k, r.gender, r.discipline, r.distance), r)
+      if (!isRelay(r.discipline) && r.name) put(baseIdx, keyOf(r.name, r.gender, r.discipline, r.distance), r)
     }
 
+    // 팀 비교는 공백·대소문자를 무시한다 ("Sunday Burning" ↔ "sundayburning")
+    const normTeam = (v) => String(v ?? '').replace(/\s+/g, '').toLowerCase()
     const out = items.map((it) => {
-      const hit = idx.get(keyOf(String(it?.name || '').trim(), it?.gender, it?.discipline, it?.distance)) || []
+      const key = keyOf(String(it?.name || '').trim(), it?.gender, it?.discipline, it?.distance)
+      let hit = idx.get(key) || []
+      let by = 'name'                      // 무엇으로 찾았는지 — 화면 표시용
+      const tm = normTeam(it?.team)
+      // ① 여러 건이면 파일명의 team 으로 좁혀 본다 — 같은 이름의 다른 팀(계영·동명이인)을 가른다.
+      //    하나도 안 남으면 표기가 다른 것뿐이니 좁히기 전 결과를 그대로 둔다.
+      if (hit.length > 1 && tm) {
+        const narrowed = hit.filter((r) => normTeam(r.team) === tm)
+        if (narrowed.length) { hit = narrowed; by = 'team' }
+      }
+      // ② 한 건도 없으면 (원래 이름 + 팀) 으로 다시 — 파일명에 동명이인 번호가 없는 경우다.
+      //    같은 선수(name_unique 하나)로 좁혀질 때만 쓴다. 서로 다른 선수가 남으면 고를 수 없다.
+      if (!hit.length && tm) {
+        const narrowed = (baseIdx.get(key) || []).filter((r) => normTeam(r.team) === tm)
+        if (narrowed.length && new Set(narrowed.map((r) => nuStr(r.name_unique))).size === 1) {
+          hit = narrowed; by = 'team'
+        }
+      }
       return {
         filename: it?.filename ?? '',
         status: hit.length === 1 ? 'ok' : (hit.length ? 'multi' : 'none'),
+        // 팀으로 가른 결과면 화면에서 알려준다(파일명 이름과 name_unique 가 다르다)
+        by,
+        name_unique: nuStr(hit[0]?.name_unique) || '',
         // 여러 건이어도 같은 선수라 ageGroup·team 은 동일하다
         ageGroup: hit[0]?.ageGroup ?? '',
         team: hit[0]?.team ?? '',
@@ -116,7 +161,8 @@ router.post('/match', async (req, res) => {
 
 // 사진 저장 — 원본·썸네일을 R2 에 올리고 images 컬렉션에 upsert.
 // multipart: files[](원본) · thumbs[](썸네일, files 와 같은 순서) ·
-//   competitionID · competitionName · meta(JSON: [{ filename, name, gender, discipline, distance, type, timeID }])
+//   competitionID · competitionName ·
+//   meta(JSON: [{ filename, name, gender, discipline, distance, type, timeID, ageGroup, team }])
 // 키: (competitionID, filename) — 같은 파일을 다시 올리면 덮어쓴다.
 router.post('/import', upload.fields([{ name: 'files', maxCount: 1000 }, { name: 'thumbs', maxCount: 1000 }]), async (req, res) => {
   try {
@@ -139,7 +185,8 @@ router.post('/import', upload.fields([{ name: 'files', maxCount: 1000 }, { name:
     // 동시 실행 수를 제한한 워커풀로 병렬 처리한다.
     const uploadOne = async (i) => {
       const m = meta[i] || {}
-      const fname = safeName(m.filename || files[i].originalname)
+      // 파일명은 meta(JSON 본문)에 담겨 오므로 인코딩이 온전하다 — 없을 때만 originalname 을 되살려 쓴다
+      const fname = safeName(m.filename || utf8Name(files[i].originalname))
       const key = `${folder}/${fname}`
       const thumbKey = `${folder}/thumb/${fname}`
       try {

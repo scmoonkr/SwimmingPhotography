@@ -1,10 +1,11 @@
 <script setup lang="ts">
 // 사진 가져오기 드로어 — 대회 선택 → 파일 선택(드래그/파일선택) → 파일명 파싱 결과 표시.
-// 파일명 규칙: ******_{name}_{gender}_{discipline}_{distance}_{type}.jpg
-//   예) 20260809_110347_048A8302_서민석_남자_개인혼영_200_BLOCK.jpg
-//   앞쪽(******)은 촬영 정보라 무시하고 '_' 로 끊어 뒤에서 5개를 쓴다.
+// 파일명 규칙: ******_{name}_{team}_{gender}_{discipline}_{distance}_{type}.jpg
+//   예) 20260830_175302_048A8464_문주희_Sunday Burning_혼성_계영_200_CEREMONY.jpg
+//   앞쪽(******)은 촬영 정보라 무시하고 '_' 로 끊어 뒤에서 6개를 쓴다.
+//   (team 이 없던 예전 5토큰 파일명은 자리가 밀려 잘못 읽힌다 — 이름·팀을 행에서 고쳐 쓴다.)
 // times 매칭·업로드는 다음 단계에서 구현한다.
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 const props = defineProps<{
   open: boolean
@@ -42,19 +43,20 @@ const normDistance = (v: string) => {
 const parseFilename = (filename: string) => {
   const base = filename.replace(/\.[^.]+$/, '')
   const parts = base.split('_').map((s) => s.trim()).filter((s) => s !== '')
-  if (parts.length < 5) {
-    return { filename, ok: false, name: '', gender: '', discipline: '', distance: '', type: '', raw: null as any }
+  if (parts.length < 6) {
+    return { filename, ok: false, name: '', team: '', gender: '', discipline: '', distance: '', type: '', raw: null as any }
   }
-  const [name, g, d, dist, t] = parts.slice(-5)
+  const [name, team, g, d, dist, t] = parts.slice(-6)
   return {
     filename,
     ok: true,
     name,
+    team,   // 파일명에 적힌 팀 표기 — 코드 변환 없이 그대로 쓴다
     gender: GENDER_MAP[g] || '',
     discipline: DISCIPLINE_MAP[d] || DISCIPLINE_MAP[d.toUpperCase()] || '',
     distance: normDistance(dist),
     type: TYPE_MAP[t.toLowerCase()] || t.toUpperCase(),
-    raw: { name, gender: g, discipline: d, distance: dist, type: t },
+    raw: { name, team, gender: g, discipline: d, distance: dist, type: t },
   }
 }
 
@@ -64,14 +66,18 @@ watch(() => props.open, (v) => { if (v) { cid.value = props.competitionID; reset
 
 // ── 파일 선택 (competitions 드로어와 같은 방식) ──
 const fileInput = ref<HTMLInputElement | null>(null)
-const queue = ref<{ file: File; preview: string }[]>([])
+// name — 파일명을 NFC 로 맞춘 값. 이후 파싱·표·업로드는 모두 이 이름을 쓴다.
+// (macOS 에서 만든 파일은 한글이 자모 분리(NFD)로 온다. 그대로 두면 '문주희' 가
+//  ㅁ+ㅜ+ㄴ… 으로 쪼개져 파일명 파싱도, times.name_unique 매칭도 어긋난다.)
+const queue = ref<{ file: File; name: string; preview: string }[]>([])
 const addFiles = (files: FileList | null) => {
   if (!files) return
-  const seen = new Set(queue.value.map((q) => q.file.name))
+  const seen = new Set(queue.value.map((q) => q.name))
   for (const f of Array.from(files)) {
-    if (!IMAGE_RE.test(f.name) || seen.has(f.name)) continue
-    seen.add(f.name)
-    queue.value.push({ file: f, preview: URL.createObjectURL(f) })
+    const name = f.name.normalize('NFC')
+    if (!IMAGE_RE.test(name) || seen.has(name)) continue
+    seen.add(name)
+    queue.value.push({ file: f, name, preview: URL.createObjectURL(f) })
   }
   clearMatch()
 }
@@ -79,7 +85,7 @@ const onFileChange = (e: Event) => { addFiles((e.target as HTMLInputElement).fil
 const onDrop = (e: DragEvent) => addFiles(e.dataTransfer?.files ?? null)
 // 표는 정렬해 보여주므로 인덱스가 아니라 파일명으로 지운다
 const removeFile = (filename: string) => {
-  const i = queue.value.findIndex((q) => q.file.name === filename)
+  const i = queue.value.findIndex((q) => q.name === filename)
   if (i < 0) return
   URL.revokeObjectURL(queue.value[i].preview)
   queue.value.splice(i, 1)
@@ -100,7 +106,7 @@ const ko = (a: any, b: any) => String(a || '').localeCompare(String(b || ''), 'k
 const isHangul = (v: any) => /^[가-힣ㄱ-ㅎㅏ-ㅣ]/.test(String(v || ''))
 const distN = (v: any) => { const m = String(v || '').match(/(\d+)/); return m ? Number(m[1]) : Infinity }
 // 행 클릭으로 고친 값 — 파일명별로 보관하고 파싱 결과 위에 덮어쓴다
-const FIELDS = ['name', 'gender', 'discipline', 'distance', 'type'] as const
+const FIELDS = ['name', 'team', 'gender', 'discipline', 'distance', 'type'] as const
 const GENDER_OPTS = ['men', 'women', 'mixed']
 const DISCIPLINE_OPTS = Object.keys(DISCIPLINE_LABEL)
 const DISTANCE_OPTS = ['25M', '50M', '100M', '200M', '400M', '800M', '1500M', '3000M', '5000M', '10000M']
@@ -109,14 +115,14 @@ const overrides = ref<Record<string, any>>({})
 
 const parsed = computed(() => queue.value
   .map((q) => {
-    const base = parseFilename(q.file.name)
-    const ov = overrides.value[q.file.name]
+    const base = parseFilename(q.name)
+    const ov = overrides.value[q.name]
     return {
       ...base,
       ...(ov || {}),
       ok: base.ok || !!ov,                                            // 직접 채웠으면 형식오류 해제
       edited: !!ov && FIELDS.some((k) => (base as any)[k] !== ov[k]),
-      match: matchByFile.value[q.file.name] || null,
+      match: matchByFile.value[q.name] || null,
     }
   })
   .sort((a, b) => {
@@ -130,6 +136,7 @@ const parsed = computed(() => queue.value
 const badCount = computed(() => parsed.value.filter((p) => !p.ok || !p.gender || !p.discipline || !p.distance).length)
 
 // ── times 매칭 — name(=name_unique)·gender·discipline·distance 로 찾아 timeID·ageGroup·team 을 채운다 ──
+// (team 도 함께 보내지만 키는 아니다 — 여러 건이 잡혔을 때 서버에서 좁히는 힌트로만 쓴다)
 const api = (p = '') => `${useRuntimeConfig().public.apiBase}/api/images${p}`
 const matchByFile = ref<Record<string, any>>({})
 const matching = ref(false)
@@ -145,7 +152,7 @@ const matchSum = computed(() => {
 })
 
 const payloadOf = (p: any) => ({
-  filename: p.filename, name: p.name, gender: p.gender, discipline: p.discipline, distance: p.distance,
+  filename: p.filename, name: p.name, team: p.team, gender: p.gender, discipline: p.discipline, distance: p.distance,
 })
 const postMatch = async (items: any[]) => {
   const res = await $fetch<any>(api('/match'), { method: 'POST', body: { competitionID: cid.value, items } })
@@ -208,6 +215,16 @@ const makeThumb = (file: File): Promise<Blob | null> => new Promise((resolve) =>
 
 const uploading = ref(false)
 const upProgress = ref('')
+// 저장 버튼에도 (몇째 / 전체) 를 띄운다
+const upDone = ref(0)
+const upTotal = ref(0)
+// 화면 갱신 보장 — nextTick 은 마이크로태스크라 DOM 만 바뀌고 아직 그려지지 않는다.
+// rAF 를 두 번 기다리면 브라우저가 실제로 한 프레임을 그린 뒤 이어간다.
+const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())))
+// 진행률 표기 — "썸네일 3 / 120  20260830_..._CEREMONY.jpg"
+// 어느 단계든 (몇째 / 전체) 와 그때 다루는 파일명을 함께 보여준다.
+const prog = (label: string, n: number, total: number, filename = '') =>
+  `${label} ${n} / ${total}${filename ? `  ${filename}` : ''}`
 // 한 요청에 담는 장수 — 원본이 장당 수 MB 라 크게 잡으면 요청 하나가 너무 무거워진다
 const BATCH = 4
 // 매칭이 안 된 파일은 timeID 없이 올라간다 — 올리기 전에 몇 건인지 알려준다
@@ -224,6 +241,7 @@ const doUpload = async () => {
   if (bad && !confirm(`${targets.length}장 중 ${bad}장은 times 매칭이 확정되지 않았습니다.\ntimeID 없이(또는 첫 후보로) 저장됩니다. 계속할까요?`)) return
 
   uploading.value = true; msg.value = ''; upProgress.value = ''
+  upDone.value = 0; upTotal.value = targets.length
   // 한 번에 다 보내면 원본 수십~수백 MB 가 요청 하나가 되어 오래 멈춘 것처럼 보인다.
   // 묶음으로 나눠 보내면 진행률이 계속 움직이고, 중간에 끊겨도 앞 묶음은 이미 저장돼 있다.
   const total = targets.length
@@ -237,32 +255,42 @@ const doUpload = async () => {
       fd.append('competitionName', comp?.competitionName ?? '')
       const meta: any[] = []
       for (const p of chunk) {
-        const q = queue.value.find((x) => x.file.name === p.filename)
+        const q = queue.value.find((x) => x.name === p.filename)
         if (!q) continue
-        upProgress.value = `썸네일 ${done + meta.length + 1} / ${total}  ${p.filename}`
-        // 썸네일 생성은 동기 루프라 화면이 갱신되지 않는다 — 한 프레임 양보해 진행률을 보여준다
-        await nextTick()
+        upDone.value = done + meta.length
+        upProgress.value = prog('썸네일', done + meta.length + 1, total, p.filename)
+        // 썸네일 생성은 동기 작업이라 그대로 두면 진행률이 안 그려진다 — 한 프레임 양보한다
+        await nextFrame()
         const thumb = await makeThumb(q.file)
         fd.append('files', q.file, p.filename)
         fd.append('thumbs', thumb || q.file, p.filename)
         meta.push({
           filename: p.filename,
-          name: p.name, gender: p.gender, discipline: p.discipline, distance: p.distance, type: p.type,
+          // name 은 times.name_unique 와 같아야 매칭이 유지된다 —
+          // 팀으로 동명이인을 가른 경우 파일명의 '김수정' 이 아니라 '김수정2' 로 저장한다.
+          name: p.match?.name_unique || p.name,
+          gender: p.gender, discipline: p.discipline, distance: p.distance, type: p.type,
           // 매칭이 하나로 확정된 것만 timeID 를 붙인다(여러 건이면 첫 후보)
           timeID: p.match?.timeIDs?.[0] ?? null,
-          ageGroup: p.match?.ageGroup ?? '', team: p.match?.team ?? '',
+          ageGroup: p.match?.ageGroup ?? '',
+          // team — 맞은 기록의 팀명을 우선한다(times 와 표기를 맞추려고). 못 맞았으면 파일명 값.
+          team: p.match?.team || p.team || '',
         })
       }
       if (!meta.length) continue
       fd.append('meta', JSON.stringify(meta))
-      upProgress.value = `전송 ${done + meta.length} / ${total}`
+      // 묶음(BATCH)을 한 요청으로 보내므로 그 묶음의 마지막 파일명을 붙인다
+      upDone.value = done + meta.length
+      upProgress.value = prog('전송', done + meta.length, total, meta[meta.length - 1].filename)
       const r = await $fetch<any>(api('/import'), { method: 'POST', body: fd })
       sum.count += r.count || 0
       sum.upserted += r.upserted || 0
       sum.modified += r.modified || 0
       if (r.failed?.length) sum.failed.push(...r.failed)
+      const last = meta[meta.length - 1].filename
       done += meta.length
-      upProgress.value = `저장 ${done} / ${total}`
+      upDone.value = done
+      upProgress.value = prog('저장', done, total, last)
     }
     emit('done', sum)
   } catch (err: any) {
@@ -270,10 +298,14 @@ const doUpload = async () => {
     msg.value = `업로드 실패(${done}/${total} 저장됨): ` + (err?.data?.error || err?.message || '')
     if (done) emit('done', sum)
   } finally {
-    uploading.value = false; upProgress.value = ''
+    uploading.value = false; upProgress.value = ''; upDone.value = 0; upTotal.value = 0
   }
 }
 
+// 파일명 이름과 실제 name_unique 가 다른 경우 — 동명이인을 팀으로 가른 것
+const nuFixed = (p: any) => !!(p.match?.name_unique && p.match.name_unique !== p.name)
+// 파일명의 팀 표기가 맞은 기록의 team 과 다를 때 알려준다 — 저장은 기록 쪽 값을 쓴다
+const teamDiff = (p: any) => !!(p.match?.team && p.team && p.match.team !== p.team)
 // timeID 표기 — 여러 건이면 "913306 외 1"
 const timeIDLabel = (m: any) => {
   if (!m || !m.timeIDs?.length) return ''
@@ -284,7 +316,7 @@ const timeIDTitle = (m: any) => (m?.times || []).map((t: any) => `${t.timeID} ${
 // ── 행 클릭 → 인라인 편집 ──
 // 입력 중에 정렬이 바뀌어 행이 튀지 않도록, 확정(✓)할 때만 값을 반영한다.
 const editing = ref('')
-const draft = ref<Record<string, string>>({ name: '', gender: '', discipline: '', distance: '', type: '' })
+const draft = ref<Record<string, string>>({ name: '', team: '', gender: '', discipline: '', distance: '', type: '' })
 const startEdit = (p: any) => {
   if (editing.value === p.filename) return
   if (editing.value) commitEdit()
@@ -341,8 +373,8 @@ const cancelEdit = () => { editing.value = '' }
             <span class="up-hint">또는 폴더에서 드래그</span>
           </div>
           <p class="up-note">
-            파일명 규칙 <code>******_{name}_{gender}_{discipline}_{distance}_{type}.jpg</code><br>
-            예) <code>20260809_110347_048A8302_서민석_남자_개인혼영_200_BLOCK.jpg</code>
+            파일명 규칙 <code>******_{name}_{team}_{gender}_{discipline}_{distance}_{type}.jpg</code><br>
+            예) <code>20260830_175302_048A8464_문주희_Sunday Burning_혼성_계영_200_CEREMONY.jpg</code>
           </p>
         </div>
 
@@ -360,9 +392,9 @@ const cancelEdit = () => { editing.value = '' }
           <table class="res-table">
             <thead>
               <tr>
-                <th>filename</th><th>name</th><th>gender</th>
+                <th>filename</th><th>name</th><th>team</th><th>gender</th>
                 <th>discipline</th><th>distance</th><th>type</th>
-                <th>timeID</th><th>ageGroup</th><th>team</th><th></th>
+                <th>timeID</th><th>ageGroup</th><th></th>
               </tr>
             </thead>
             <tbody>
@@ -380,6 +412,12 @@ const cancelEdit = () => { editing.value = '' }
                   <td>
                     <input
                       v-model="draft.name" class="cell-input" type="text" placeholder="선수명"
+                      @click.stop @keydown.enter="commitEdit()" @keydown.esc.stop="cancelEdit"
+                    >
+                  </td>
+                  <td>
+                    <input
+                      v-model="draft.team" class="cell-input" type="text" placeholder="소속"
                       @click.stop @keydown.enter="commitEdit()" @keydown.esc.stop="cancelEdit"
                     >
                   </td>
@@ -411,7 +449,13 @@ const cancelEdit = () => { editing.value = '' }
 
                 <!-- 표시 -->
                 <template v-else>
-                  <td class="strong">{{ p.name || '—' }}</td>
+                  <td class="strong">
+                    {{ p.name || '—' }}
+                    <span v-if="nuFixed(p)" class="nu-fix" :title="`동명이인 — 팀(${p.team})으로 가려 ${p.match.name_unique} 로 저장됩니다`">→ {{ p.match.name_unique }}</span>
+                  </td>
+                  <td :class="{ warn: teamDiff(p) }" :title="teamDiff(p) ? `기록의 팀: ${p.match.team}` : ''">
+                    {{ p.team || '—' }}
+                  </td>
                   <td :class="{ bad: !p.gender }">{{ p.gender || (p.raw ? `${p.raw.gender} ?` : '—') }}</td>
                   <td :class="{ bad: !p.discipline }">{{ p.discipline || (p.raw ? `${p.raw.discipline} ?` : '—') }}</td>
                   <td :class="{ bad: !p.distance }">{{ p.distance || (p.raw ? `${p.raw.distance} ?` : '—') }}</td>
@@ -422,7 +466,6 @@ const cancelEdit = () => { editing.value = '' }
                   {{ p.match ? (timeIDLabel(p.match) || '없음') : '—' }}
                 </td>
                 <td>{{ p.match?.ageGroup || '—' }}</td>
-                <td>{{ p.match?.team || '—' }}</td>
 
                 <td class="act" @click.stop>
                   <template v-if="editing === p.filename">
@@ -434,7 +477,7 @@ const cancelEdit = () => { editing.value = '' }
               </tr>
             </tbody>
           </table>
-          <p class="res-hint">행을 클릭하면 name·gender·discipline·distance·type 을 고칠 수 있습니다 (✓ 적용 · Esc 취소).</p>
+          <p class="res-hint">행을 클릭하면 name·team·gender·discipline·distance·type 을 고칠 수 있습니다 (✓ 적용 · Esc 취소).</p>
           <p v-if="badCount" class="res-hint">
             <b>?</b> 표시는 코드로 바꾸지 못한 값입니다. 파일명을 고치거나 행에서 직접 지정하세요.
           </p>
@@ -449,7 +492,8 @@ const cancelEdit = () => { editing.value = '' }
           </p>
           <p v-else-if="matchSum?.none" class="res-hint">
             <b>없음</b> — 이 대회에 (이름 · 성별 · 영법 · 거리) 가 맞는 기록이 없습니다.
-            동명이인이면 파일명의 이름을 <code>홍길동1</code> 처럼 name_unique 로 바꿔야 합니다(행 클릭으로 수정 가능).
+            동명이인은 파일명의 <b>팀</b>으로 자동으로 갈립니다 — 팀 표기가 기록과 다르면 행에서 팀을 고치거나,
+            이름을 <code>홍길동1</code> 처럼 name_unique 로 바꾸세요(행 클릭으로 수정 가능).
           </p>
           <p v-if="matchSum?.multi" class="res-hint">
             <b>여러건</b> — 같은 종목을 예선·결선처럼 두 번 이상 뛴 경우입니다. timeID 에 마우스를 올리면 전체가 보입니다.
@@ -465,7 +509,7 @@ const cancelEdit = () => { editing.value = '' }
           {{ matching ? '매칭 중…' : 'times 매칭' }}
         </button>
         <button class="btn btn-primary" type="button" :disabled="!parsed.length || uploading || matching" @click="doUpload">
-          {{ uploading ? '저장 중…' : `저장${parsed.length ? ` (${parsed.length})` : ''}` }}
+          {{ uploading ? `저장 중… ${upDone} / ${upTotal}` : `저장${parsed.length ? ` (${parsed.length})` : ''}` }}
         </button>
       </footer>
     </aside>
@@ -525,6 +569,7 @@ const cancelEdit = () => { editing.value = '' }
 .res-table tbody tr { cursor: pointer; }
 .res-table tbody tr:hover td { background: var(--paper-deep); }
 .res-table tr.editing td { background: var(--paper-deep); box-shadow: inset 2px 0 0 var(--orange); }
+.res-table .nu-fix { margin-left: 4px; font-weight: 600; color: var(--orange); }
 .res-table tr.edited .dot { color: var(--orange); margin-right: 5px; font-size: 8px; vertical-align: middle; }
 .res-table td.act { white-space: nowrap; text-align: right; }
 .cell-input {

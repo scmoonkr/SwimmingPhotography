@@ -165,3 +165,11 @@ SwimmingPhotography/
 | `GET /api/health` | 서버 상태 확인 |
 | `/api/events` | 이벤트(대회) 관련 |
 | `/api/categories` | 카테고리 관련 |
+
+#################################################
+### 신문기사 작성 과정
+#################################################
+1. times -> json export
+2. LLM 기사 생성
+3. 생성된 기사 json import
+4. images upload(upload하고 매칭안된것 찾아서 매칭)
