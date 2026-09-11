@@ -45,6 +45,7 @@ npm install        # 루트에서 한 번 → client/server 의존성 모두 설
 | `npm run dev` | 서버 + 클라이언트 동시 실행 |
 | `npm run server` | 서버만 실행 (http://localhost:6640) |
 | `npm run client` | 클라이언트만 실행 (http://localhost:6641) |
+| `npm run dashboard` | 클라이언트만 실행 (http://localhost:6642) |
 
 접속 주소:
 

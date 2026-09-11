@@ -114,6 +114,16 @@ const { data: listData } = await useAsyncData('home:articles', () =>
 )
 const docs = computed(() => (listData.value || []).filter((d: any) => d.slug && (!d.visibility || d.visibility.showInHome !== false)))
 
+// featured 기사는 목록 fetch(limit 1000, 최신순)에서 파생하지 않는다 — 게시 기사가 1000건을
+// 넘으면 오래된 featured 기사가 목록 밖으로 밀려 홈 상단에서 사라진다. 서버의 featured 필터로
+// 따로 받아온다. (대시보드 meets 가 featured 를 찾는 방식과 동일)
+// 서버 기본 정렬이 게시일(publishedAt) 최신순이므로 limit 3 이면 '최근 3개'만 온다 —
+// featured 를 4개 이상 켜도 홈에는 가장 최근 3개만 노출되고 나머지는 나오지 않는다.
+const { data: featData } = await useAsyncData('home:featured', () =>
+  $fetch<any[]>('/api/articles', { params: { type1: PUBLIC_TYPES, status: 'published', featured: 'true', fields: 'card', limit: 3 } })
+    .catch(() => [] as any[]),
+)
+
 // ── 목록/그룹 ──
 // 월(YYYY-MM)은 최신부터, 같은 달 안에서는 선수명 가나다순.
 // 월 묶음이 이어져 있어야 아래 groups 가 같은 달을 두 번 만들지 않는다.
@@ -135,10 +145,10 @@ const months = computed(() => {
 const groups = computed(() => months.value.map((ym) => ({ ym, label: labelOf(ym), rows: filtered.value.filter((a) => ymOf(a) === ym) })))
 
 // ── featured (그리드 상단, 큰 1 + 옆 2) : visibility.isFeatured 기사 최신순 ──
-// 목록과 같은 fetch 에서 파생 — 대시보드에서 isFeatured 를 켜면 자동 반영. 첫 장이 hero(big).
+// 서버 featured 필터로 따로 받은 featData 에서 파생 — 대시보드에서 isFeatured 를 켜면 자동 반영. 첫 장이 hero(big).
 const featImg = (d: any) => d?.media?.coverImage || (d?.media?.images && d.media.images[0]?.url) || d?.media?.thumb || ''
 // 사진이 없는 기사는 featured 칸이 빈 상자가 되므로 이미지가 있는 것만 올린다.
-const feat = computed(() => (listData.value || []).filter((d: any) => d.slug && d.visibility?.isFeatured && featImg(d)).slice(0, 3).map((d, i) => ({
+const feat = computed(() => (featData.value || []).filter((d: any) => d.slug && featImg(d)).slice(0, 3).map((d, i) => ({
   slug: d.slug,
   img: featImg(d),
   cat: catKo(d.translations?.ko?.categories),
