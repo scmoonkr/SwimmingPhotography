@@ -1,9 +1,13 @@
 <script setup lang="ts">
 // 공용 헤더 — docs/html/assets/header.js 를 Vue 컴포넌트로 이식.
 // 로고(그라데이션 shine), 태그라인, 언어 토글(hover 미리보기 + 스프링).
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 
 const { isEN, toggle, t } = useLang()
+
+// 대회 목록에서는 언어 토글을 감춘다 — 대회명·수영장이 원문 그대로라 번역할 것이 없다.
+const route = useRoute()
+const showLang = computed(() => !String(route.path || '').startsWith('/competitions'))
 
 // 언어 토글: 현재 언어 = 진하게. hover 시 반대 언어 미리보기.
 const preview = ref<'ko' | 'en' | null>(null)
@@ -53,6 +57,7 @@ const onClick = () => { toggle(); preview.value = null; spring() }
     </div>
 
     <button
+      v-if="showLang"
       type="button" class="lang-toggle" aria-label="Language / 언어"
       @mouseenter="onEnter" @mouseleave="onLeave" @click="onClick"
     >
