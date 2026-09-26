@@ -94,6 +94,7 @@ async function onlyBreaking(req, res, next) {
 const CARD_PROJECTION = {
   slug: 1, type: 1, status: 1,
   name: 1,                       // 홈 목록의 선수명 정렬용
+  competitionID: 1,              // 홈이 '한 대회'만 보여주므로 카드에도 필요
   publishedAt: 1, createdAt: 1, created: 1, updatedAt: 1,
   visibility: 1,
   'media.thumb': 1, 'media.coverImage': 1, 'media.images.url': 1,

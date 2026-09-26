@@ -10,51 +10,8 @@ const { isEN, t } = useLang()
 const cloudBase = (useRuntimeConfig().public.cloudPublicUrl as string) || ''
 const img = (p: string) => imgUrl(p, cloudBase)
 
-// ── 뷰(grid/list) ── 쿠키로 저장 → SSR 이 처음부터 저장된 뷰로 렌더(그리드↔리스트 깜박임·이중 클래스 방지).
-// (localStorage 는 마운트 후에야 읽혀 SSR grid → 클라 list 전환 시 썸네일이 깜박였다 사라지는 FOUC 발생)
-const viewCookie = useCookie<'grid' | 'list'>('mb_view', { default: () => 'grid', sameSite: 'lax', maxAge: 60 * 60 * 24 * 365 })
-const view = ref<'grid' | 'list'>(viewCookie.value === 'list' ? 'list' : 'grid')
-useHead({
-  title: 'Swimming Photography',
-  bodyAttrs: { class: computed(() => 'view-' + view.value) },
-})
-const setView = (v: 'grid' | 'list') => {
-  view.value = v
-  viewCookie.value = v
-}
-
-// 뷰 토글 라벨 (선택 = 오른쪽/진하게)
-const vtPreview = ref<'grid' | 'list' | null>(null)
-const vtInner = ref<HTMLElement | null>(null)
-let vtAnim: Animation | null = null
-const shownView = () => vtPreview.value ?? view.value
-const vLabel = (v: 'grid' | 'list') => (isEN.value ? (v === 'grid' ? 'Grid' : 'List') : (v === 'grid' ? '그리드' : '리스트'))
-const vtCur = computed(() => vLabel(shownView()))
-const vtDim = computed(() => vLabel(shownView() === 'grid' ? 'list' : 'grid'))
-const rm = () => import.meta.client && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-const vtSpring = () => {
-  if (!vtInner.value || rm()) return
-  vtAnim?.cancel()
-  vtAnim = vtInner.value.animate([
-    { transform: 'translateX(20px)', opacity: 0.15 },
-    { transform: 'translateX(0px)', opacity: 1, offset: 0.45 },
-    { transform: 'translateX(-7px)', offset: 0.62 },
-    { transform: 'translateX(4px)', offset: 0.77 },
-    { transform: 'translateX(-2px)', offset: 0.89 },
-    { transform: 'translateX(0)' },
-  ], { duration: 720, easing: 'ease-out' })
-}
-const vtExit = () => {
-  if (!vtInner.value || rm()) return
-  vtAnim?.cancel()
-  vtAnim = vtInner.value.animate([
-    { transform: 'translateX(9px)', opacity: 0.5 },
-    { transform: 'translateX(0)', opacity: 1 },
-  ], { duration: 560, easing: 'ease-out' })
-}
-const onVtEnter = () => { vtPreview.value = view.value === 'grid' ? 'list' : 'grid'; vtSpring() }
-const onVtLeave = () => { vtPreview.value = null; vtExit() }
-const onVtClick = () => { setView(view.value === 'grid' ? 'list' : 'grid'); vtPreview.value = null; vtSpring() }
+// 홈은 그리드 고정 — 그리드/리스트 토글 버튼은 없앴다. (CSS 가 body.view-grid 로 갈린다)
+useHead({ title: 'Swimming Photography', bodyAttrs: { class: 'view-grid' } })
 
 // ── 분야 필터 ──
 const cats = [
@@ -107,10 +64,41 @@ const pick = (a: any, f: string) => {
 }
 const metaLine = (a: any) => [fmtDate(a.date), fmtRecord(a.record), pick(a, 'event'), pick(a, 'athlete')].filter(Boolean).join(' | ')
 
+// ── 대회 ── 홈은 '한 대회'만 보여준다.
+// 주소에 competitionID 가 있으면 그 대회, 없으면 '가장 최근에 게시된 기사의 대회'.
+// (대회 컬렉션의 최신 대회로 잡으면 아직 기사가 없는 대회가 걸려 홈이 비어 보인다)
+const route = useRoute()
+const queryCid = computed(() => {
+  const v = route.query.competitionID
+  const n = Number(Array.isArray(v) ? v[0] : v)
+  return Number.isFinite(n) && n > 0 ? n : null
+})
+const { data: latestDoc } = await useAsyncData('home:latest', () =>
+  $fetch<any[]>('/api/articles', { params: { type1: PUBLIC_TYPES, status: 'published', fields: 'card', limit: 1 } })
+    .catch(() => [] as any[]),
+)
+const cid = computed(() => queryCid.value ?? (latestDoc.value?.[0]?.competitionID ?? null))
+
+// 대회명 — 사진이 시작되기 바로 앞줄에 쓴다. images 를 뺀 가벼운 목록에서 찾는다.
+const { data: compList } = await useAsyncData('home:competitions', () =>
+  $fetch<any[]>('/api/competitions', { params: { fields: 'list', sort: 'date', limit: 500 } })
+    .catch(() => [] as any[]),
+)
+const compName = computed(() => {
+  const hit = (compList.value || []).find((c: any) => Number(c.competitionID) === Number(cid.value))
+  return hit?.competitionName || ''
+})
+// 대회가 정해지기 전(첫 렌더)에는 대회 조건을 걸지 않는다
+const listParams = () => ({
+  type1: PUBLIC_TYPES, status: 'published', fields: 'card',
+  ...(cid.value != null ? { competitionID: cid.value } : {}),
+})
+
 // ── 기사 목록 (DB 연동) : 발행 기사 최신순, 홈 노출(showInHome) 대상만 ──
 const { data: listData } = await useAsyncData('home:articles', () =>
-  $fetch<any[]>('/api/articles', { params: { type1: PUBLIC_TYPES, status: 'published', fields: 'card', limit: 1000 } })
+  $fetch<any[]>('/api/articles', { params: { ...listParams(), limit: 1000 } })
     .catch(() => [] as any[]),
+  { watch: [cid] },
 )
 const docs = computed(() => (listData.value || []).filter((d: any) => d.slug && (!d.visibility || d.visibility.showInHome !== false)))
 
@@ -119,15 +107,20 @@ const docs = computed(() => (listData.value || []).filter((d: any) => d.slug && 
 // 따로 받아온다. (대시보드 meets 가 featured 를 찾는 방식과 동일)
 // 서버 기본 정렬이 게시일(publishedAt) 최신순이므로 limit 3 이면 '최근 3개'만 온다 —
 // featured 를 4개 이상 켜도 홈에는 가장 최근 3개만 노출되고 나머지는 나오지 않는다.
+// featured 도 같은 대회로 건다 — 홈 전체가 한 대회를 다루므로 위쪽 큰 사진만 딴 대회면 어긋난다.
 const { data: featData } = await useAsyncData('home:featured', () =>
-  $fetch<any[]>('/api/articles', { params: { type1: PUBLIC_TYPES, status: 'published', featured: 'true', fields: 'card', limit: 3 } })
+  $fetch<any[]>('/api/articles', { params: { ...listParams(), featured: 'true', limit: 3 } })
     .catch(() => [] as any[]),
+  { watch: [cid] },
 )
 
 // ── 목록/그룹 ──
 // 월(YYYY-MM)은 최신부터, 같은 달 안에서는 선수명 가나다순.
 // 월 묶음이 이어져 있어야 아래 groups 가 같은 달을 두 번 만들지 않는다.
 const sorted = computed(() => docs.value.map(normArticle).sort((a, b) => {
+  // 사진 있는 기사가 앞, 없는 기사가 뒤 (그 안에서 월 최신순 → 선수명순)
+  const at = a.thumb ? 0 : 1, bt = b.thumb ? 0 : 1
+  if (at !== bt) return at - bt
   const ay = ymOf(a), by = ymOf(b)
   if (ay !== by) return ay < by ? 1 : -1
   const an = String(a.name || a.title), bn = String(b.name || b.title)   // 선수명이 없으면(속보 등) 제목으로
@@ -137,12 +130,16 @@ const sorted = computed(() => docs.value.map(normArticle).sort((a, b) => {
   return an.localeCompare(bn, 'ko', { numeric: true })
 }))
 const filtered = computed(() => sorted.value.filter((a) => curCat.value === 'all' || a.cat === curCat.value))
-const months = computed(() => {
-  const out: string[] = []; let prev = ''
-  for (const a of filtered.value) { const ym = ymOf(a); if (ym && ym !== prev) { out.push(ym); prev = ym } }
+const groups = computed(() => {
+  const out: { ym: string; label: string; rows: any[] }[] = []
+  for (const a of filtered.value) {
+    const ym = ymOf(a)
+    const last = out[out.length - 1]
+    if (!last || last.ym !== ym) out.push({ ym, label: labelOf(ym), rows: [a] })
+    else last.rows.push(a)
+  }
   return out
 })
-const groups = computed(() => months.value.map((ym) => ({ ym, label: labelOf(ym), rows: filtered.value.filter((a) => ymOf(a) === ym) })))
 
 // ── featured (그리드 상단, 큰 1 + 옆 2) : visibility.isFeatured 기사 최신순 ──
 // 서버 featured 필터로 따로 받은 featData 에서 파생 — 대시보드에서 isFeatured 를 켜면 자동 반영. 첫 장이 hero(big).
@@ -213,7 +210,7 @@ onMounted(async () => {
 })
 onBeforeUnmount(() => { if (import.meta.client) window.removeEventListener('resize', syncBBHeight) })
 // 목록 변화·뷰 전환·언어 전환 시 높이 재동기
-watch([bkItems, view, isEN], () => nextTick().then(syncBBHeight))
+watch([bkItems, isEN], () => nextTick().then(syncBBHeight))
 </script>
 
 <template>
@@ -225,16 +222,8 @@ watch([bkItems, view, isEN], () => nextTick().then(syncBBHeight))
           v-for="c in cats" :key="c.k" class="chip"
           :class="{ active: curCat === c.k }" @click="curCat = c.k"
         >{{ t(c.k, c.en) }}</button>
-        <!-- 속보는 국문 독자용 — 영문에서는 메뉴에서 뺀다 -->
-        <NuxtLink v-if="!isEN" class="chip chip-link" to="/breakingnews">{{ t('속보', 'Breaking') }}</NuxtLink>
         <button class="chip chip-search" type="button" @click="openSearch">{{ t('검색', 'Search') }}</button>
       </div>
-      <button
-        v-show="!showSearch" class="view-toggle" type="button" aria-label="그리드/리스트 보기 전환"
-        @click="onVtClick" @mouseenter="onVtEnter" @mouseleave="onVtLeave"
-      >
-        <span ref="vtInner" class="vt-inner"><span class="vt-dim">{{ vtDim }}</span><span class="vt-sep" aria-hidden="true">·</span><span class="vt-cur">{{ vtCur }}</span></span>
-      </button>
     </div>
 
     <!-- 검색 패널 -->
@@ -259,6 +248,12 @@ watch([bkItems, view, isEN], () => nextTick().then(syncBBHeight))
         </button>
         <NuxtLink class="bb-item bb-more-row" to="/breakingnews"><span class="bb-line">{{ t('속보 전체 보기', 'All breaking news') }}</span></NuxtLink>
       </div>
+    </div>
+
+    <!-- 대회명 + 대회 목록 (사진이 시작되기 바로 앞줄) · 글꼴은 메뉴(.chip)와 동일 -->
+    <div class="comp-bar">
+      <span v-if="compName" class="comp-name">{{ compName }}</span>
+      <NuxtLink class="chip comp-more" to="/competitions">{{ t('대회 목록', 'All meets') }}</NuxtLink>
     </div>
 
     <!-- featured (그리드 전용) · visibility.isFeatured 기사 최신순 · 없으면 숨김 -->
@@ -288,10 +283,11 @@ watch([bkItems, view, isEN], () => nextTick().then(syncBBHeight))
         <span class="c-meta" /><span class="c-date" /><span class="c-athlete" /><span class="c-event" /><span class="c-record" />
       </a>
 
-      <template v-for="g in groups" :key="g.ym">
+      <!-- 같은 달이 (사진 있음 → 없음) 순서로 두 번 나올 수 있어 키에 순번을 붙인다 -->
+      <template v-for="(g, gi) in groups" :key="g.ym + '-' + gi">
         <div class="month-group">{{ g.label }}</div>
         <NuxtLink
-          v-for="(a, i) in g.rows" :key="g.ym + i" class="row"
+          v-for="(a, i) in g.rows" :key="g.ym + '-' + gi + '-' + i" class="row"
           :class="{ 'no-thumb': !a.thumb, 'is-feat': featSlugs.has(a.slug) }" :to="'/article/' + a.slug"
           :data-cat="a.cat" :data-region="a.region" :data-competition="a.competition"
         >
@@ -329,12 +325,11 @@ watch([bkItems, view, isEN], () => nextTick().then(syncBBHeight))
 .chip.active { color: var(--ink); font-weight: 700; }
 .filters .chip:first-child { padding-left: 0; }
 
-.view-toggle { display: inline-flex; flex: 0 0 auto; font-family: var(--serif); font-size: 13px; line-height: 1.6; background: none; border: none; padding: 0; cursor: pointer; }
-.view-toggle .vt-inner { display: inline-flex; will-change: transform; }
-.view-toggle .vt-dim { color: var(--ink-light); font-weight: 500; }
-.view-toggle .vt-sep { color: var(--ink-light); margin: 0 0.3em; }
-.view-toggle .vt-cur { color: var(--ink); font-weight: 700; }
-.view-toggle:hover .vt-dim, .view-toggle:hover .vt-sep { color: var(--ink-mute); }
+/* 대회줄 — 사진 바로 위. 메뉴(.chip)와 같은 serif 13px */
+.comp-bar { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
+.comp-name { font-family: var(--serif); font-size: 13px; font-weight: 700; line-height: 1.6; color: var(--ink); }
+.comp-bar .comp-more { padding: 0; text-decoration: none; }
+.comp-bar .comp-more:hover { color: var(--ink); }
 
 /* 검색 */
 .search-panel { padding: 0; }
@@ -383,7 +378,11 @@ body.view-grid .featured { display: grid; grid-template-columns: repeat(5, 1fr);
 body.view-grid .items { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 20px; margin-top: 0; padding-top: 20px; }
 body.view-grid .row { display: flex; flex-direction: column; gap: 9px; }
 /* 사진 없는 기사: 그리드에서는 숨기고 리스트에서만 노출 */
-body.view-grid .row.no-thumb { display: none; }
+/* 사진 없는 기사 — 예전엔 그리드에서 아예 감췄지만, 이제 사진 있는 기사 뒤에 한 줄로 보여준다 */
+body.view-grid .row.no-thumb { display: block; grid-column: 1 / -1; padding: 9px 0; border-bottom: 1px solid var(--line-soft); }
+body.view-grid .row.no-thumb .thumb { display: none; }
+body.view-grid .row.no-thumb .c-title { font-size: 14px; }
+body.view-grid .row.no-thumb .c-date { display: inline; margin-left: 8px; font-size: 12.5px; color: var(--ink-light); }
 /* featured 로 위에 이미 실린 기사: 그리드에서 중복되지 않게 숨긴다(리스트에는 노출) */
 body.view-grid .row.is-feat { display: none; }
 body.view-grid .thumb { display: block; aspect-ratio: 4 / 3; border-radius: 0; }
@@ -431,7 +430,6 @@ body.view-grid .month-group { display: none; }
 
 @media (max-width: 640px) {
   .toolbar { gap: 12px; }
-  .view-toggle { margin-left: auto; }
   body.view-grid .items { grid-template-columns: 1fr 1fr; gap: 20px 14px; }
   body.view-grid .featured { grid-template-columns: 1fr; grid-template-rows: auto; gap: 20px; }
   .feat-big { grid-column: 1; grid-row: auto; aspect-ratio: 16 / 9; }
