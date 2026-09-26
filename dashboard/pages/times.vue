@@ -118,14 +118,16 @@ const blankTime = () => ({
   competitionName: '', competitionID: null as number | null, datetime: '', discipline: '', distance: '',
   course: 'LCM', gender: '', ageGroup: '', round: 'finals', name: '', team: '', sido: '',
   lane: null as number | null, rank: null as number | null, time: '', timeID: null as number | null,
-  heat: null as number | null,
+  heat: null as number | null, status: null as string | null,
 })
 const numOrNull = (v: any) => (v === '' || v == null ? null : Number(v))
 const fields: Field[] = [
-  // 1행: 선수(2/4) · 성별(1/4) · timeID(1/4)
+  // 1행: 선수(2/4) · name_unique(1/4) · status(1/4)
   { key: 'name', label: '선수', span: 2, get: (r) => r.name ?? '', set: (r, v) => { r.name = v } },
   // name_unique 는 names 와 같은 문자열 배열 — 콤마로 보여주고, 저장할 때 다시 배열로 되돌린다
-  { key: 'name_unique', label: 'name_unique (콤마 구분)', span: 2, get: (r) => nuStr(r), set: (r, v) => { r.name_unique = String(v ?? '').split(',').map((s) => s.trim()).filter(Boolean) } },
+  { key: 'name_unique', label: 'name_unique (콤마 구분)', span: 1, get: (r) => nuStr(r), set: (r, v) => { r.name_unique = String(v ?? '').split(',').map((s) => s.trim()).filter(Boolean) } },
+  // status — 실격(DQ)·불참(DNS). 비우면 정상 기록(null) — 선수 요약 집계는 DQ·DNS 를 뺀다
+  { key: 'status', label: 'status', type: 'select', options: ['', 'DQ', 'DNS'], span: 1, get: (r) => r.status ?? '', set: (r, v) => { r.status = v || null } },
   // 2행: 부(1/4) · 영법(1/4) · 코스(1/4) · 거리(1/4)
   { key: 'ageGroup', label: '부(ageGroup)', span: 1, get: (r) => r.ageGroup ?? '', set: (r, v) => { r.ageGroup = v } },
   { key: 'discipline', label: '영법', type: 'select', options: DISCIPLINES, span: 1, get: (r) => r.discipline ?? '', set: (r, v) => { r.discipline = v } },
