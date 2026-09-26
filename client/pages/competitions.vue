@@ -21,10 +21,30 @@ const { data: statData } = await useAsyncData('meets:stats', () =>
 const DISC_KO: Record<string, string> = { FR: '자유형', BA: '배영', BR: '평영', FL: '접영', IM: '개인혼영', FRR: '계영', MR: '혼계영' }
 const DISC_EN: Record<string, string> = { FR: 'Free', BA: 'Back', BR: 'Breast', FL: 'Fly', IM: 'IM', FRR: 'Free Relay', MR: 'Medley Relay' }
 const discLabel = (d: string) => (isEN.value ? (DISC_EN[d] || d) : (DISC_KO[d] || d)) || ''
-const distLabel = (v: string) => String(v || '').replace(/M$/i, '')
+const distLabel = (v: string) => String(v || '').toUpperCase()   // 50M 처럼 M 을 붙인 채로
 const statsOf = (cid: number) => ((statData.value?.stats || {})[String(cid)] || []) as any[]
 // 소수 첫째 자리 고정 — 23% 와 23.0% 가 섞이지 않게
 const statText = (e: any) => `${discLabel(e.discipline)} ${distLabel(e.distance)} ${e.starts}(${Number(e.startPct || 0).toFixed(1)}%)`
+
+// 거리별로 줄을 나누고(50M → 100M → 200M), 줄 안에서는 영법 순으로 세운다.
+// 자유형·배영·평영·접영 다음에 개인혼영·계영·혼계영(200M 줄).
+const STROKE_ORDER = ['FR', 'BA', 'BR', 'FL', 'IM', 'FRR', 'MR']
+const strokeRank = (d: string) => {
+  const i = STROKE_ORDER.indexOf(String(d || '').toUpperCase())
+  return i < 0 ? STROKE_ORDER.length : i
+}
+const distNum = (v: string) => { const m = String(v || '').match(/(\d+)/); return m ? Number(m[1]) : Number.MAX_SAFE_INTEGER }
+const statLines = (cid: number) => {
+  const byDist = new Map<number, any[]>()
+  for (const e of statsOf(cid)) {
+    const d = distNum(e.distance)
+    if (!byDist.has(d)) byDist.set(d, [])
+    byDist.get(d)!.push(e)
+  }
+  return [...byDist.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([, evs]) => evs.slice().sort((a, b) => strokeRank(a.discipline) - strokeRank(b.discipline)))
+}
 
 // ── 날짜 ──
 const MONTHS_EN = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
@@ -66,7 +86,13 @@ const groups = computed(() => {
             <span class="mt-cat">{{ t('대회', 'Meet') }}</span>{{ c.competitionName || '' }}<template v-if="c.pool"> | {{ c.pool }}</template>
           </span>
           <span v-if="statsOf(c.competitionID).length" class="mt-stats">
-            <span v-for="(e, i) in statsOf(c.competitionID)" :key="i" class="mt-stat">{{ statText(e) }}</span>
+            <!-- 거리마다 한 줄 · 줄 안은 ' | ' 로 나눈다 -->
+            <span v-for="(line, li) in statLines(c.competitionID)" :key="li" class="mt-line">
+              <template v-for="(e, i) in line" :key="i">
+                <span v-if="i" class="mt-sep" aria-hidden="true">|</span>
+                <span class="mt-stat">{{ statText(e) }}</span>
+              </template>
+            </span>
           </span>
         </span>
       </NuxtLink>
@@ -90,9 +116,11 @@ const groups = computed(() => {
 .mt-cat { color: var(--orange); font-weight: 700; margin-right: 0.4em; }
 .mt-row:hover .mt-title { color: var(--orange-deep); }
 
-/* 종목·거리 통계 — 제목 아래 한 줄로 흘려 쓴다 */
-.mt-stats { display: flex; flex-wrap: wrap; gap: 2px 14px; margin-top: 5px; font-family: var(--serif); font-size: 12.5px; line-height: 1.7; color: var(--ink-light); }
+/* 종목·거리 통계 — 거리마다 한 줄 */
+.mt-stats { display: block; margin-top: 5px; font-family: var(--serif); font-size: 12.5px; line-height: 1.7; color: var(--ink-light); }
+.mt-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 7px; }
 .mt-stat { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.mt-sep { color: var(--line); }
 
 .mt-empty { padding: 20px 2px; font-family: var(--serif); font-size: 13px; color: var(--ink-light); }
 
