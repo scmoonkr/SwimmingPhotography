@@ -92,5 +92,9 @@ const onClick = () => { toggle(); preview.value = null; spring() }
 @keyframes logo-shine { 0% { background-position: 0% center; } 100% { background-position: -200% center; } }
 .tagline { font-family: var(--serif); font-size: 13px; line-height: 1.4; color: var(--ink-mute); margin-top: 6px; letter-spacing: .01em; }
 
-@media (max-width: 640px) { .logo { font-size: 23px; } }
+/* 모바일에서는 언어 토글(한국어·영어)을 숨긴다 — 좁은 헤더에서 로고·태그라인에 밀린다 */
+@media (max-width: 640px) {
+  .logo { font-size: 23px; }
+  .lang-toggle { display: none; }
+}
 </style>
