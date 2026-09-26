@@ -130,6 +130,16 @@ const sorted = computed(() => docs.value.map(normArticle).sort((a, b) => {
   return an.localeCompare(bn, 'ko', { numeric: true })
 }))
 const filtered = computed(() => sorted.value.filter((a) => curCat.value === 'all' || a.cat === curCat.value))
+// 사진 기사 ↔ 리스트(사진 없는) 기사 경계 — 구분선을 붙일 첫 기사의 slug.
+// featured 로 위에 크게 실린 기사는 그리드에서 감추므로, 그걸 빼고도 사진 기사가 남아 있을 때만 긋는다.
+// (경계가 맨 앞이면 선 위가 비어 어색하다)
+const dividerSlug = computed(() => {
+  const list = filtered.value
+  const at = list.findIndex((a: any) => !a.thumb)
+  if (at <= 0) return ''
+  const hasShownPhoto = list.slice(0, at).some((a: any) => a.thumb && !featSlugs.value.has(a.slug))
+  return hasShownPhoto ? (list[at].slug || '') : ''
+})
 const groups = computed(() => {
   const out: { ym: string; label: string; rows: any[] }[] = []
   for (const a of filtered.value) {
@@ -286,8 +296,11 @@ watch([bkItems, isEN], () => nextTick().then(syncBBHeight))
       <!-- 같은 달이 (사진 있음 → 없음) 순서로 두 번 나올 수 있어 키에 순번을 붙인다 -->
       <template v-for="(g, gi) in groups" :key="g.ym + '-' + gi">
         <div class="month-group">{{ g.label }}</div>
+        <template v-for="(a, i) in g.rows" :key="g.ym + '-' + gi + '-' + i">
+        <!-- 사진 기사와 리스트 기사 사이 구분선 -->
+        <div v-if="dividerSlug && a.slug === dividerSlug" class="list-divider" aria-hidden="true" />
         <NuxtLink
-          v-for="(a, i) in g.rows" :key="g.ym + '-' + gi + '-' + i" class="row"
+          class="row"
           :class="{ 'no-thumb': !a.thumb, 'is-feat': featSlugs.has(a.slug) }" :to="'/article/' + a.slug"
           :data-cat="a.cat" :data-region="a.region" :data-competition="a.competition"
         >
@@ -309,6 +322,7 @@ watch([bkItems, isEN], () => nextTick().then(syncBBHeight))
           <span class="c-event">{{ pick(a, 'event') }}</span>
           <span class="c-record">{{ fmtRecord(a.record) }}</span>
         </NuxtLink>
+        </template>
       </template>
 
       <p v-if="!groups.length" class="empty">{{ t('해당하는 기사가 없습니다.', 'No matching articles.') }}</p>
@@ -378,6 +392,10 @@ body.view-grid .featured { display: grid; grid-template-columns: repeat(5, 1fr);
 body.view-grid .items { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 20px; margin-top: 0; padding-top: 20px; }
 body.view-grid .row { display: flex; flex-direction: column; gap: 9px; }
 /* 사진 없는 기사: 그리드에서는 숨기고 리스트에서만 노출 */
+/* 사진 기사 ↔ 리스트 기사 경계선 */
+.list-divider { border-top: 1px solid var(--line); margin: 10px 0 4px; }
+body.view-grid .list-divider { grid-column: 1 / -1; margin: 16px 0 6px; }
+
 /* 사진 없는 기사 — 예전엔 그리드에서 아예 감췄지만, 이제 사진 있는 기사 뒤에 한 줄로 보여준다 */
 body.view-grid .row.no-thumb { display: block; grid-column: 1 / -1; padding: 9px 0; border-bottom: 1px solid var(--line-soft); }
 body.view-grid .row.no-thumb .thumb { display: none; }
