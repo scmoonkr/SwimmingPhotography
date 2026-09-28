@@ -79,7 +79,9 @@ router.post('/match', async (req, res) => {
     const cid = (competitionID != null && competitionID !== '') ? Number(competitionID) : null
     if (cid == null) return res.status(400).json({ error: '대회를 선택하세요.' })
 
-    const names = [...new Set(items.map((i) => String(i?.name || '').trim()).filter(Boolean))]
+    // 이름은 NFC 로 정규화한다 — 파일명은 이미 NFC 지만, 대시보드에서 직접 타이핑/붙여넣기한
+    // 이름이 자모분리(NFD)면 DB(NFC)의 name_unique 와 $in 이 안 맞아 후보가 0건이 된다.
+    const names = [...new Set(items.map((i) => String(i?.name || '').trim().normalize('NFC')).filter(Boolean))]
     // 배열 필드라 $in 은 '원소' 매칭이다. 개인은 원소가 곧 이름이라 그대로 걸리고,
     // 계영("A,B,C,D")은 콤마로 끊은 배열 전체 일치로 따로 건다. 최종 판정은 아래 join 비교로 한다.
     const or = []
@@ -88,7 +90,7 @@ router.post('/match', async (req, res) => {
     // name_unique 만 걸면 후보 자체가 안 잡힌다(아래 팀 폴백용).
     if (singles.length) or.push({ name_unique: { $in: singles } }, { name: { $in: singles } })
     for (const n of names.filter((x) => x.includes(','))) {
-      or.push({ name_unique: n.split(',').map((s) => s.trim()).filter(Boolean) })
+      or.push({ name_unique: n.split(',').map((s) => s.trim().normalize('NFC')).filter(Boolean) })
     }
     const rows = or.length
       ? await (await SP()).collection('times').find(
@@ -97,10 +99,11 @@ router.post('/match', async (req, res) => {
       ).limit(20000).toArray()
       : []
 
-    // 계영은 gender 를 키에서 뺀다 — 이름·영법·거리만.
+    // 계영은 gender 를 키에서 뺀다 — 이름·영법·거리만. 이름은 NFC 로 맞춰 키를 비교한다.
+    const nfc = (v) => String(v ?? '').normalize('NFC')
     const keyOf = (nm, g, d, dist) => (isRelay(d)
-      ? ['R', nm, d, dist]
-      : ['I', nm, g, d, dist]).map((v) => String(v ?? '')).join('|')
+      ? ['R', nfc(nm), d, dist]
+      : ['I', nfc(nm), g, d, dist]).map((v) => String(v ?? '')).join('|')
     // name_unique.includes(파일명의 name) 이 되도록 '원소 각각'을 키로 건다.
     // (개인은 원소가 하나라 그 이름 하나, 계영은 멤버 각각. 명단 전체를 적은 파일명도 받도록 join 도 함께.)
     const idx = new Map()
@@ -262,13 +265,17 @@ router.get('/disciplines', async (req, res) => {
 // matched: 'none' = timeID 가 없는(기록에 못 붙은) 사진만 · 'has' = 붙은 것만
 router.get('/', async (req, res) => {
   try {
-    const { competitionID, discipline, name, matched, limit = 2000 } = req.query
+    const { competitionID, discipline, name, matched, saved, limit = 2000 } = req.query
     const filter = {}
     if (competitionID) filter.competitionID = Number(competitionID)
     if (discipline) filter.discipline = String(discipline)
     if (name) filter.name = { $regex: String(name), $options: 'i' }
+    // times 매칭 여부 — timeID
     if (matched === 'none') filter.timeID = null          // null 은 필드가 없는 문서도 함께 잡는다
     else if (matched === 'has') filter.timeID = { $ne: null }
+    // 기사 저장 여부 — articleSaved 플래그(기사 저장 시 표시)
+    if (saved === 'has') filter.articleSaved = true
+    else if (saved === 'none') filter.articleSaved = { $ne: true }
     const docs = await (await coll())
       .find(filter)
       .limit(Math.min(Number(limit) || 2000, 10000))
@@ -283,6 +290,70 @@ router.get('/', async (req, res) => {
       thumbPath: d.thumbnail || d.url || '',
     }))
     res.json(out)
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// ── 기사 저장 — 체크한 이미지를 해당 기사(articles)의 images 배열에 추가한다 ──
+// 이미지.name 은 times.name_unique(=articles.unique) 와 같으므로, (competitionID + unique==name) 으로 기사를 찾는다.
+// 계영(이름에 콤마) 등 단일 선수 기사에 안 붙는 것은 건너뛴다. 같은 파일은 $addToSet 로 중복 없이 누적.
+router.post('/save-articles', async (req, res) => {
+  try {
+    const sp = await SP()
+    const { ids, competitionID } = req.body || {}
+    const filter = {}
+    if (Array.isArray(ids) && ids.length) filter._id = { $in: ids.map(toId).filter(Boolean) }
+    else if (competitionID != null && String(competitionID).trim() !== '') filter.competitionID = Number(competitionID)
+    else return res.status(400).json({ error: '대상이 없습니다(ids 또는 competitionID).' })
+    const proj = { competitionID: 1, filename: 1, ageGroup: 1, competition: 1, discipline: 1, distance: 1, gender: 1, name: 1, team: 1, thumbnail: 1, timeID: 1, type: 1, url: 1 }
+    const ims = await sp.collection('images').find(filter, { projection: proj }).toArray()
+    if (!ims.length) return res.json({ total: 0, articles: 0, matched: 0, saved: 0, skipped: 0 })
+
+    const imgObj = (im) => ({
+      competitionID: im.competitionID ?? null, filename: im.filename ?? '', ageGroup: im.ageGroup ?? '',
+      competition: im.competition ?? '', discipline: im.discipline ?? '', distance: im.distance ?? '',
+      gender: im.gender ?? '', name: im.name ?? '', team: im.team ?? '', thumbnail: im.thumbnail ?? '',
+      timeID: im.timeID ?? null, type: im.type ?? '', url: im.url ?? '',
+    })
+    // (competitionID + unique==name) 로 기사를 묶는다. 이름 없거나 계영(콤마)은 건너뛴다.
+    const byArticle = new Map()
+    let skipped = 0
+    for (const im of ims) {
+      const nm = String(im.name || '').trim()
+      const cid = im.competitionID
+      if (!nm || nm.includes(',') || cid == null || String(cid).trim() === '') { skipped++; continue }
+      const key = `${Number(cid)}|${nm}`
+      if (!byArticle.has(key)) byArticle.set(key, { cid: Number(cid), nm, imgs: [] })
+      byArticle.get(key).imgs.push(imgObj(im))
+    }
+    const bulk = [...byArticle.values()].map((a) => ({
+      updateOne: {
+        filter: { competitionID: a.cid, unique: a.nm },
+        update: { $addToSet: { images: { $each: a.imgs } }, $set: { updatedAt: new Date() } },
+      },
+    }))
+    let matched = 0; let saved = 0
+    if (bulk.length) {
+      const r = await sp.collection('articles').bulkWrite(bulk)
+      matched = r.matchedCount || 0
+      saved = r.modifiedCount || 0
+    }
+
+    // 기사가 실제로 있는 (competitionID, unique) 를 확인해, 그 기사에 붙은 이미지에 articleSaved 플래그를 남긴다.
+    const byCid = new Map()
+    for (const { cid, nm } of byArticle.values()) { if (!byCid.has(cid)) byCid.set(cid, new Set()); byCid.get(cid).add(nm) }
+    const existKeys = new Set()
+    for (const [cid, names] of byCid) {
+      const arts = await sp.collection('articles').find({ competitionID: cid, unique: { $in: [...names] } }, { projection: { unique: 1 } }).toArray()
+      for (const a of arts) existKeys.add(`${cid}|${a.unique}`)
+    }
+    const savedImgIds = ims
+      .filter((im) => existKeys.has(`${Number(im.competitionID)}|${String(im.name || '').trim()}`))
+      .map((im) => im._id)
+    if (savedImgIds.length) await sp.collection('images').updateMany({ _id: { $in: savedImgIds } }, { $set: { articleSaved: true } })
+
+    res.json({ total: ims.length, articles: byArticle.size, matched, saved, noArticle: bulk.length - matched, skipped, flagged: savedImgIds.length })
   } catch (e) {
     res.status(500).json({ error: e.message })
   }

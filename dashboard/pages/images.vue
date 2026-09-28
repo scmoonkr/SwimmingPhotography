@@ -9,8 +9,10 @@ const api = (p = '') => `${useRuntimeConfig().public.apiBase}/api/images${p}`
 const competitionID = ref<number | ''>('')
 const discipline = ref('')
 const name = ref('')
-// 매칭 여부 — timeID 가 없는 사진은 기록(times)에 붙지 못한 것
+// times 매칭 여부 — timeID 가 없는 사진은 기록(times)에 붙지 못한 것
 const matched = ref<'' | 'none' | 'has'>('')
+// 기사 저장 여부 — articleSaved 플래그(기사 저장 버튼으로 기사에 붙인 이미지)
+const savedFilter = ref<'' | 'none' | 'has'>('')
 
 const competitions = ref<any[]>([])
 const disciplines = ref<string[]>([])
@@ -38,12 +40,32 @@ const loading = ref(false)
 const errorMsg = ref('')
 const importOpen = ref(false)   // 사진 가져오기 드로어
 const notice = ref('')
+const checked = ref<any[]>([])          // 체크한 이미지 — 기사 저장 대상
+const savingArticles = ref(false)
 const onImportDone = async (r: any) => {
   importOpen.value = false
   notice.value = `${r.count}장 저장 완료 — 신규 ${r.upserted} · 수정 ${r.modified}`
     + (r.failed?.length ? ` · 실패 ${r.failed.length}` : '')
   await loadFilters()   // 대회 옵션의 장수 갱신
   await load()
+}
+
+// 기사 저장 — 체크한 이미지를 (competitionID + name==unique) 로 찾은 기사의 images 배열에 추가.
+const saveArticles = async () => {
+  if (savingArticles.value) return
+  if (!checked.value.length) { notice.value = '체크한 이미지가 없습니다.'; return }
+  if (!confirm(`체크한 ${checked.value.length}장을 해당 기사의 images 에 저장합니다. 계속할까요?`)) return
+  savingArticles.value = true; errorMsg.value = ''; notice.value = ''
+  try {
+    const ids = checked.value.map((r) => r._id).filter(Boolean)
+    const res = await $fetch<any>(api('/save-articles'), { method: 'POST', body: { ids } })
+    notice.value = `기사 저장 — 이미지 ${res.total} · 대상 기사 ${res.articles} · 저장 ${res.saved} · 기사없음 ${res.noArticle}${res.skipped ? ` · 제외 ${res.skipped}` : ''}`
+    checked.value = []
+  } catch (err: any) {
+    errorMsg.value = '기사 저장 실패: ' + (err?.data?.error || err?.message || '')
+  } finally {
+    savingArticles.value = false
+  }
 }
 
 const loadFilters = async () => {
@@ -58,7 +80,9 @@ const load = async () => {
     if (discipline.value) params.discipline = discipline.value
     if (name.value.trim()) params.name = name.value.trim()
     if (matched.value) params.matched = matched.value
+    if (savedFilter.value) params.saved = savedFilter.value
     rows.value = await $fetch<any[]>(api(), { params })
+    checked.value = []
   } catch (err: any) {
     rows.value = []
     errorMsg.value = err?.data?.error || err?.message || '조회 실패'
@@ -72,7 +96,7 @@ onMounted(async () => {
   if (competitions.value.length) competitionID.value = competitions.value[0].competitionID
   else await load()
 })
-watch([competitionID, discipline, matched], load)
+watch([competitionID, discipline, matched, savedFilter], load)
 
 // ── 상세 드로어 (편집) ──
 const selected = ref<any | null>(null)
@@ -213,22 +237,34 @@ const onDelete = async () => {
         <option value="">영법 전체</option>
         <option v-for="d in disciplines" :key="d" :value="d">{{ discLabel(d) }}</option>
       </select>
-      <select v-model="matched" class="filter-select" aria-label="기록 매칭 여부">
-        <option value="">매칭 전체</option>
-        <option value="none">미매칭 (timeID 없음)</option>
-        <option value="has">매칭됨</option>
+      <select v-model="matched" class="filter-select" aria-label="times 매칭 여부">
+        <option value="">times매칭 전체</option>
+        <option value="has">timeID 있음</option>
+        <option value="none">timeID 없음</option>
+      </select>
+      <select v-model="savedFilter" class="filter-select" aria-label="기사 저장 여부">
+        <option value="">기사저장 전체</option>
+        <option value="has">기사저장됨</option>
+        <option value="none">미저장</option>
       </select>
       <input v-model="name" class="filter-input" type="search" placeholder="선수명 검색…" @keydown.enter="load">
       <button class="btn btn-ghost" type="button" @click="load">검색</button>
       <span class="toolbar-spacer" />
       <button class="btn btn-primary" type="button" @click="importOpen = true">Import</button>
+      <button class="btn btn-ghost" type="button" :disabled="savingArticles || !checked.length" @click="saveArticles">
+        {{ savingArticles ? '기사 저장 중…' : (checked.length ? `기사 저장 (${checked.length})` : '기사 저장') }}
+      </button>
     </div>
 
     <p v-if="errorMsg" class="load-error">{{ errorMsg }}</p>
     <p v-if="notice" class="result-note notice">{{ notice }}</p>
     <p v-if="!loading" class="result-note">총 {{ rows.length }}장</p>
 
-    <DataTable :columns="columns" :rows="rows" clickable hide-search hide-actions @row-click="openRow" />
+    <DataTable
+      :columns="columns" :rows="rows" clickable hide-search hide-actions
+      selectable :selected="checked" @update:selected="checked = $event"
+      @row-click="openRow"
+    />
 
     <!-- 사진 가져오기 드로어 (1단계: 파일명 → times 매칭 확인) -->
     <ImageImportDrawer

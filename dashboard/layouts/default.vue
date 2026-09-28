@@ -20,6 +20,7 @@ const nav = [
   { to: '/athletes', label: 'Athletes', en: 'Athletes', key: 'athletes', need: ['data'], icon: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>' },
   { to: '/times', label: 'Times', en: 'Times', key: 'times', need: ['data'], icon: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>' },
   { to: '/images', label: 'Images', en: 'Images', key: 'images', need: ['data'], icon: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.8"/><path d="m4 18 5-5 4 4 3-3 4 4"/>' },
+  { to: '/youtube', label: 'YouTube', en: 'YouTube', key: 'youtube', need: ['data'], icon: '<rect x="2" y="5" width="20" height="14" rx="4"/><path d="M10 9l5 3-5 3V9Z" fill="currentColor" stroke="none"/>' },
   { to: '/venues', label: 'Pools', en: 'Venues', key: 'venues', need: ['data'], icon: '<path d="M3 21h18M5 21V8l7-4 7 4v13"/><path d="M9 21v-6h6v6"/>' },
   { to: '/teams', label: 'Teams', en: 'Teams', key: 'teams', need: ['data'], icon: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 5.5a3.5 3.5 0 0 1 0 7M18 20a6.5 6.5 0 0 0-3-5.5"/>' },
   { to: '/start-list', label: 'Start List', en: 'Start List', key: 'startList', need: ['data'], icon: '<path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/>' },

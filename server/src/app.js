@@ -11,6 +11,7 @@ import venuesRouter from './routes/venues.js'
 import timesRouter from './routes/times.js'
 import athletesRouter from './routes/athletes.js'
 import imagesRouter from './routes/images.js'
+import youtubeRouter from './routes/youtube.js'
 import countsRouter from './routes/counts.js'
 import streamRouter from './routes/stream.js'
 import authRouter from './routes/auth.js'
@@ -71,6 +72,7 @@ app.use('/api/venues', venuesRouter)
 app.use('/api/times', timesRouter)
 app.use('/api/athletes', athletesRouter)
 app.use('/api/images', imagesRouter)
+app.use('/api/youtube', youtubeRouter)
 app.use('/api/counts', countsRouter)
 app.use('/api/stream', streamRouter)
 

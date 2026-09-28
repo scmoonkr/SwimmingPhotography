@@ -1,9 +1,15 @@
 <script setup lang="ts">
 // 사진 가져오기 드로어 — 대회 선택 → 파일 선택(드래그/파일선택) → 파일명 파싱 결과 표시.
-// 파일명 규칙: ******_{name}_{team}_{gender}_{discipline}_{distance}_{type}.jpg
-//   예) 20260830_175302_048A8464_문주희_Sunday Burning_혼성_계영_200_CEREMONY.jpg
-//   앞쪽(******)은 촬영 정보라 무시하고 '_' 로 끊어 뒤에서 6개를 쓴다.
-//   (team 이 없던 예전 5토큰 파일명은 자리가 밀려 잘못 읽힌다 — 이름·팀을 행에서 고쳐 쓴다.)
+// 파일명 규칙: ******_{name}_{gender}_{discipline}_{distance}_{type}.jpg
+//   예) 20260830_175302_048A8464_문주희_혼성_계영_200_CEREMONY.jpg
+//       20260912_091556_7R504579_이정민_여자_평영_RACE.jpg   ← distance 생략(선택 항목)
+//   앞쪽(******)은 촬영 정보라 길이가 제각각 → 오른쪽부터 끊는다.
+//     type=맨끝, distance=그 앞이 숫자면(선택), discipline·gender=그 앞 두 칸, name=그 앞.
+//   distance 는 빠지는 사진이 많아(RACE·TOUCHPAD·CEREMONY 등) 선택 항목으로 본다.
+//   거리가 없으면 50M 로 기본 설정한다(표에 '*' 표시 — 다르면 행에서 고친다).
+//   team 은 파일명에서 뺐다 — 매칭 키가 아니고(힌트일 뿐), 저장 team 은 매칭된 기록 값을 쓴다.
+//   동명이인은 행에서 team 을 채우거나 name 을 name_unique(예: 홍길동1)로 고쳐 가른다.
+//   ※ 예전 규칙처럼 team 이 들어간 파일명은 name 이 팀으로 밀려 읽히니 행에서 고쳐야 한다.
 // times 매칭·업로드는 다음 단계에서 구현한다.
 import { computed, ref, watch } from 'vue'
 
@@ -39,24 +45,39 @@ const normDistance = (v: string) => {
   const m = String(v || '').match(/(\d+)\s*[Mm]?$/)
   return m ? `${m[1]}M` : ''
 }
-// 변환 실패는 raw 를 남겨 표에서 경고로 보여준다
+// distance 칸인지 판별 — 숫자(+선택 m).
+const DIST_RE = /^\d+\s*[Mm]?$/
+// 각 토큰이 어떤 필드인지 값으로 판별 — gender·discipline·type·distance 는 모두 닫힌 어휘/숫자라 겹치지 않는다.
+const asType = (t: string) => TYPE_MAP[String(t).toLowerCase()] || ''
+const asGender = (t: string) => GENDER_MAP[t] || ''
+const asDiscipline = (t: string) => DISCIPLINE_MAP[t] || DISCIPLINE_MAP[String(t).toUpperCase()] || ''
 const parseFilename = (filename: string) => {
   const base = filename.replace(/\.[^.]+$/, '')
   const parts = base.split('_').map((s) => s.trim()).filter((s) => s !== '')
-  if (parts.length < 6) {
-    return { filename, ok: false, name: '', team: '', gender: '', discipline: '', distance: '', type: '', raw: null as any }
+  // 오른쪽부터 '값의 형태'로 분류한다 — 앞쪽 촬영 정보(******)는 길이가 제각각이고,
+  // 성별·영법·거리는 있을 수도/없을 수도 있어(성별만·영법만·거리 없음 등) 위치로는 못 가른다.
+  //   각 토큰을 type→distance→discipline→gender 순으로 맞춰 채우고(겹치지 않음),
+  //   어디에도 안 맞는 첫 토큰이 이름이다(그 앞은 촬영 정보라 멈춘다).
+  let gRaw = '', dRaw = '', distRaw = '', tRaw = '', name = ''
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const tok = parts[i]
+    if (!tRaw && asType(tok)) { tRaw = tok; continue }
+    if (!distRaw && DIST_RE.test(tok)) { distRaw = tok; continue }
+    if (!dRaw && asDiscipline(tok)) { dRaw = tok; continue }
+    if (!gRaw && asGender(tok)) { gRaw = tok; continue }
+    name = tok            // 인식 안 되는 토큰 = 이름. 여기서 멈춘다.
+    break
   }
-  const [name, team, g, d, dist, t] = parts.slice(-6)
   return {
     filename,
-    ok: true,
+    ok: !!name,                                  // 이름을 못 찾으면 형식오류
     name,
-    team,   // 파일명에 적힌 팀 표기 — 코드 변환 없이 그대로 쓴다
-    gender: GENDER_MAP[g] || '',
-    discipline: DISCIPLINE_MAP[d] || DISCIPLINE_MAP[d.toUpperCase()] || '',
-    distance: normDistance(dist),
-    type: TYPE_MAP[t.toLowerCase()] || t.toUpperCase(),
-    raw: { name, team, gender: g, discipline: d, distance: dist, type: t },
+    team: '',   // 파일명에서 팀을 읽지 않는다 — 동명이인 힌트가 필요하면 행에서 직접 채운다
+    gender: asGender(gRaw),
+    discipline: asDiscipline(dRaw),
+    distance: normDistance(distRaw) || '50M',    // 파일명에 거리가 없으면 50M 로 기본 설정(표에 '*' 표시)
+    type: tRaw ? asType(tRaw) : '',
+    raw: { name, gender: gRaw, discipline: dRaw, distance: distRaw, type: tRaw },
   }
 }
 
@@ -91,11 +112,22 @@ const removeFile = (filename: string) => {
   queue.value.splice(i, 1)
   clearMatch()
 }
+// ── 이미지 확대 (썸네일 클릭 → 모달) ──
+const lightbox = ref<string | null>(null)   // 크게 볼 이미지 preview URL
+const onLbKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); lightbox.value = null } }
+// 열려 있을 때만 ESC 리스너를 건다 (드로어 닫기 ESC 보다 먼저 라이트박스를 닫도록 capture)
+watch(lightbox, (v) => {
+  if (typeof window === 'undefined') return
+  if (v) window.addEventListener('keydown', onLbKey, true)
+  else window.removeEventListener('keydown', onLbKey, true)
+})
+
 const reset = () => {
   queue.value.forEach((q) => URL.revokeObjectURL(q.preview))
   queue.value = []
   overrides.value = {}
   editing.value = ''
+  lightbox.value = null
   clearMatch()
 }
 
@@ -123,6 +155,7 @@ const parsed = computed(() => queue.value
       ok: base.ok || !!ov,                                            // 직접 채웠으면 형식오류 해제
       edited: !!ov && FIELDS.some((k) => (base as any)[k] !== ov[k]),
       match: matchByFile.value[q.name] || null,
+      preview: q.preview,                                             // 파일명 앞 썸네일
     }
   })
   .sort((a, b) => {
@@ -133,7 +166,8 @@ const parsed = computed(() => queue.value
       || (distN(a.distance) - distN(b.distance))
       || ko(a.type, b.type)
   }))
-const badCount = computed(() => parsed.value.filter((p) => !p.ok || !p.gender || !p.discipline || !p.distance).length)
+// 인식 실패 = 이름을 못 찾은 것만. 성별·영법·거리는 값으로 판별하며 없어도 되므로(파일명이 생략) 실패로 치지 않는다.
+const badCount = computed(() => parsed.value.filter((p) => !p.ok).length)
 
 // ── times 매칭 — name(=name_unique)·gender·discipline·distance 로 찾아 timeID·ageGroup·team 을 채운다 ──
 // (team 도 함께 보내지만 키는 아니다 — 여러 건이 잡혔을 때 서버에서 좁히는 힌트로만 쓴다)
@@ -141,6 +175,32 @@ const api = (p = '') => `${useRuntimeConfig().public.apiBase}/api/images${p}`
 const matchByFile = ref<Record<string, any>>({})
 const matching = ref(false)
 const msg = ref('')
+
+// ── 여러건(예선·결선) 처리 ──
+// 매칭 키(이름·성별·영법·거리)에 라운드가 없어, 같은 종목을 예선·결선 뛰면 두 기록이 다 잡힌다(multi).
+// 사진으로 예선/결선을 가리기 어려우니 구분하지 않고 결선(최종 기록)에 자동으로 붙인다.
+// 라운드 우선순위 — 결승/결선 > 준결승 > 예선 > 그 외. 가장 높은 라운드를 고른다.
+const roundRank = (r: any) => {
+  const s = String(r || '')
+  if (/준결|semi/i.test(s)) return 2      // '준결승' 은 '결' 을 포함하니 먼저 거른다
+  if (/결|final/i.test(s)) return 3
+  if (/예선|prelim|heat/i.test(s)) return 1
+  return 0
+}
+// 이 사진에 붙을 timeID — 단건이면 그것, 여러건이면 결선(가장 높은 라운드). 매칭 안 됐으면 null.
+const chosenTimeID = (p: any): number | null => {
+  const ts = p.match?.times || []
+  if (!ts.length) return null
+  let best = ts[0]
+  for (const t of ts) if (roundRank(t.round) > roundRank(best.round)) best = t
+  return best?.timeID ?? null
+}
+// 자동 선택된 timeID 의 라운드(표시용)
+const chosenRound = (p: any) => {
+  const id = chosenTimeID(p)
+  return (p.match?.times || []).find((t: any) => t.timeID === id)?.round || ''
+}
+
 const clearMatch = () => { matchByFile.value = {}; msg.value = '' }
 
 // 요약은 표의 현재 상태에서 계산한다 — 한 행만 다시 매칭해도 숫자가 맞도록.
@@ -151,8 +211,11 @@ const matchSum = computed(() => {
   return { ok: n('ok'), multi: n('multi'), none: n('none') }
 })
 
+// 직접 타이핑/붙여넣기한 이름·소속은 NFC 로 맞춘다 — 자모분리(NFD)면 times.name_unique(NFC)와
+// 매칭이 어긋난다(파일명은 addFiles 에서 이미 NFC 로 정규화됨). 전송 직전에도 정규화해 예전 override 도 커버.
+const nfc = (s: any) => String(s ?? '').normalize('NFC').trim()
 const payloadOf = (p: any) => ({
-  filename: p.filename, name: p.name, team: p.team, gender: p.gender, discipline: p.discipline, distance: p.distance,
+  filename: p.filename, name: nfc(p.name), team: nfc(p.team), gender: p.gender, discipline: p.discipline, distance: p.distance,
 })
 const postMatch = async (items: any[]) => {
   const res = await $fetch<any>(api('/match'), { method: 'POST', body: { competitionID: cid.value, items } })
@@ -173,6 +236,7 @@ const runMatch = async () => {
     const res = await $fetch<any>(api('/match'), { method: 'POST', body: { competitionID: cid.value, items } })
     timesInComp.value = res.timesInCompetition ?? null
     matchByFile.value = Object.fromEntries((res.items || []).map((r: any) => [r.filename, r]))
+
   } catch (err: any) {
     clearMatch()
     msg.value = '매칭 실패: ' + (err?.data?.error || err?.message || '')
@@ -227,8 +291,9 @@ const prog = (label: string, n: number, total: number, filename = '') =>
   `${label} ${n} / ${total}${filename ? `  ${filename}` : ''}`
 // 한 요청에 담는 장수 — 원본이 장당 수 MB 라 크게 잡으면 요청 하나가 너무 무거워진다
 const BATCH = 4
-// 매칭이 안 된 파일은 timeID 없이 올라간다 — 올리기 전에 몇 건인지 알려준다
-const unmatchedCount = computed(() => parsed.value.filter((p) => p.ok && p.match?.status !== 'ok').length)
+// timeID 없이 올라가는 파일 — 매칭 안 함(null) 또는 '없음'. 올리기 전에 몇 건인지 알려준다.
+// 여러건(예선·결선)은 결선 기본값(또는 행에서 고른 라운드)으로 확정되므로 여기 포함하지 않는다.
+const unmatchedCount = computed(() => parsed.value.filter((p) => p.ok && !chosenTimeID(p)).length)
 
 const doUpload = async () => {
   if (uploading.value) return
@@ -238,7 +303,7 @@ const doUpload = async () => {
   if (!targets.length) { msg.value = '올릴 파일이 없습니다.'; return }
   const comp = props.competitions.find((c) => c.competitionID === cid.value)
   const bad = unmatchedCount.value
-  if (bad && !confirm(`${targets.length}장 중 ${bad}장은 times 매칭이 확정되지 않았습니다.\ntimeID 없이(또는 첫 후보로) 저장됩니다. 계속할까요?`)) return
+  if (bad && !confirm(`${targets.length}장 중 ${bad}장은 times 매칭이 안 됐습니다(없음/미매칭).\ntimeID 없이 저장됩니다. 계속할까요?`)) return
 
   uploading.value = true; msg.value = ''; upProgress.value = ''
   upDone.value = 0; upTotal.value = targets.length
@@ -270,8 +335,8 @@ const doUpload = async () => {
           // 팀으로 동명이인을 가른 경우 파일명의 '김수정' 이 아니라 '김수정2' 로 저장한다.
           name: p.match?.name_unique || p.name,
           gender: p.gender, discipline: p.discipline, distance: p.distance, type: p.type,
-          // 매칭이 하나로 확정된 것만 timeID 를 붙인다(여러 건이면 첫 후보)
-          timeID: p.match?.timeIDs?.[0] ?? null,
+          // 확정된 timeID — 단건이면 그것, 여러건(예선·결선)이면 결선 기본값 또는 행에서 고른 라운드
+          timeID: chosenTimeID(p),
           ageGroup: p.match?.ageGroup ?? '',
           // team — 맞은 기록의 팀명을 우선한다(times 와 표기를 맞추려고). 못 맞았으면 파일명 값.
           team: p.match?.team || p.team || '',
@@ -302,15 +367,13 @@ const doUpload = async () => {
   }
 }
 
+// 파일명에 거리가 없어 50M 로 기본 채운 경우 — 표에 '기본' 으로 표시해 확인·수정을 유도한다
+const distDefault = (p: any) => !!(p.ok && p.raw && !p.raw.distance && !p.edited)
 // 파일명 이름과 실제 name_unique 가 다른 경우 — 동명이인을 팀으로 가른 것
 const nuFixed = (p: any) => !!(p.match?.name_unique && p.match.name_unique !== p.name)
 // 파일명의 팀 표기가 맞은 기록의 team 과 다를 때 알려준다 — 저장은 기록 쪽 값을 쓴다
 const teamDiff = (p: any) => !!(p.match?.team && p.team && p.match.team !== p.team)
-// timeID 표기 — 여러 건이면 "913306 외 1"
-const timeIDLabel = (m: any) => {
-  if (!m || !m.timeIDs?.length) return ''
-  return m.timeIDs.length === 1 ? String(m.timeIDs[0]) : `${m.timeIDs[0]} 외 ${m.timeIDs.length - 1}`
-}
+// timeID 셀 툴팁 — 잡힌 기록 전체(라운드·기록)를 줄바꿈으로
 const timeIDTitle = (m: any) => (m?.times || []).map((t: any) => `${t.timeID} ${t.round || ''} ${t.time || ''}`.trim()).join('\n')
 
 // ── 행 클릭 → 인라인 편집 ──
@@ -327,8 +390,9 @@ const startEdit = (p: any) => {
 const commitEdit = (doMatch = true) => {
   const f = editing.value
   if (!f) return
-  overrides.value = { ...overrides.value, [f]: { ...draft.value } }
-  // 값이 바뀌었으니 이전 매칭 결과는 무효
+  const d = { ...draft.value, name: nfc(draft.value.name), team: nfc(draft.value.team) }
+  overrides.value = { ...overrides.value, [f]: d }
+  // 값이 바뀌었으니 이전 매칭 결과는 무효(아래 doMatch 로 다시 찾는다).
   const m = { ...matchByFile.value }
   delete m[f]
   matchByFile.value = m
@@ -373,8 +437,9 @@ const cancelEdit = () => { editing.value = '' }
             <span class="up-hint">또는 폴더에서 드래그</span>
           </div>
           <p class="up-note">
-            파일명 규칙 <code>******_{name}_{team}_{gender}_{discipline}_{distance}_{type}.jpg</code><br>
-            예) <code>20260830_175302_048A8464_문주희_Sunday Burning_혼성_계영_200_CEREMONY.jpg</code>
+            파일명 규칙 <code>******_{name}_{gender}_{discipline}_{distance}_{type}.jpg</code><br>
+            예) <code>20260830_175302_048A8464_문주희_혼성_계영_200_CEREMONY.jpg</code><br>
+            <code>distance</code> 는 생략할 수 있고(예: <code>…_이정민_여자_평영_RACE.jpg</code>), 없으면 <b>50M</b> 로 기본 설정됩니다(표에 <b>*</b> 표시). 팀은 파일명에 넣지 않습니다 — 동명이인은 행에서 team 을 채우거나 이름을 <code>홍길동1</code> 로 고쳐 가릅니다.
           </p>
         </div>
 
@@ -403,8 +468,12 @@ const cancelEdit = () => { editing.value = '' }
                 :class="{ miss: !p.ok || p.match?.status === 'none', editing: editing === p.filename, edited: p.edited }"
                 @click="startEdit(p)"
               >
-                <td class="mono" :class="{ bad: !p.ok }" :title="p.edited ? '직접 수정한 행' : ''">
-                  <span v-if="p.edited" class="dot">●</span>{{ p.filename }}
+                <td class="mono fn-cell" :class="{ bad: !p.ok }" :title="p.edited ? '직접 수정한 행' : ''">
+                  <img
+                    v-if="p.preview" class="fn-thumb" :src="p.preview" alt="" loading="lazy"
+                    title="클릭하면 크게 보기" @click.stop="lightbox = p.preview"
+                  >
+                  <span class="fn-name"><span v-if="p.edited" class="dot">●</span>{{ p.filename }}</span>
                 </td>
 
                 <!-- 편집 중 -->
@@ -456,14 +525,26 @@ const cancelEdit = () => { editing.value = '' }
                   <td :class="{ warn: teamDiff(p) }" :title="teamDiff(p) ? `기록의 팀: ${p.match.team}` : ''">
                     {{ p.team || '—' }}
                   </td>
-                  <td :class="{ bad: !p.gender }">{{ p.gender || (p.raw ? `${p.raw.gender} ?` : '—') }}</td>
-                  <td :class="{ bad: !p.discipline }">{{ p.discipline || (p.raw ? `${p.raw.discipline} ?` : '—') }}</td>
-                  <td :class="{ bad: !p.distance }">{{ p.distance || (p.raw ? `${p.raw.distance} ?` : '—') }}</td>
+                  <!-- gender·discipline 은 값으로 판별하므로 '없거나 정확'하다 — 없으면 '—'(행에서 채울 수 있음) -->
+                  <td>{{ p.gender || '—' }}</td>
+                  <td>{{ p.discipline || '—' }}</td>
+                  <!-- distance — 파일명에 없으면 50M 로 기본 채우고 '*' 표시 -->
+                  <td>
+                    {{ p.distance || '—' }}
+                    <span v-if="distDefault(p)" class="dist-def" title="파일명에 거리가 없어 50M 로 기본 설정했습니다 — 다르면 행을 클릭해 고치세요">*</span>
+                  </td>
                   <td>{{ p.type || '—' }}</td>
                 </template>
 
-                <td class="mono" :class="{ bad: p.match?.status === 'none', warn: p.match?.status === 'multi' }" :title="timeIDTitle(p.match)">
-                  {{ p.match ? (timeIDLabel(p.match) || '없음') : '—' }}
+                <!-- 여러건(예선·결선)은 구분하지 않고 결선에 자동 배정 — 붙는 timeID 만 표시 -->
+                <td class="mono" :class="{ bad: p.match?.status === 'none' }" :title="timeIDTitle(p.match)">
+                  <template v-if="p.match">
+                    <template v-if="chosenTimeID(p)">
+                      {{ chosenTimeID(p) }}<span v-if="p.match.status === 'multi'" class="multi-note"> · {{ chosenRound(p) }}</span>
+                    </template>
+                    <template v-else>없음</template>
+                  </template>
+                  <template v-else>—</template>
                 </td>
                 <td>{{ p.match?.ageGroup || '—' }}</td>
 
@@ -479,7 +560,7 @@ const cancelEdit = () => { editing.value = '' }
           </table>
           <p class="res-hint">행을 클릭하면 name·team·gender·discipline·distance·type 을 고칠 수 있습니다 (✓ 적용 · Esc 취소).</p>
           <p v-if="badCount" class="res-hint">
-            <b>?</b> 표시는 코드로 바꾸지 못한 값입니다. 파일명을 고치거나 행에서 직접 지정하세요.
+            <b>인식 실패 {{ badCount }}</b> — 이름을 찾지 못한 파일입니다. 행을 클릭해 이름을 직접 채우세요.
           </p>
           <p v-if="matchSum && !matchSum.ok && !matchSum.multi" class="res-hint bad">
             <b>하나도 맞지 않습니다.</b>
@@ -492,11 +573,10 @@ const cancelEdit = () => { editing.value = '' }
           </p>
           <p v-else-if="matchSum?.none" class="res-hint">
             <b>없음</b> — 이 대회에 (이름 · 성별 · 영법 · 거리) 가 맞는 기록이 없습니다.
-            동명이인은 파일명의 <b>팀</b>으로 자동으로 갈립니다 — 팀 표기가 기록과 다르면 행에서 팀을 고치거나,
-            이름을 <code>홍길동1</code> 처럼 name_unique 로 바꾸세요(행 클릭으로 수정 가능).
+            동명이인이면 행에서 <b>팀</b>을 채워 좁히거나, 이름을 <code>홍길동1</code> 처럼 name_unique 로 바꾸세요(행 클릭으로 수정 가능).
           </p>
           <p v-if="matchSum?.multi" class="res-hint">
-            <b>여러건</b> — 같은 종목을 예선·결선처럼 두 번 이상 뛴 경우입니다. timeID 에 마우스를 올리면 전체가 보입니다.
+            <b>여러건</b> — 같은 종목을 예선·결선처럼 두 번 이상 뛴 경우입니다(동명이인 아님). 예선·결선은 구분하지 않고 <b>결선</b> 기록에 자동으로 붙습니다.
           </p>
         </div>
       </div>
@@ -513,6 +593,12 @@ const cancelEdit = () => { editing.value = '' }
         </button>
       </footer>
     </aside>
+
+    <!-- 이미지 확대 (썸네일 클릭) — 배경/×/Esc 로 닫기 -->
+    <div v-if="lightbox" class="lb" @click="lightbox = null">
+      <img class="lb-img" :src="lightbox" alt="" @click.stop>
+      <button class="lb-x" type="button" aria-label="닫기" @click="lightbox = null">×</button>
+    </div>
   </div>
 </template>
 
@@ -520,7 +606,7 @@ const cancelEdit = () => { editing.value = '' }
 .drawer-root { position: fixed; inset: 0; z-index: 1000; pointer-events: none; }
 .drawer-ov { position: absolute; inset: 0; background: rgba(26, 26, 26, .34); opacity: 0; transition: opacity .22s ease; }
 .drawer {
-  position: absolute; top: 0; right: 0; height: 100%; width: min(1120px, 96vw); background: var(--paper);
+  position: absolute; top: 0; right: 0; height: 100%; width: min(1480px, 98vw); background: var(--paper);
   border-left: 1px solid var(--line); box-shadow: -18px 0 50px rgba(26, 26, 26, .12);
   display: flex; flex-direction: column; transform: translateX(100%); transition: transform .26s cubic-bezier(.4, 0, .2, 1);
 }
@@ -559,6 +645,11 @@ const cancelEdit = () => { editing.value = '' }
 .res-table th, .res-table td { padding: 5px 8px; text-align: left; border-bottom: 1px solid var(--line-soft); }
 .res-table th { font-size: 11.5px; font-weight: 600; color: var(--ink-light); }
 .res-table td.mono { font-family: var(--mono, monospace); word-break: break-all; }
+/* 파일명 셀 — 썸네일 + 파일명 */
+.res-table td.fn-cell { display: flex; align-items: center; gap: 9px; }
+.res-table .fn-thumb { flex: 0 0 auto; width: 48px; height: 48px; object-fit: cover; border-radius: 4px; background: var(--paper-deep); border: 1px solid var(--line); cursor: zoom-in; }
+.res-table .fn-thumb:hover { border-color: var(--orange); }
+.res-table .fn-name { min-width: 0; word-break: break-all; }
 .res-table td.strong { font-weight: 700; }
 .res-table td.bad { color: var(--bad); }
 .res-table td.warn { color: var(--orange); }
@@ -570,6 +661,8 @@ const cancelEdit = () => { editing.value = '' }
 .res-table tbody tr:hover td { background: var(--paper-deep); }
 .res-table tr.editing td { background: var(--paper-deep); box-shadow: inset 2px 0 0 var(--orange); }
 .res-table .nu-fix { margin-left: 4px; font-weight: 600; color: var(--orange); }
+.res-table .dist-def { margin-left: 2px; color: var(--orange); font-weight: 700; cursor: help; }
+.res-table .multi-note { color: var(--ink-light); font-size: 11.5px; }
 .res-table tr.edited .dot { color: var(--orange); margin-right: 5px; font-size: 8px; vertical-align: middle; }
 .res-table td.act { white-space: nowrap; text-align: right; }
 .cell-input {
@@ -593,4 +686,10 @@ const cancelEdit = () => { editing.value = '' }
   font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .btn:disabled { opacity: .5; cursor: default; }
+
+/* 이미지 확대 라이트박스 */
+.lb { position: fixed; inset: 0; z-index: 1300; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, .82); padding: 32px; cursor: zoom-out; }
+.lb-img { max-width: 96vw; max-height: 92vh; object-fit: contain; box-shadow: 0 12px 48px rgba(0, 0, 0, .5); cursor: default; }
+.lb-x { position: absolute; top: 16px; right: 24px; border: none; background: none; color: #fff; font-size: 36px; line-height: 1; cursor: pointer; padding: 0; }
+.lb-x:hover { color: var(--orange); }
 </style>
