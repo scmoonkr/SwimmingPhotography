@@ -117,7 +117,16 @@ const { data: featData } = await useAsyncData('home:featured', () =>
 // ── 목록/그룹 ──
 // 월(YYYY-MM)은 최신부터, 같은 달 안에서는 선수명 가나다순.
 // 월 묶음이 이어져 있어야 아래 groups 가 같은 달을 두 번 만들지 않는다.
-const sorted = computed(() => docs.value.map(normArticle).sort((a, b) => {
+// 홈의 사진 — media.images 가 1장 이상일 때만 사진 기사로 본다.
+//   media: { thumb, coverImage, images: [{ url, thumbnail?, translations… }] }
+// 목록 썸네일: media.thumb → 첫 사진 thumbnail → 첫 사진 url
+// featured 큰 사진: media.coverImage → 첫 사진 url → media.thumb
+const firstImage = (d: any) => (Array.isArray(d?.media?.images) && d.media.images[0]) || null
+const rowImg = (d: any) => {
+  const im = firstImage(d)
+  return im ? (d.media.thumb || im.thumbnail || im.url || '') : ''
+}
+const sorted = computed(() => docs.value.map((d: any) => ({ ...normArticle(d), thumb: rowImg(d) })).sort((a, b) => {
   // 사진 있는 기사가 앞, 없는 기사가 뒤 (그 안에서 월 최신순 → 선수명순)
   const at = a.thumb ? 0 : 1, bt = b.thumb ? 0 : 1
   if (at !== bt) return at - bt
@@ -153,7 +162,10 @@ const groups = computed(() => {
 
 // ── featured (그리드 상단, 큰 1 + 옆 2) : visibility.isFeatured 기사 최신순 ──
 // 서버 featured 필터로 따로 받은 featData 에서 파생 — 대시보드에서 isFeatured 를 켜면 자동 반영. 첫 장이 hero(big).
-const featImg = (d: any) => d?.media?.coverImage || (d?.media?.images && d.media.images[0]?.url) || d?.media?.thumb || ''
+const featImg = (d: any) => {
+  const im = firstImage(d)
+  return im ? (d.media.coverImage || im.url || d.media.thumb || '') : ''
+}
 // 사진이 없는 기사는 featured 칸이 빈 상자가 되므로 이미지가 있는 것만 올린다.
 const feat = computed(() => (featData.value || []).filter((d: any) => d.slug && featImg(d)).slice(0, 3).map((d, i) => ({
   slug: d.slug,

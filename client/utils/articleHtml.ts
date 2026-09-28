@@ -85,6 +85,28 @@ const ytId = (url: any) => {
 // data-en 은 값이 있을 때만 부여 (없으면 EN 모드에서 한글이 그대로 노출되도록)
 const attrEn = (en: string) => (en ? ` data-en="${escA(en)}"` : '')
 
+// 유튜브 영상 — 클릭 후 로드(facade). 검증된 ID만 임베드, 아니면 링크 폴백. 둘 다 아니면 ''.
+const videoHtml = (url: any, caption: any, captionEn: any) => {
+  const id = ytId(url)
+  if (id) {
+    const cap = caption
+      ? `<figcaption class="art-caption"${attrEn(captionEn || '')}>${esc(caption)}</figcaption>`
+      : ''
+    return `<figure class="art-video">
+          <div class="yt-frame">
+            <button type="button" class="yt-facade" data-yt="${id}" aria-label="영상 재생">
+              <img class="yt-poster" src="https://i.ytimg.com/vi/${id}/hqdefault.jpg" alt="" loading="lazy">
+              <span class="yt-play" aria-hidden="true"></span>
+            </button>
+          </div>${cap}
+        </figure>`
+  }
+  if (/^https?:\/\//.test(String(url || ''))) {
+    return `<p class="art-video-fallback"><a href="${escA(url)}" target="_blank" rel="noopener">${esc(url)}</a></p>`
+  }
+  return ''
+}
+
 // ── 마크다운 (읽을거리 본문 blocks 의 { type:'markdown', text }) ───────────────
 // 외부 라이브러리 없이 기사에 필요한 문법만 옮긴다.
 // 안전: 먼저 esc() 로 이스케이프한 뒤 마크다운을 적용하므로 원문에 HTML 을 써도 태그로 살아나지 않는다.
@@ -258,10 +280,11 @@ export function buildArticleLayout(doc: any, opts: BuildOpts = {}): string {
   let metaDates = `<time datetime="${escA(doc.publishedAt)}"${attrEn(enInput(doc.publishedAt))}>${esc(koInput(doc.publishedAt))}</time>`
   if (doc.updatedAt) metaDates += `<a class="revised" href="#corrections"><time datetime="${escA(doc.updatedAt)}"${attrEn(enUpdated(doc.updatedAt))}>${esc(koUpdated(doc.updatedAt))}</time></a>`
 
-  // ── 갤러리 ── 본문에 인라인 image 블록이 있으면 중복되므로 상단 갤러리는 생략.
-  const hasInlineImages = blocks.some((b) => b && b.type === 'image')
+  // ── 갤러리 ── media.images 가 있으면 항상 lead 앞에 슬라이드로 보인다.
+  // 본문 image 블록 중 슬라이드와 같은 사진은 아래에서 건너뛴다(중복 방지).
+  const slideUrls = new Set(images.map((im) => imgUrl(im && im.url)).filter(Boolean))
   let gallery = ''
-  if (images.length && !hasInlineImages) {
+  if (images.length) {
     const slides = images.map((im) => {
       const cko = (im.translations && im.translations.ko && im.translations.ko.caption) || ''
       const cen = (im.translations && im.translations.en && im.translations.en.caption) || ''
@@ -325,23 +348,8 @@ export function buildArticleLayout(doc: any, opts: BuildOpts = {}): string {
       const enHtml = eb ? mdToHtml(eb.text || '') : ''
       if (html || enHtml) bodyParts.push(`<div class="art-md"${attrEnHtml(enHtml)}>${html}</div>`)
     } else if (b.type === 'video') {
-      // 유튜브 영상 — 클릭 후 로드(facade). 검증된 ID만 임베드, 아니면 링크 폴백.
-      const id = ytId(b.url)
-      if (id) {
-        const cap = b.caption
-          ? `<figcaption class="art-caption"${attrEn(b.captionEn || '')}>${esc(b.caption)}</figcaption>`
-          : ''
-        bodyParts.push(`<figure class="art-video">
-          <div class="yt-frame">
-            <button type="button" class="yt-facade" data-yt="${id}" aria-label="영상 재생">
-              <img class="yt-poster" src="https://i.ytimg.com/vi/${id}/hqdefault.jpg" alt="" loading="lazy">
-              <span class="yt-play" aria-hidden="true"></span>
-            </button>
-          </div>${cap}
-        </figure>`)
-      } else if (/^https?:\/\//.test(String(b.url || ''))) {
-        bodyParts.push(`<p class="art-video-fallback"><a href="${escA(b.url)}" target="_blank" rel="noopener">${esc(b.url)}</a></p>`)
-      }
+      const v = videoHtml(b.url, b.caption, b.captionEn)
+      if (v) bodyParts.push(v)
     } else if (b.type === 'highlight' || /^note/.test(String(b.type))) {
       // 콜아웃(인용/인터뷰와 같은 좌측 보더 형식, 색만 구별) — highlight=강조, note=편집자 주
       // 라벨은 label · title 어느 쪽이든 수용(생성 파이프라인은 note 에 title 사용). notexx 등 note* 오타도 수용.
@@ -374,7 +382,7 @@ export function buildArticleLayout(doc: any, opts: BuildOpts = {}): string {
     } else if (b.type === 'image') {
       // 본문 인라인 사진 — url(R2 상대경로/절대) → imgUrl 로 정규화, 캡션 병기
       const u = imgUrl(b.url || (b.image && b.image.url) || '')
-      if (u) {
+      if (u && !slideUrls.has(u)) {
         const cap = b.caption
           ? `<figcaption class="art-caption"${attrEn(b.captionEn || '')}>${esc(b.caption)}</figcaption>`
           : ''
@@ -384,6 +392,11 @@ export function buildArticleLayout(doc: any, opts: BuildOpts = {}): string {
       // 기타 블록(result·eventSummary 등) — title/text 있으면 표시 (버려지지 않도록)
       if (b.title) bodyParts.push(`<h2${attrEn(blockTitleEn(b.title, eb ? (eb.title || '') : ''))}>${esc(b.title)}</h2>`)
       if (b.text) bodyParts.push(`<p${attrEn(eb ? (eb.text || '') : '')}>${esc(b.text)}</p>`)
+    }
+    // 문서의 youtube { url, caption } — 경기 요약(event/summary) 블록 바로 다음에 표시
+    if (b.type === 'event' && b.source === 'summary' && doc?.youtube) {
+      const v = videoHtml(doc.youtube.url, doc.youtube.caption, doc.youtube.captionEn)
+      if (v) bodyParts.push(v)
     }
   })
   // 맺음말 — content.conclusion(문자열)을 본문 맨 끝에 표시

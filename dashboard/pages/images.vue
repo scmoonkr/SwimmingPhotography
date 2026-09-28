@@ -11,7 +11,7 @@ const discipline = ref('')
 const name = ref('')
 // times 매칭 여부 — timeID 가 없는 사진은 기록(times)에 붙지 못한 것
 const matched = ref<'' | 'none' | 'has'>('')
-// 기사 저장 여부 — articleSaved 플래그(기사 저장 버튼으로 기사에 붙인 이미지)
+// 기사 저장 여부 — 이 사진의 기사에 media.images 가 1장 이상 있는가 ('기사' 열과 같은 기준)
 const savedFilter = ref<'' | 'none' | 'has'>('')
 
 const competitions = ref<any[]>([])
@@ -33,6 +33,8 @@ const columns: Column[] = [
   { key: 'timeID', label: 'timeID', cls: 'mono', get: (r) => r.timeID ?? '—' },
   { key: 'scene', label: '장면', cls: 'muted', get: (r) => r.sceneType || r.type || '' },
   { key: 'caption', label: '캡션', get: (r) => r.translations?.ko?.caption || '' },
+  // 기사 사진 여부 — 이 사진의 기사에 media.images 가 1장 이상 있으면 ○
+  { key: 'articleHasImages', label: '기사', get: (r) => (r.articleHasImages ? '○' : '') },
 ]
 
 const rows = ref<any[]>([])
@@ -50,17 +52,17 @@ const onImportDone = async (r: any) => {
   await load()
 }
 
-// 기사 저장 — 체크한 이미지를 (competitionID + name==unique) 로 찾은 기사의 images 배열에 추가.
+// 기사 저장 — 체크한 이미지를 (competitionID + name==unique) 로 찾은 기사의 media.images 에 추가.
 const saveArticles = async () => {
   if (savingArticles.value) return
   if (!checked.value.length) { notice.value = '체크한 이미지가 없습니다.'; return }
-  if (!confirm(`체크한 ${checked.value.length}장을 해당 기사의 images 에 저장합니다. 계속할까요?`)) return
+  if (!confirm(`체크한 ${checked.value.length}장을 해당 기사의 media 에 저장합니다. 계속할까요?`)) return
   savingArticles.value = true; errorMsg.value = ''; notice.value = ''
   try {
     const ids = checked.value.map((r) => r._id).filter(Boolean)
     const res = await $fetch<any>(api('/save-articles'), { method: 'POST', body: { ids } })
+    await load()          // '기사' 열 갱신 (load 가 체크도 비운다)
     notice.value = `기사 저장 — 이미지 ${res.total} · 대상 기사 ${res.articles} · 저장 ${res.saved} · 기사없음 ${res.noArticle}${res.skipped ? ` · 제외 ${res.skipped}` : ''}`
-    checked.value = []
   } catch (err: any) {
     errorMsg.value = '기사 저장 실패: ' + (err?.data?.error || err?.message || '')
   } finally {

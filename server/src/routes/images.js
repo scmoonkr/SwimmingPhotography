@@ -273,21 +273,36 @@ router.get('/', async (req, res) => {
     // times 매칭 여부 — timeID
     if (matched === 'none') filter.timeID = null          // null 은 필드가 없는 문서도 함께 잡는다
     else if (matched === 'has') filter.timeID = { $ne: null }
-    // 기사 저장 여부 — articleSaved 플래그(기사 저장 시 표시)
-    if (saved === 'has') filter.articleSaved = true
-    else if (saved === 'none') filter.articleSaved = { $ne: true }
-    const docs = await (await coll())
-      .find(filter)
-      .limit(Math.min(Number(limit) || 2000, 10000))
-      .toArray()
+    // 기사 저장 여부(saved) 는 아래에서 기사의 media.images 를 보고 거른다.
+    // 거르기 전에 limit 을 걸면 해당 사진이 잘려 나가므로, 그때는 거른 뒤에 자른다.
+    const max = Math.min(Number(limit) || 2000, 10000)
+    const savedMode = saved === 'has' || saved === 'none'
+    let cur = (await coll()).find(filter)
+    if (!savedMode) cur = cur.limit(max)
+    const docs = await cur.toArray()
+    // 기사 사진 여부 — 이 사진의 기사(competitionID + unique==name)에 media.images 가 1장 이상 있는가
+    const cids = [...new Set(docs.map((d) => d.competitionID).filter((v) => v != null))]
+    const names = [...new Set(docs.map((d) => String(d.name || '').trim()).filter(Boolean))]
+    const withImages = new Set()
+    if (cids.length && names.length) {
+      const arts = await (await SP()).collection('articles')
+        .find({ competitionID: { $in: cids }, unique: { $in: names }, 'media.images.0': { $exists: true } },
+          { projection: { competitionID: 1, unique: 1 } })
+        .toArray()
+      for (const a of arts) withImages.add(`${a.competitionID}|${a.unique}`)
+    }
     // 저장은 상대경로 → 표시용 url·thumbnail 은 CLOUD_PUBLIC_URL 붙인 전체 URL. path/thumbPath 는 상대경로 보존.
     const abs = (p) => (!p ? '' : (/^https?:\/\//.test(p) ? p : publicUrl(p)))
-    const out = docs.map((d) => ({
+    const keyOf = (d) => `${d.competitionID}|${String(d.name || '').trim()}`
+    const picked = !savedMode ? docs
+      : docs.filter((d) => withImages.has(keyOf(d)) === (saved === 'has')).slice(0, max)
+    const out = picked.map((d) => ({
       ...d,
       url: abs(d.url),
       thumbnail: abs(d.thumbnail || d.url),
       path: d.url || '',
       thumbPath: d.thumbnail || d.url || '',
+      articleHasImages: withImages.has(keyOf(d)),
     }))
     res.json(out)
   } catch (e) {
@@ -295,9 +310,11 @@ router.get('/', async (req, res) => {
   }
 })
 
-// ── 기사 저장 — 체크한 이미지를 해당 기사(articles)의 images 배열에 추가한다 ──
+// ── 기사 저장 — 체크한 이미지를 해당 기사(articles)의 media 에 추가한다 ──
+//   media: { thumb, coverImage, images: [{ type, url, thumbnail, discipline, distance, timeID }] }
 // 이미지.name 은 times.name_unique(=articles.unique) 와 같으므로, (competitionID + unique==name) 으로 기사를 찾는다.
-// 계영(이름에 콤마) 등 단일 선수 기사에 안 붙는 것은 건너뛴다. 같은 파일은 $addToSet 로 중복 없이 누적.
+// 계영(이름에 콤마) 등 단일 선수 기사에 안 붙는 것은 건너뛴다. 같은 url 은 중복 없이 누적.
+// media.thumb 가 비어 있으면 첫 사진의 썸네일로 채운다.
 router.post('/save-articles', async (req, res) => {
   try {
     const sp = await SP()
@@ -311,10 +328,8 @@ router.post('/save-articles', async (req, res) => {
     if (!ims.length) return res.json({ total: 0, articles: 0, matched: 0, saved: 0, skipped: 0 })
 
     const imgObj = (im) => ({
-      competitionID: im.competitionID ?? null, filename: im.filename ?? '', ageGroup: im.ageGroup ?? '',
-      competition: im.competition ?? '', discipline: im.discipline ?? '', distance: im.distance ?? '',
-      gender: im.gender ?? '', name: im.name ?? '', team: im.team ?? '', thumbnail: im.thumbnail ?? '',
-      timeID: im.timeID ?? null, type: im.type ?? '', url: im.url ?? '',
+      type: im.type ?? '', url: im.url ?? '', thumbnail: im.thumbnail ?? '',
+      discipline: im.discipline ?? '', distance: im.distance ?? '', timeID: im.timeID ?? null,
     })
     // (competitionID + unique==name) 로 기사를 묶는다. 이름 없거나 계영(콤마)은 건너뛴다.
     const byArticle = new Map()
@@ -327,33 +342,47 @@ router.post('/save-articles', async (req, res) => {
       if (!byArticle.has(key)) byArticle.set(key, { cid: Number(cid), nm, imgs: [] })
       byArticle.get(key).imgs.push(imgObj(im))
     }
-    const bulk = [...byArticle.values()].map((a) => ({
-      updateOne: {
-        filter: { competitionID: a.cid, unique: a.nm },
-        update: { $addToSet: { images: { $each: a.imgs } }, $set: { updatedAt: new Date() } },
-      },
-    }))
-    let matched = 0; let saved = 0
-    if (bulk.length) {
-      const r = await sp.collection('articles').bulkWrite(bulk)
-      matched = r.matchedCount || 0
-      saved = r.modifiedCount || 0
-    }
-
-    // 기사가 실제로 있는 (competitionID, unique) 를 확인해, 그 기사에 붙은 이미지에 articleSaved 플래그를 남긴다.
+    // 대상 기사를 먼저 읽어 기존 media 와 합친다 (url 기준 중복 제거, thumb 는 비었을 때만 채움)
     const byCid = new Map()
     for (const { cid, nm } of byArticle.values()) { if (!byCid.has(cid)) byCid.set(cid, new Set()); byCid.get(cid).add(nm) }
     const existKeys = new Set()
+    const bulk = []
+    let saved = 0
     for (const [cid, names] of byCid) {
-      const arts = await sp.collection('articles').find({ competitionID: cid, unique: { $in: [...names] } }, { projection: { unique: 1 } }).toArray()
-      for (const a of arts) existKeys.add(`${cid}|${a.unique}`)
+      const arts = await sp.collection('articles')
+        .find({ competitionID: cid, unique: { $in: [...names] } }, { projection: { unique: 1, media: 1 } }).toArray()
+      for (const art of arts) {
+        const key = `${cid}|${art.unique}`
+        existKeys.add(key)
+        const add = byArticle.get(key)?.imgs || []
+        const cur = Array.isArray(art.media?.images) ? art.media.images : []
+        const seen = new Set(cur.map((im) => im?.url).filter(Boolean))
+        const fresh = add.filter((im) => im.url && !seen.has(im.url) && seen.add(im.url))
+        if (!fresh.length) continue
+        const images = [...cur, ...fresh]
+        const thumb = art.media?.thumb || (images.find((im) => im?.thumbnail) || {}).thumbnail || ''
+        const $set = { updatedAt: new Date() }
+        // media 가 없거나 null 이면 점 표기 $set 이 실패하므로 통째로 넣는다
+        if (!art.media || typeof art.media !== 'object') $set.media = { thumb, coverImage: '', images }
+        else {
+          $set['media.images'] = images
+          $set['media.thumb'] = thumb
+          if (art.media.coverImage === undefined) $set['media.coverImage'] = ''
+        }
+        bulk.push({ updateOne: { filter: { _id: art._id }, update: { $set } } })
+      }
     }
+    if (bulk.length) {
+      const r = await sp.collection('articles').bulkWrite(bulk)
+      saved = r.modifiedCount || 0
+    }
+    const matched = existKeys.size
     const savedImgIds = ims
       .filter((im) => existKeys.has(`${Number(im.competitionID)}|${String(im.name || '').trim()}`))
       .map((im) => im._id)
     if (savedImgIds.length) await sp.collection('images').updateMany({ _id: { $in: savedImgIds } }, { $set: { articleSaved: true } })
 
-    res.json({ total: ims.length, articles: byArticle.size, matched, saved, noArticle: bulk.length - matched, skipped, flagged: savedImgIds.length })
+    res.json({ total: ims.length, articles: byArticle.size, matched, saved, noArticle: byArticle.size - matched, skipped, flagged: savedImgIds.length })
   } catch (e) {
     res.status(500).json({ error: e.message })
   }

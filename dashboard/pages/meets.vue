@@ -20,6 +20,11 @@ const status = ref('')          // '' 전체 / published 게시됨 / draft 초�
 const dateFrom = ref('')        // 작성일자(createdAt) >= 이 날짜
 const featured = ref(false)     // visibility.isFeatured 만
 const hasImage = ref(false)     // 이미지 있는 기사만
+const hasYoutube = ref(false)   // articles.youtube 있는 기사만
+
+// 유튜브 열 — 대회 기사는 articles.youtube 기준 (읽을거리와 공유하는 기본 열을 바꿔 쓴다)
+const columns = computed(() => e.columns.map((c: any) =>
+  c.key === 'hasYoutube' ? { ...c, get: (r: any) => (r.youtube?.url ? '○' : '') } : c))
 
 const rows = ref<any[]>([])
 const errorMsg = ref('')
@@ -46,6 +51,7 @@ const load = async () => {
     if (dateFrom.value) params.dateFrom = dateFrom.value
     if (featured.value) params.featured = 'true'
     if (hasImage.value) params.hasImage = 'true'
+    if (hasYoutube.value) params.youtube = 'true'
     // 정렬(작성일 최근순)은 서버가 한다 — 쪽마다 따로 정렬하면 순서가 어긋난다.
     const data = await $fetch<any>(api(), { params })
     rows.value = data?.rows || []
@@ -131,59 +137,13 @@ const applyPubDate = async () => {
 const splitList = (v: string) => (v || '').split(',').map((s) => s.trim()).filter(Boolean)
 
 // docs/schema.md 매핑 — 드로어 편집 필드 (get/set)
-// ── 유튜브 영상 블록 ──────────────────────────────────────
-// 본문 blocks 안의 { type:'video', url } 하나로 다룬다. 렌더러(articleHtml)가 보는 것도 type==='video' 다.
-// ko·en blocks 는 같은 인덱스끼리 짝지어 렌더되므로, 넣고 뺄 때 두 배열을 같은 자리에서 함께 손봐야
-// 뒤쪽 문단들의 영문이 어긋나지 않는다.
-const blocksOf = (r: any, lang: string) => r?.translations?.[lang]?.content?.blocks
-const isVideo = (b: any) => b?.type === 'video' || b?.provider === 'youtube'
-const findVideoBlock = (r: any) => (blocksOf(r, 'ko') || []).find(isVideo)
-
-// 넣을 자리 — 개요(event.summary) 다음, 첫 경기 결과(event.result) 앞.
-// 둘 다 없으면 맨 뒤에 붙인다.
-const videoSlot = (blocks: any[]) => {
-  const result = blocks.findIndex((b: any) => b?.type === 'event' && b?.source === 'result')
-  if (result >= 0) return result
-  let summary = -1
-  blocks.forEach((b: any, i: number) => { if (b?.type === 'event' && b?.source === 'summary') summary = i })
-  return summary >= 0 ? summary + 1 : blocks.length
-}
-
-// 영상 캡션 — 렌더러가 ko 블록의 caption 을 figcaption(art-caption) 으로 그린다.
-const setVideoCaption = (r: any, caption: string) => {
-  const b = findVideoBlock(r)
-  if (!b) return                                // 영상이 없으면 캡션만 따로 둘 자리가 없다
-  if (caption) b.caption = caption
-  else delete b.caption
-}
-
-const setVideoBlock = (r: any, url: string) => {
-  const ko = blocksOf(r, 'ko')
-  if (!Array.isArray(ko)) return
-  // 다른 언어는 ko 와 길이가 같을 때만 함께 손댄다 — 어긋난 문서를 더 어긋나게 만들지 않는다.
-  const langs = ['ko', 'en', 'ja'].filter((l) => {
-    const bs = blocksOf(r, l)
-    return Array.isArray(bs) && (l === 'ko' || bs.length === ko.length)
-  })
-  const at = ko.findIndex(isVideo)
-
-  if (!url) {                                   // 비웠으면 제거
-    if (at < 0) return
-    for (const l of langs) {
-      const bs = blocksOf(r, l)
-      if (isVideo(bs[at])) bs.splice(at, 1)
-    }
-    return
-  }
-  if (at >= 0) {                                // 이미 있으면 위치는 두고 URL 만 교체
-    for (const l of langs) {
-      const b = blocksOf(r, l)[at]
-      if (isVideo(b)) { b.url = url; b.type = 'video' }
-    }
-    return
-  }
-  const pos = videoSlot(ko)                     // 새로 넣기
-  for (const l of langs) blocksOf(r, l).splice(pos, 0, { type: 'video', url })
+// ── 유튜브 (articles.youtube = { url, caption }) ──────────────
+// 렌더러(articleHtml)가 개요(event.summary) 블록 바로 다음에 그린다.
+// PUT 은 $set 이라 필드를 지울 수 없으므로, URL 을 비우면 null 로 둔다.
+const setYoutube = (r: any, key: 'url' | 'caption', v: string) => {
+  const cur = r.youtube || {}
+  const next = { url: cur.url || '', caption: cur.caption || '', [key]: v }
+  r.youtube = next.url ? next : null
 }
 
 const fields: Field[] = [
@@ -207,7 +167,7 @@ const fields: Field[] = [
   {
     key: 'images', label: '이미지', type: 'thumbs', span: 2,
     get: (r) => {
-      const urls = (r.media?.images || []).map((im: any) => im?.url).filter(Boolean)
+      const urls = (r.media?.images || []).map((im: any) => im?.thumbnail || im?.url).filter(Boolean)
       if (!urls.length && r.media?.thumb) urls.push(r.media.thumb)
       return urls
     },
@@ -218,16 +178,16 @@ const fields: Field[] = [
     get: (r) => r.reporter?.name ?? '',
     set: (r, v) => { r.reporter.name = v; r.reporter.nameEng = v === '편집부' ? 'Editorial Team' : v },
   },
-  // 유튜브 URL — 비우면 영상이 빠지고, 넣으면 개요와 첫 경기 결과 사이에 들어간다.
+  // 유튜브 URL — 비우면 영상이 빠지고, 넣으면 개요 다음에 들어간다.
   {
-    key: 'youtube', label: '유튜브 URL (개요와 첫 결과 사이)', type: 'text', span: 2,
-    get: (r) => findVideoBlock(r)?.url || '',
-    set: (r, v) => setVideoBlock(r, String(v ?? '').trim()),
+    key: 'youtube', label: '유튜브 URL (개요 다음)', type: 'text', span: 2,
+    get: (r) => r.youtube?.url || '',
+    set: (r, v) => setYoutube(r, 'url', String(v ?? '').trim()),
   },
   {
     key: 'youtubeCaption', label: '유튜브 캡션 (영상 아래 설명)', type: 'text', span: 2,
-    get: (r) => findVideoBlock(r)?.caption || '',
-    set: (r, v) => setVideoCaption(r, String(v ?? '').trim()),
+    get: (r) => r.youtube?.caption || '',
+    set: (r, v) => setYoutube(r, 'caption', String(v ?? '').trim()),
   },
   {
     key: 'status', label: '상태', type: 'checkbox', options: ['게시됨', '초안'], span: 1,
@@ -354,6 +314,7 @@ const onDrawerDelete = async () => {
       <input v-model="dateFrom" class="filter-select" type="date" aria-label="작성일자(이후)" title="작성일자 ≥" @change="reload">
       <label class="filter-check"><input v-model="featured" type="checkbox" @change="reload"> featured</label>
       <label class="filter-check"><input v-model="hasImage" type="checkbox" @change="reload"> 이미지</label>
+      <label class="filter-check"><input v-model="hasYoutube" type="checkbox" @change="reload"> 유튜브</label>
       <input v-model="q" class="filter-input" type="search" placeholder="제목 검색 · 숫자는 대회ID…" @keydown.enter="reload">
       <button class="btn btn-ghost" type="button" @click="reload">검색</button>
       <span class="filter-spacer" />
@@ -378,7 +339,7 @@ const onDrawerDelete = async () => {
     <p v-if="errorMsg" class="load-error">데이터를 불러오지 못했습니다: {{ errorMsg }}</p>
 
     <DataTable
-      :columns="e.columns" :rows="rows" clickable hide-search hide-actions
+      :columns="columns" :rows="rows" clickable hide-search hide-actions
       selectable :selected="checked" @update:selected="checked = $event"
       :page="page" :total="total" :page-size="PAGE_SIZE"
       @row-click="openRow" @update:page="goPage"

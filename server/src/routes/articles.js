@@ -97,7 +97,7 @@ const CARD_PROJECTION = {
   competitionID: 1,              // 홈이 '한 대회'만 보여주므로 카드에도 필요
   publishedAt: 1, createdAt: 1, created: 1, updatedAt: 1,
   visibility: 1,
-  'media.thumb': 1, 'media.coverImage': 1, 'media.images.url': 1,
+  'media.thumb': 1, 'media.coverImage': 1, 'media.images.url': 1, 'media.images.thumbnail': 1,
   'translations.ko.title': 1, 'translations.ko.categories': 1,
   'translations.en.title': 1, 'translations.en.categories': 1,
   // 영상 유무만 보면 되므로 블록의 type 만. 본문(text)은 응답 대부분을 차지해 빼둔다.
@@ -116,13 +116,14 @@ const LIST_PROJECTION = {
   'media.thumb': 1, 'media.coverImage': 1, 'media.images.url': 1,
   'translations.ko.title': 1, 'translations.ko.categories': 1,
   'translations.ko.content.blocks.type': 1, 'translations.ko.content.blocks.url': 1,
+  'youtube.url': 1,   // 대회 기사 목록의 유튜브 열 (articles.youtube)
 }
 
 // 목록. type/status 외에 category(searchCategories 포함), q(제목 부분검색) 지원.
 // fields=card 면 카드용 필드만 추려 보낸다(홈·검색처럼 목록만 그리는 화면용).
 router.get('/', async (req, res) => {
   try {
-    const { type, type1, status, category, q, slug, competitionID, featured, dateFrom, hasImage, fields, skip, withTotal, sort, limit = 200 } = req.query
+    const { type, type1, status, category, q, slug, competitionID, featured, dateFrom, hasImage, youtube, fields, skip, withTotal, sort, limit = 200 } = req.query
     const filter = {}
     if (type) filter.type = type
     // type1 — 기사 유형(record·breaking_news·athlete·venue·notice·column).
@@ -154,6 +155,8 @@ router.get('/', async (req, res) => {
         { 'media.thumb': { $nin: [null, ''] } },
       ]
     }
+    // 대회 기사(meets) 필터 — articles.youtube.url 존재
+    if (youtube === 'true' || youtube === '1') filter['youtube.url'] = { $nin: [null, ''] }
     const c = await coll()
     const cursor = c
       .find(filter, fields === 'card' ? { projection: CARD_PROJECTION }
