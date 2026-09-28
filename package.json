@@ -12,5 +12,8 @@
     "client": "npm run dev --workspace=client",
     "dashboard": "npm run dev --workspace=dashboard",
     "dev": "npm run server & npm run client & npm run dashboard"
+  },
+  "dependencies": {
+    "@google/gemini-cli": "^0.61.0"
   }
 }
