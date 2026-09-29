@@ -13,6 +13,8 @@ const name = ref('')
 const matched = ref<'' | 'none' | 'has'>('')
 // 기사 저장 여부 — 이 사진의 기사에 media.images 가 1장 이상 있는가 ('기사' 열과 같은 기준)
 const savedFilter = ref<'' | 'none' | 'has'>('')
+// 저장 일자 — updatedAt 의 날짜(KST)가 이 날짜인 이미지만
+const dateFilter = ref('')
 
 const competitions = ref<any[]>([])
 const disciplines = ref<string[]>([])
@@ -21,6 +23,13 @@ const disciplines = ref<string[]>([])
 const DISC_KO: Record<string, string> = { FR: '자유형', BA: '배영', BR: '평영', FL: '접영', IM: '개인혼영', FRR: '계영', MR: '혼계영' }
 const discLabel = (d: string) => DISC_KO[d] || d || ''
 const genderLabel = (v: string) => ({ men: '남자', women: '여자', mixed: '혼성' } as Record<string, string>)[v] || v || ''
+// updatedAt(저장일) → KST yyyy-mm-dd
+const fmtDate = (v: any) => {
+  if (!v) return ''
+  const d = new Date(v)
+  if (Number.isNaN(d.getTime())) return String(v).slice(0, 10)
+  return new Date(d.getTime() + 9 * 3600 * 1000).toISOString().slice(0, 10)
+}
 
 // ── 테이블 ──
 const columns: Column[] = [
@@ -35,6 +44,7 @@ const columns: Column[] = [
   { key: 'caption', label: '캡션', get: (r) => r.translations?.ko?.caption || '' },
   // 기사 사진 여부 — 이 사진의 기사에 media.images 가 1장 이상 있으면 ○
   { key: 'articleHasImages', label: '기사', get: (r) => (r.articleHasImages ? '○' : '') },
+  { key: 'updatedAt', label: '저장일', cls: 'mono', get: (r) => fmtDate(r.updatedAt) },
 ]
 
 const rows = ref<any[]>([])
@@ -83,6 +93,7 @@ const load = async () => {
     if (name.value.trim()) params.name = name.value.trim()
     if (matched.value) params.matched = matched.value
     if (savedFilter.value) params.saved = savedFilter.value
+    if (dateFilter.value) params.date = dateFilter.value
     rows.value = await $fetch<any[]>(api(), { params })
     checked.value = []
   } catch (err: any) {
@@ -98,7 +109,7 @@ onMounted(async () => {
   if (competitions.value.length) competitionID.value = competitions.value[0].competitionID
   else await load()
 })
-watch([competitionID, discipline, matched, savedFilter], load)
+watch([competitionID, discipline, matched, savedFilter, dateFilter], load)
 
 // ── 상세 드로어 (편집) ──
 const selected = ref<any | null>(null)
@@ -249,6 +260,8 @@ const onDelete = async () => {
         <option value="has">기사저장됨</option>
         <option value="none">미저장</option>
       </select>
+      <input v-model="dateFilter" class="filter-select" type="date" aria-label="저장 일자" title="저장 일자(updatedAt 기준, yyyy-mm-dd)">
+      <button v-if="dateFilter" class="btn btn-ghost" type="button" title="일자 지우기" @click="dateFilter = ''">일자 해제</button>
       <input v-model="name" class="filter-input" type="search" placeholder="선수명 검색…" @keydown.enter="load">
       <button class="btn btn-ghost" type="button" @click="load">검색</button>
       <span class="toolbar-spacer" />

@@ -231,7 +231,7 @@ router.post('/import', upload.fields([{ name: 'files', maxCount: 1000 }, { name:
               ageGroup: String(m.ageGroup ?? ''), team: String(m.team ?? ''),
               // url·thumbnail 은 CLOUD_PUBLIC_URL 을 뺀 상대경로(=R2 key)로 저장. 조회 시 붙인다.
               url: key, thumbnail,
-              updatedAt: now,
+              updatedAt: now,          // 저장 일자 — images 일자 필터가 이 값의 날짜(KST)로 거른다
             },
           },
           upsert: true,
@@ -265,11 +265,20 @@ router.get('/disciplines', async (req, res) => {
 // matched: 'none' = timeID 가 없는(기록에 못 붙은) 사진만 · 'has' = 붙은 것만
 router.get('/', async (req, res) => {
   try {
-    const { competitionID, discipline, name, matched, saved, limit = 2000 } = req.query
+    const { competitionID, discipline, name, matched, saved, date, limit = 2000 } = req.query
     const filter = {}
     if (competitionID) filter.competitionID = Number(competitionID)
     if (discipline) filter.discipline = String(discipline)
     if (name) filter.name = { $regex: String(name), $options: 'i' }
+    // 저장 일자 — 기존 updatedAt(문자열/Date 혼재)을 KST 날짜(yyyy-mm-dd)로 바꿔 일치 비교
+    if (date) {
+      filter.$expr = {
+        $eq: [
+          { $dateToString: { date: { $convert: { input: '$updatedAt', to: 'date', onError: null, onNull: null } }, format: '%Y-%m-%d', timezone: 'Asia/Seoul' } },
+          String(date),
+        ],
+      }
+    }
     // times 매칭 여부 — timeID
     if (matched === 'none') filter.timeID = null          // null 은 필드가 없는 문서도 함께 잡는다
     else if (matched === 'has') filter.timeID = { $ne: null }
