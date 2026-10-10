@@ -40,6 +40,15 @@ const WRITE_NEED = {
   articles: ['articles', 'breaking'],
 }
 const DEFAULT_NEED = ['data']   // 대회·기록·사진·선수 등 나머지
+// 회원(media)에게 여는 쓰기 — 공개 사이트의 images · videos 화면이 쓰는 것만.
+//   사진: 한 장 수정(PUT /images/:id — 선수 선택·캡션)만. 가져오기·기사 저장·삭제는 운영진(data)만.
+//   영상: 올리기·수정·삭제 전부(삭제는 라우터가 '올린 사람만'으로 다시 가른다).
+const needFor = (req) => {
+  const [, section, id, rest] = req.path.split('/')
+  if (section === 'videos') return ['data', 'media']
+  if (section === 'images' && req.method === 'PUT' && id && !rest) return ['data', 'media']
+  return WRITE_NEED[section] || DEFAULT_NEED
+}
 
 // 쓰기(POST·PUT·PATCH·DELETE)는 로그인 필수. 공개 사이트(client)는 GET 만 쓰므로 읽기는 그대로 열어둔다.
 // 로그인·로그아웃 자체는 예외 — 여기서 막으면 들어올 방법이 없다.
@@ -52,11 +61,12 @@ app.use('/api', async (req, res, next) => {
     if (!u) return res.status(401).json({ error: '로그인이 필요합니다.' })
     req.user = u
     const section = req.path.split('/')[1] || ''
-    if (!canAny(u, WRITE_NEED[section] || DEFAULT_NEED)) {
+    if (!canAny(u, needFor(req))) {
       return res.status(403).json({ error: '이 작업을 할 권한이 없습니다.' })
     }
     // 삭제는 별도 능력 — 쓰기가 되더라도 delete 가 없으면 못 지운다
-    if (req.method === 'DELETE' && !canAny(u, ['delete'])) {
+    // (영상은 예외 — 회원도 자기가 올린 영상은 지울 수 있어야 한다. 누구 것인지는 videos 라우터가 확인한다)
+    if (req.method === 'DELETE' && section !== 'videos' && !canAny(u, ['delete'])) {
       return res.status(403).json({ error: '삭제 권한이 없습니다.' })
     }
     next()

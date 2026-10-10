@@ -1,12 +1,30 @@
 <script setup lang="ts">
 // 공용 푸터 — 하단 티커는 안내 문구(테스트 안내)를 표시.
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 
 const { t, isEN } = useLang()
 const modalOpen = ref(false)
 
 // 관리자(대시보드) URL — 환경별(runtimeConfig). dev: localhost:6642 / prod: admin.swimmingphotography.com
 const adminUrl = useRuntimeConfig().public.adminUrl
+
+// 로그아웃 — 로그인 중일 때만 '관리자' 다음에 보인다.
+// 로그인 여부는 브라우저에서 한 번 확인한다(서버 렌더링 때는 묻지 않는다 — 공개 페이지 응답이 방문자마다 달라지지 않게).
+const { user, ensure, logout } = useAuth()
+const route = useRoute()
+onMounted(() => { ensure() })
+const loggingOut = ref(false)
+const onLogout = async () => {
+  if (loggingOut.value) return
+  loggingOut.value = true
+  try {
+    await logout()
+    // 로그인해야 보는 화면(작업용)에 있었다면 홈으로 보낸다
+    if (route.meta?.middleware === 'auth' || (Array.isArray(route.meta?.middleware) && route.meta.middleware.includes('auth'))) await navigateTo('/')
+  } finally {
+    loggingOut.value = false
+  }
+}
 
 const NOTICE = () => t(
   '본 웹사이트는 현재 테스트 과정 중에 있으며 실제로 운영중이지 않습니다.',
@@ -32,6 +50,8 @@ const marqueeItems = computed(() => [NOTICE()])
         <NuxtLink to="/agreement">{{ t('규약', 'Guidelines') }}</NuxtLink>
         <NuxtLink to="/submission">{{ t('제보', 'Submit') }}</NuxtLink>
         <a class="fn-admin" :href="adminUrl">{{ t('관리자', 'Admin') }}</a>
+        <!-- 로그인 중이면 로그아웃 -->
+        <button v-if="user" class="fn-logout" type="button" :disabled="loggingOut" :title="user.name || user.username" @click="onLogout">{{ t('로그아웃', 'Log out') }}</button>
       </nav>
 
       <p class="promise">{{ t(
@@ -98,6 +118,10 @@ const marqueeItems = computed(() => [NOTICE()])
 .foot-nav { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
 .foot-nav a { font-size: 12px; color: var(--ink-light); letter-spacing: .02em; transition: color .15s; }
 .foot-nav a:hover { color: var(--ink); }
+/* 로그아웃 — 링크들과 같은 글자 모양의 단추 */
+.foot-nav .fn-logout { font: inherit; font-size: 12px; letter-spacing: .02em; color: var(--ink-light); background: none; border: none; padding: 0; cursor: pointer; transition: color .15s; }
+.foot-nav .fn-logout:hover:not(:disabled) { color: var(--ink); }
+.foot-nav .fn-logout:disabled { opacity: .5; cursor: default; }
 .foot-nav .fn-admin { color: #C6C6C3; }   /* 관리자 — 한 단계 더 흐리게 (reg-detail과 동일 톤). backend 진입점 */
 .site-foot .promise { color: var(--ink); margin-bottom: 12px; max-width: max(620px, calc(60% - 8px)); }
 .site-foot .legal { letter-spacing: .01em; }

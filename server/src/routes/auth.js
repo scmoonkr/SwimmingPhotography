@@ -1,5 +1,6 @@
 // 인증 라우터 — 로그인 / 로그아웃 / 내 정보 / 비밀번호 변경 / 계정 관리(관리자).
 import { Router } from 'express'
+import crypto from 'node:crypto'
 import {
   users, createSession, destroySession, destroyUserSessions, ensureSeedUser,
   hashPassword, verifyPassword, passwordProblem, readToken,
@@ -31,6 +32,85 @@ router.post('/login', async (req, res) => {
     res.json({ ok: true, user: publicUser(u) })
   } catch (e) {
     res.status(500).json({ error: e.message })
+  }
+})
+
+// ── 네이버 로그인 (회원가입 겸용) ─────────────────────────
+// 처음 로그인하면 회원(member)으로 등록된다 — 따로 가입 절차가 없다.
+//   GET /api/auth/naver?r=/돌아갈경로     → 네이버 동의 화면으로 보낸다
+//   GET /api/auth/naver/callback          → 네이버가 돌려보내는 곳. 계정을 찾거나 만들고 세션을 연 뒤 r 로 돌려보낸다
+// .env: NAVER_CLIENT_ID · NAVER_CLIENT_SECRET (네이버 개발자센터의 애플리케이션)
+//       NAVER_CALLBACK_URL — 네이버에 등록한 Callback URL 과 글자 그대로 같아야 한다
+//         (공개 사이트 주소 기준: https://<사이트>/api/auth/naver/callback — 세션 쿠키가 그 주소에 심긴다)
+const NAVER_STATE_COOKIE = 'sp_nv'
+const naverConf = () => ({
+  id: process.env.NAVER_CLIENT_ID || '',
+  secret: process.env.NAVER_CLIENT_SECRET || '',
+  callback: process.env.NAVER_CALLBACK_URL || 'http://localhost:6641/api/auth/naver/callback',
+})
+// 로그인 뒤 돌아갈 곳 — 사이트 안의 경로만('//host' 꼴 차단)
+const safePath = (v) => { const s = String(v || ''); return s.startsWith('/') && !s.startsWith('//') ? s : '/videos' }
+const loginError = (res, code) => res.redirect(`/login?e=${code}`)
+const cookieOf = (req, name) => {
+  for (const part of String(req.headers?.cookie || '').split(';')) {
+    const i = part.indexOf('=')
+    if (i > 0 && part.slice(0, i).trim() === name) return decodeURIComponent(part.slice(i + 1).trim())
+  }
+  return ''
+}
+
+router.get('/naver', (req, res) => {
+  const { id, callback } = naverConf()
+  if (!id) return loginError(res, 'naver_config')
+  // state — 다른 사이트가 이 로그인을 대신 끝내지 못하게 하는 일회용 값. 돌아갈 경로와 함께 쿠키에 잠깐 둔다.
+  const state = crypto.randomBytes(16).toString('hex')
+  res.cookie(NAVER_STATE_COOKIE, `${state}|${safePath(req.query.r)}`, {
+    httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 10 * 60 * 1000, path: '/api/auth',
+  })
+  const q = new URLSearchParams({ response_type: 'code', client_id: id, redirect_uri: callback, state })
+  res.redirect(`https://nid.naver.com/oauth2.0/authorize?${q}`)
+})
+
+router.get('/naver/callback', async (req, res) => {
+  try {
+    const { id, secret, callback } = naverConf()
+    const [state, back] = cookieOf(req, NAVER_STATE_COOKIE).split('|')
+    res.clearCookie(NAVER_STATE_COOKIE, { path: '/api/auth' })
+    if (!id || !secret) return loginError(res, 'naver_config')
+    if (req.query.error) return loginError(res, 'naver_denied')            // 동의 화면에서 취소
+    const code = String(req.query.code || '')
+    if (!code || !state || state !== String(req.query.state || '')) return loginError(res, 'naver_state')
+
+    // 인가 코드 → 접근 토큰 → 프로필
+    const tq = new URLSearchParams({ grant_type: 'authorization_code', client_id: id, client_secret: secret, code, state, redirect_uri: callback })
+    const tok = await (await fetch(`https://nid.naver.com/oauth2.0/token?${tq}`)).json().catch(() => null)
+    if (!tok?.access_token) return loginError(res, 'naver_token')
+    const me = await (await fetch('https://openapi.naver.com/v1/nid/me', { headers: { Authorization: `Bearer ${tok.access_token}` } })).json().catch(() => null)
+    const prof = me?.response
+    if (!prof?.id) return loginError(res, 'naver_profile')
+
+    // 계정 찾기(네이버 고유 id) — 없으면 회원으로 만든다. 비밀번호는 없다(아이디·비밀번호 로그인은 안 된다).
+    const c = await users()
+    const now = new Date()
+    let u = await c.findOne({ provider: 'naver', providerId: String(prof.id) })
+    if (!u) {
+      u = {
+        username: `naver_${crypto.createHash('sha256').update(String(prof.id)).digest('hex').slice(0, 16)}`,
+        name: String(prof.name || prof.nickname || '네이버 회원').trim().slice(0, 40),
+        email: String(prof.email || ''), role: 'member',
+        provider: 'naver', providerId: String(prof.id),
+        createdAt: now, updatedAt: now, lastLoginAt: now,
+      }
+      await c.insertOne(u)
+    } else {
+      if (u.disabled) return loginError(res, 'disabled')
+      await c.updateOne({ _id: u._id }, { $set: { lastLoginAt: now } })
+    }
+    setSessionCookie(res, await createSession(u.username, req))
+    res.redirect(safePath(back))
+  } catch (e) {
+    console.error('[auth] naver callback:', e.message)
+    loginError(res, 'naver_error')
   }
 })
 

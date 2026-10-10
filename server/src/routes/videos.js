@@ -217,8 +217,12 @@ router.put('/:id', async (req, res) => {
     const $set = { updatedAt: new Date() }
     const $unset = {}
     if (me) $set.contributor = me
-    for (const k of ['discipline', 'gender', 'distance']) if (body[k] !== undefined) $set[k] = String(body[k] ?? '').trim()
-    if (body.caption !== undefined) $set.caption = String(body.caption ?? '').trim()
+    // 종목·캡션은 올린 사람(또는 운영진)만 고친다. 다른 회원은 선수 선택만 할 수 있다(보내도 무시).
+    const owner = !cur.uploader || cur.uploader === me || canAny(req.user, ['data'])
+    if (owner) {
+      for (const k of ['discipline', 'gender', 'distance']) if (body[k] !== undefined) $set[k] = String(body[k] ?? '').trim()
+      if (body.caption !== undefined) $set.caption = String(body.caption ?? '').trim()
+    }
 
     if (Array.isArray(body.athletes)) {
       const isAdmin = canAny(req.user, ['users'])

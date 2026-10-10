@@ -27,5 +27,12 @@ export function useAuth() {
     return user.value
   }
 
-  return { user, ensure, refresh, login }
+  // 로그아웃 — 서버 세션을 끊고 쿠키를 지운다. 이미 끊겼어도 화면은 로그아웃 상태로 둔다.
+  const logout = async () => {
+    try { await $fetch('/api/auth/logout', { method: 'POST' }) } catch { /* 이미 끊김 */ }
+    user.value = null
+    checked.value = true
+  }
+
+  return { user, ensure, refresh, login, logout }
 }

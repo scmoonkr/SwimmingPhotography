@@ -22,10 +22,13 @@ export default defineNuxtRouteMiddleware(async (to) => {
   const { user, ensure, can, homePath } = useAuth()
   await ensure()
 
+  // 대시보드는 운영진용 — 공개 사이트의 회원(media 만 가진 계정)은 로그인하지 않은 것과 같게 다룬다.
+  // (개발 환경은 두 사이트가 같은 localhost 쿠키를 써서, 회원 세션으로 대시보드에 들어올 수 있다)
+  const staff = !!user.value && can('data', 'articles', 'breaking', 'users')
   if (to.path === '/login') {
-    return user.value ? navigateTo(homePath()) : undefined
+    return staff ? navigateTo(homePath()) : undefined
   }
-  if (!user.value) {
+  if (!staff) {
     // 로그인 뒤 원래 가려던 곳으로 돌려보내기 위해 경로를 들고 간다
     return navigateTo({ path: '/login', query: to.fullPath === '/' ? {} : { r: to.fullPath } })
   }

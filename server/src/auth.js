@@ -12,11 +12,14 @@ export const sessions = async () => (await SP()).collection('sessions')
 //   articles : 일반 기사 쓰기        breaking : 속보 쓰기
 //   data     : 대회·기록·사진 등 쓰기  users    : 계정 관리
 //   delete   : 문서 삭제 — 속보 전담 계정은 만들고 고칠 수는 있어도 지우지는 못한다
-export const ROLES = ['admin', 'editor', 'breakingnews']
+//   media    : 사진의 선수 선택 · 영상 올리기/수정 — 공개 사이트의 images · videos 화면에서 쓰는 것만
+// member 는 네이버 로그인으로 가입한 일반 회원 — media 만 가진다(대시보드·대회·기록·기사는 못 건드린다).
+export const ROLES = ['admin', 'editor', 'breakingnews', 'member']
 const CAPS = {
-  admin: ['articles', 'breaking', 'data', 'users', 'delete'],
-  editor: ['articles', 'breaking', 'data', 'delete'],
+  admin: ['articles', 'breaking', 'data', 'media', 'users', 'delete'],
+  editor: ['articles', 'breaking', 'data', 'media', 'delete'],
   breakingnews: ['breaking'],          // 속보만 — 기사·기록·사진은 읽기만 되고, 삭제도 안 된다
+  member: ['media'],                   // 사진 선수 선택 · 영상 올리기만
 }
 export const capsOf = (role) => CAPS[role] || CAPS.editor
 export const roleOf = (role) => (ROLES.includes(role) ? role : 'editor')

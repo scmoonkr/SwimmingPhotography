@@ -59,7 +59,9 @@ export default defineNuxtConfig({
   // /api/** 를 로컬 Express(6640)로 프록시 (dev·프로덕션 공통). SSE 스트림 포함.
   nitro: {
     routeRules: {
-      '/api/**': { proxy: 'http://127.0.0.1:6640/api/**' },
+      // redirect: 'manual' — 서버가 보낸 리다이렉트(302)를 프록시가 대신 따라가지 않고 브라우저에 그대로 넘긴다.
+      // (네이버 로그인의 왕복 · 영상 내려받기 주소가 리다이렉트다. 따라가 버리면 주소도 쿠키도 브라우저에 닿지 않는다)
+      '/api/**': { proxy: { to: 'http://127.0.0.1:6640/api/**', fetchOptions: { redirect: 'manual' } } },
     },
   },
 })

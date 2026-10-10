@@ -84,7 +84,7 @@ watch(() => props.open, (v) => {
 const fmt = (d: any) => (d ? String(d).slice(0, 10) : '—')
 
 // 권한 표시 — 서버 auth.js 의 ROLES 와 같은 목록
-const ROLE_LABEL: Record<string, string> = { admin: '관리자', editor: '편집자', breakingnews: '속보 전담' }
+const ROLE_LABEL: Record<string, string> = { admin: '관리자', editor: '편집자', breakingnews: '속보 전담', member: '회원(네이버)' }
 const roleLabel = (r: string) => ROLE_LABEL[r] || r
 </script>
 

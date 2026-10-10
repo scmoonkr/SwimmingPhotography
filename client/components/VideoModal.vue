@@ -70,6 +70,11 @@ const fmtSize = (n: number) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)}MB` :
 const saving = ref(false)
 const deleting = ref(false)
 const msg = ref('')
+// 종목·캡션은 새 영상이거나, 올린 사람·운영진일 때만 고친다 — 그 밖에는 잠근다(서버도 무시한다)
+const canMeta = computed(() => {
+  const r = props.row
+  return !r?._id || !r.uploader || r.uploader === user.value?.username || (user.value?.can || []).includes('data')
+})
 // 영상 삭제는 올린 사람만(관리자는 모두) — 서버도 같은 규칙으로 막는다
 const canDelete = computed(() => {
   const r = props.row
@@ -360,21 +365,21 @@ const onDelete = async () => {
           <div class="fld-row fld-row3">
             <label class="fld">
               <span class="info-l">영법</span>
-              <select v-model="draft.discipline" class="fld-input" @change="onClassChange">
+              <select v-model="draft.discipline" class="fld-input" :disabled="!canMeta" @change="onClassChange">
                 <option value="">—</option>
                 <option v-for="d in withCur(Object.keys(DISC_KO), draft.discipline)" :key="d" :value="d">{{ DISC_KO[d] || d }}</option>
               </select>
             </label>
             <label class="fld">
               <span class="info-l">성별</span>
-              <select v-model="draft.gender" class="fld-input" @change="onClassChange">
+              <select v-model="draft.gender" class="fld-input" :disabled="!canMeta" @change="onClassChange">
                 <option value="">—</option>
                 <option v-for="g in withCur(GENDER_OPTS, draft.gender)" :key="g" :value="g">{{ GENDER_KO[g] || g }}</option>
               </select>
             </label>
             <label class="fld">
               <span class="info-l">거리</span>
-              <select v-model="draft.distance" class="fld-input" @change="onClassChange">
+              <select v-model="draft.distance" class="fld-input" :disabled="!canMeta" @change="onClassChange">
                 <option value="">—</option>
                 <option v-for="d in withCur(DIST_OPTS, draft.distance)" :key="d" :value="d">{{ d }}</option>
               </select>
@@ -474,7 +479,7 @@ const onDelete = async () => {
           </div>
           <label class="fld fld-grow">
             <span class="info-l">caption</span>
-            <textarea v-model="draft.caption" class="fld-input fld-area" rows="5" placeholder="영상 설명" />
+            <textarea v-model="draft.caption" class="fld-input fld-area" rows="5" placeholder="영상 설명" :disabled="!canMeta" />
           </label>
           <!-- 새 영상 — 영상과 선수가 정해지면 올린다 -->
           <div v-if="isNew" class="im-foot">

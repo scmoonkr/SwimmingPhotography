@@ -480,11 +480,14 @@ router.put('/:id', async (req, res) => {
     const $unset = {}
     // 저장한 사람 — 로그인 계정의 username (쓰기 게이트(app.js)가 req.user 를 채운다)
     if (req.user?.username) $set.contributor = req.user.username
-    for (const k of EDITABLE) if (body[k] !== undefined) $set[k] = String(body[k] ?? '').trim()
+    // 운영진(data)은 모든 값을 고친다. 회원(media)은 선수 선택(athletes) · 장면(type) · 캡션만 —
+    // 종목(영법·성별·거리)이나 이름·팀·timeID 단일 필드는 보내도 무시한다.
+    const staff = canAny(req.user, ['data'])
+    for (const k of (staff ? EDITABLE : ['type'])) if (body[k] !== undefined) $set[k] = String(body[k] ?? '').trim()
     // 빈 이름은 막는다 — 단 Images Dir(폴더별 가져오기) 사진은 이름 없이 올라오므로 allowEmptyName 이면 허용
     if ($set.name === '' && !body.allowEmptyName && !Array.isArray(body.athletes)) return res.status(400).json({ error: '선수명을 입력하세요.' })
     // ageGroup — Images Dir 의 선수 찾기에서 고른 기록의 값 (timeID 와 함께 온다)
-    if (body.ageGroup !== undefined) $set.ageGroup = String(body.ageGroup ?? '').trim()
+    if (staff && body.ageGroup !== undefined) $set.ageGroup = String(body.ageGroup ?? '').trim()
     // 캡션 — 목록·기사가 읽는 translations.ko.caption 에 저장
     if (body.caption !== undefined) $set['translations.ko.caption'] = String(body.caption ?? '').trim()
     // 선수 목록 — 여러 명이 찍힌 사진. 오면 이것이 기준이고, 단일 필드(name·team·ageGroup·timeID)는
@@ -529,7 +532,7 @@ router.put('/:id', async (req, res) => {
       if (!list.length) { delete $set.contributor; $unset.contributor = '' }
     }
     // timeID 는 숫자(또는 미매칭이면 null) — 문자열로 저장하면 times 조인이 깨진다
-    if (body.timeID !== undefined && !Array.isArray(body.athletes)) {
+    if (staff && body.timeID !== undefined && !Array.isArray(body.athletes)) {
       const v = String(body.timeID ?? '').trim()
       if (v === '') $set.timeID = null
       else if (Number.isFinite(Number(v))) $set.timeID = Number(v)

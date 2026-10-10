@@ -2,7 +2,7 @@
 // 이미지 상세 모달 — 공개 사이트 images 페이지의 카드 클릭 모달. 대시보드 Images Dir(imagesPage)의 모달과 같은 구성.
 //   머리줄(파일명) · 왼쪽: 영법/성별/거리 + 썸네일 + 저장한 사람/시각 · 오른쪽: 선수 목록(+선수 찾기) · 장면 · 캡션 · 삭제/저장
 // 저장·삭제는 서버가 로그인(세션 쿠키)을 요구한다. 저장하면 서버가 updatedAt 과 contributor(로그인 계정)를 남긴다.
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 const props = defineProps<{ row: any | null }>()
 const emit = defineEmits<{ (e: 'close'): void; (e: 'saved', row: any): void; (e: 'deleted', row: any): void }>()
@@ -41,6 +41,8 @@ const athletesOf = (r: any): Athlete[] => {
 }
 // 로그인 계정 — 내가 고른 선수만 빼거나 고칠 수 있다. 관리자(계정 관리 권한)는 모두 가능.
 const { user } = useAuth()
+// 종목(영법·성별·거리)은 운영진(data)만 고친다 — 회원에게는 잠근다(서버도 무시한다)
+const canClass = computed(() => (user.value?.can || []).includes('data'))
 const mine = (a: Athlete) => !a.contributor || a.contributor === user.value?.username || (user.value?.can || []).includes('users')
 // updatedAt → KST "yyyy-mm-dd hh:mm"
 const fmtTime = (v: any) => {
@@ -188,21 +190,21 @@ const onDelete = async () => {
           <div class="fld-row fld-row3">
             <label class="fld">
               <span class="info-l">영법</span>
-              <select v-model="draft.discipline" class="fld-input" @change="onClassChange">
+              <select v-model="draft.discipline" class="fld-input" :disabled="!canClass" @change="onClassChange">
                 <option value="">—</option>
                 <option v-for="d in withCur(Object.keys(DISC_KO), draft.discipline)" :key="d" :value="d">{{ DISC_KO[d] || d }}</option>
               </select>
             </label>
             <label class="fld">
               <span class="info-l">성별</span>
-              <select v-model="draft.gender" class="fld-input" @change="onClassChange">
+              <select v-model="draft.gender" class="fld-input" :disabled="!canClass" @change="onClassChange">
                 <option value="">—</option>
                 <option v-for="g in withCur(GENDER_OPTS, draft.gender)" :key="g" :value="g">{{ GENDER_KO[g] || g }}</option>
               </select>
             </label>
             <label class="fld">
               <span class="info-l">거리</span>
-              <select v-model="draft.distance" class="fld-input" @change="onClassChange">
+              <select v-model="draft.distance" class="fld-input" :disabled="!canClass" @change="onClassChange">
                 <option value="">—</option>
                 <option v-for="d in withCur(DIST_OPTS, draft.distance)" :key="d" :value="d">{{ d }}</option>
               </select>
@@ -282,7 +284,7 @@ const onDelete = async () => {
             <textarea v-model="draft.caption" class="fld-input fld-area" rows="5" placeholder="사진 설명" />
           </label>
           <div class="im-foot">
-            <button class="btn btn-danger" type="button" :disabled="deleting || saving" @click="onDelete">
+            <button v-if="(user?.can || []).includes('delete')" class="btn btn-danger" type="button" :disabled="deleting || saving" @click="onDelete">
               {{ deleting ? '삭제 중…' : '삭제' }}
             </button>
             <span class="foot-msg">{{ msg }}</span>
@@ -376,6 +378,7 @@ const onDelete = async () => {
 .find-row .fr-team { color: var(--orange); font-weight: 600; }
 .find-row .fr-meta { margin-left: auto; font-size: 11.5px; color: var(--ink-light); white-space: nowrap; }
 .im-foot { display: flex; align-items: center; gap: 10px; padding-top: 4px; }
+.im-foot .btn-primary { margin-left: auto; }
 .foot-msg { flex: 1; font-size: 12px; color: var(--bad); }
 /* 공개 사이트에는 전역 버튼 스타일이 없어 여기서 정의한다 */
 .btn { font-family: var(--sans); font-size: 13.5px; font-weight: 500; border: 1px solid transparent; border-radius: 6px; padding: 8px 16px; cursor: pointer; }
