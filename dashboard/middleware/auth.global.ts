@@ -12,6 +12,7 @@ const NEED: Record<string, string[]> = {
   '/athletes': ['data'],
   '/times': ['data'],
   '/images': ['data'],
+  '/imagesPage': ['data'],
   '/venues': ['data'],
   '/teams': ['data'],
   '/start-list': ['data'],

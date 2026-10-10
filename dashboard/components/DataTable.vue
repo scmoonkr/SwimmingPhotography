@@ -119,6 +119,9 @@ const toggleAll = () => emit('update:selected', allSel.value ? [] : [...filtered
                 <span class="th" />
                 <span class="strong">{{ cellVal(r, c) }}</span>
               </span>
+              <!-- 작은 이미지 — 값이 이미지 URL -->
+              <img v-else-if="c.type === 'image' && cellVal(r, c)" class="cell-img" :src="cellVal(r, c)" alt="" loading="lazy">
+              <template v-else-if="c.type === 'image'" />
               <!-- 일반 -->
               <template v-else>{{ cellVal(r, c) }}</template>
             </td>
@@ -164,4 +167,6 @@ const toggleAll = () => emit('update:selected', allSel.value ? [] : [...filtered
 .data th.chk, .data td.chk { width: 34px; text-align: center; padding-right: 0; }
 .data td.chk input, .data th.chk input { width: 15px; height: 15px; cursor: pointer; accent-color: var(--orange); }
 .data tr.sel td { background: var(--orange-bg); }
+/* 작은 이미지 셀 (columns[].type === 'image') */
+.cell-img { display: block; width: 44px; height: 44px; object-fit: cover; border-radius: 4px; background: var(--paper-deep); border: 1px solid var(--line); }
 </style>

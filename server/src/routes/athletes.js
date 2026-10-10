@@ -117,7 +117,8 @@ router.get('/images', async (req, res) => {
     if (!key) return res.json([])
     // images.name 이 곧 유일 선수명(동명이인이면 "홍길동1").
     // name_unique 는 대회 안에서만 유일하므로 competitionID 로 좁힌다.
-    const filter = { name: key }
+    // 여러 명이 찍힌 사진은 athletes[].name 에 들어 있다 (첫 번째 선수만 name 에도 있다)
+    const filter = { $or: [{ name: key }, { 'athletes.name': key }] }
     if (competitionID != null && competitionID !== '') filter.competitionID = Number(competitionID)
     if (gender) filter.gender = String(gender)
     const docs = await (await SP()).collection('images')
@@ -206,7 +207,11 @@ router.get('/', async (req, res) => {
           from: 'images',
           let: { nu: NU_STR, cid: '$competitionID' },
           pipeline: [
-            { $match: { $expr: { $and: [{ $eq: ['$name', '$$nu'] }, { $eq: ['$competitionID', '$$cid'] }] } } },
+            { $match: { $expr: { $and: [
+              { $eq: ['$competitionID', '$$cid'] },
+              // 여러 명이 찍힌 사진은 athletes[].name 에도 있다
+              { $or: [{ $eq: ['$name', '$$nu'] }, { $in: ['$$nu', { $ifNull: ['$athletes.name', []] }] }] },
+            ] } } },
             { $count: 'c' },
           ],
           as: '_img',

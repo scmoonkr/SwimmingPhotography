@@ -1,13 +1,13 @@
 // 대시보드 mock 데이터 — UI 구성용 샘플. 나중에 Express API(6640) 연동으로 교체.
 // 각 엔티티: { title, en, subtitle, columns, rows }
 //   columns[].cls  : 셀 스타일 클래스 (strong | mono | muted | num)
-//   columns[].type : 'badge'(상태) | 'thumb'(이미지)  → DataTable 이 특수 렌더
+//   columns[].type : 'badge'(상태) | 'thumb'(이미지) | 'image'(값이 URL 인 작은 이미지)  → DataTable 이 특수 렌더
 
 export interface Column {
   key: string
   label: string
   cls?: 'strong' | 'mono' | 'muted' | 'num'
-  type?: 'badge' | 'thumb'
+  type?: 'badge' | 'thumb' | 'image'
   // 중첩 데이터(article 스키마 등)에서 표시값을 뽑는 접근자. 없으면 row[key] 사용.
   get?: (row: any) => any
 }

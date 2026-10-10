@@ -138,12 +138,15 @@ router.get('/', async (req, res) => {
       { $match: filter },
       { $limit: lim },
       { $lookup: { from: 'images', localField: 'timeID', foreignField: 'timeID', as: '_imgs' } },
+      // 여러 명이 찍힌 사진 — 두 번째 선수부터는 images.timeIDs 로만 이어진다. 둘을 합쳐 중복을 없앤다.
+      { $lookup: { from: 'images', localField: 'timeID', foreignField: 'timeIDs', as: '_imgs2' } },
+      { $addFields: { _imgs: { $setUnion: ['$_imgs', '$_imgs2'] } } },
       {
         $addFields: {
           images: { $map: { input: '$_imgs', as: 'i', in: { filename: '$$i.filename', type: '$$i.type', url: '$$i.url', thumbnail: '$$i.thumbnail' } } },
         },
       },
-      { $project: { _imgs: 0 } },
+      { $project: { _imgs: 0, _imgs2: 0 } },
     ]).toArray()
     res.json(docs)
   } catch (e) {
