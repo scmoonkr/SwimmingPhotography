@@ -67,6 +67,41 @@ const videoOut = (v, nameOf) => {
   }
 }
 
+// 기록(times) 목록 + 각 기록에 붙은 영상 — videos 페이지의 표. 대회는 필수, 성별·영법·거리는 비우면 전체.
+// 영상은 videos.timeIDs 로 잇는다(영상 하나에 선수가 여럿이면 그 기록들 모두에 보인다).
+router.get('/times', async (req, res) => {
+  try {
+    const { competitionID, discipline, gender, distance } = req.query
+    if (!competitionID) return res.json([])
+    const filter = { competitionID: Number(competitionID) }
+    if (discipline) filter.discipline = String(discipline)
+    if (gender) filter.gender = String(gender)
+    if (distance) filter.distance = String(distance)
+    const sp = await SP()
+    const times = await sp.collection('times')
+      .find(filter, { projection: { timeID: 1, name: 1, name_unique: 1, team: 1, ageGroup: 1, isAdult: 1, gender: 1, discipline: 1, distance: 1, course: 1, time: 1, rank: 1, status: 1, round: 1, competitionID: 1 } })
+      .limit(10000).toArray()
+    const ids = times.map((t) => t.timeID).filter((v) => v != null)
+    const vids = ids.length ? await (await coll()).find({ timeIDs: { $in: ids } }).sort({ createdAt: 1 }).toArray() : []
+    const nameOf = await userNames(vids.flatMap(whoOf))
+    const byTime = new Map()
+    for (const v of vids) {
+      const out = videoOut(v, nameOf)
+      for (const id of (v.timeIDs || [])) { if (!byTime.has(id)) byTime.set(id, []); byTime.get(id).push(out) }
+    }
+    res.json(times.map((t) => ({
+      timeID: t.timeID, competitionID: t.competitionID,
+      name: (Array.isArray(t.name_unique) ? t.name_unique.join(',') : String(t.name_unique ?? '')) || t.name || '',
+      team: t.team || '', ageGroup: t.ageGroup || '', isAdult: !!t.isAdult,
+      gender: t.gender || '', discipline: t.discipline || '', distance: t.distance || '', course: t.course || '',
+      time: t.time || '', rank: t.rank ?? '', status: t.status || '', round: t.round || '',
+      videos: byTime.get(t.timeID) || [],
+    })))
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
 // 화면이 쓰는 설정 — 용량 한도(올리기 전에 안내·검사한다)
 router.get('/config', (req, res) => res.json({ maxMB: maxMB() }))
 

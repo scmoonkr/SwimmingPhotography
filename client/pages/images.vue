@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 이미지 선택 — 대회 사진(images)을 카드로 훑어보고, 눌러서 선수·장면·캡션을 붙인다.
-// 필터: 대회 · 영법 · 성별 · 거리 · 선택 여부(선수 기록에 연결됐는가 = timeID 유무).
+// 필터: 대회 · 성별 · 영법 · 거리 · 선택 여부(선수 기록에 연결됐는가 = timeID 유무).
 // 카드를 누르면 대시보드 Images Dir 와 같은 상세 모달(ImageEditModal)이 열린다.
 // 내부 작업용 화면이라 메뉴에 걸지 않고 검색 노출도 막는다.
 import { computed, onMounted, ref, watch } from 'vue'
@@ -90,11 +90,11 @@ const onDeleted = (r: any) => {
           {{ c.competitionName || c.competitionID }}<template v-if="c.datetime"> ({{ c.datetime }})</template> · {{ c.count }}장
         </option>
       </select>
-      <select v-model="discipline" class="f-sel" aria-label="영법">
-        <option v-for="(ko, code) in DISC_KO" :key="code" :value="code">{{ ko }}</option>
-      </select>
       <select v-model="gender" class="f-sel" aria-label="성별">
         <option v-for="(ko, code) in GENDER_KO" :key="code" :value="code">{{ ko }}</option>
+      </select>
+      <select v-model="discipline" class="f-sel" aria-label="영법">
+        <option v-for="(ko, code) in DISC_KO" :key="code" :value="code">{{ ko }}</option>
       </select>
       <select v-model="distance" class="f-sel" aria-label="거리">
         <option v-for="d in DIST_OPTS" :key="d" :value="d">{{ d }}</option>

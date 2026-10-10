@@ -1,8 +1,9 @@
 <script setup lang="ts">
-// 영상 모달 — videos 페이지의 카드 클릭 모달. 이미지 모달(ImageEditModal)과 같은 구성에서 사진 자리가 영상이다.
+// 영상 모달 — videoscard 페이지의 카드 클릭 모달. 이미지 모달(ImageEditModal)과 같은 구성에서 사진 자리가 영상이다.
 //   머리줄(파일명) · 왼쪽: 영법/성별/거리 + 영상(없으면 올리기) + 저장한 사람/시각 · 오른쪽: 고른 선수 · 부/팀 · 이름 초성(ㄱ…ㅎ·a)으로 선수 고르기 · 캡션 · 삭제/저장
 // row 가 { _new: true, competitionID, discipline, gender, distance } 면 '새 영상' — 영상 자리에서 파일을 고르고(미리보기),
 //   선수·캡션을 먼저 입력한 뒤 '올리기'를 누른다. 올리면 영상 문서가 만들어지고 입력한 정보가 함께 저장된다(created).
+//   row.athletes 로 선수가 이미 정해져 오면(기록표의 올리기) 선수 고르기 없이 영상·캡션만 받는 간단한 화면이 된다.
 // 파일은 서버를 거치지 않는다 — 서버에서 올릴 주소를 받아 스토리지로 직접 올린 뒤(진행률 표시) 등록한다.
 // 저장·삭제는 서버가 로그인(세션 쿠키)을 요구한다. 저장하면 서버가 updatedAt 과 contributor(로그인 계정)를 남긴다.
 import { computed, ref, watch } from 'vue'
@@ -13,6 +14,15 @@ const emit = defineEmits<{
   (e: 'created', row: any): void          // 새 영상을 올려 문서가 생겼다(선수·캡션 포함) — 부모가 목록에 넣고 닫는다
 }>()
 const isNew = computed(() => !!props.row && !props.row._id)
+// 간단 올리기 — 선수가 이미 정해진 새 영상(기록표에서 올리기를 누른 경우). 선수·종목을 고를 것이 없으므로
+// 머리줄(누구의 어느 종목인지) · 영상 · 캡션 · [다른 영상 선택 / 올리기] 만 보여준다.
+const simple = computed(() => isNew.value && Array.isArray(props.row?.athletes) && props.row.athletes.length > 0)
+// 머리줄 — name-ageGroup-gender-team-discipline-distance
+const simpleTitle = computed(() => {
+  const r = props.row
+  const a = r?.athletes?.[0] || {}
+  return [a.name, a.ageGroup, GENDER_KO[r?.gender] || r?.gender, a.team, DISC_KO[r?.discipline] || r?.discipline, r?.distance].filter(Boolean).join('-')
+})
 // 용량 한도(MB) — 서버의 VIDEO_MAX_MB. 한 번 받아 두고 쓴다(받기 전·실패 시 500). 최종 검사는 서버가 한다.
 const maxMB = useState<number>('videos:maxMB', () => 0)
 const MAX_MB = computed(() => maxMB.value || 500)
@@ -308,13 +318,43 @@ const onDelete = async () => {
 <template>
   <div v-if="row" class="im">
     <div class="im-ov" @click="close" />
-    <div class="im-box" role="dialog" aria-modal="true" aria-label="영상 상세">
+    <div class="im-box" :class="{ 'im-narrow': simple }" role="dialog" aria-modal="true" aria-label="영상 상세">
       <!-- 머리줄 — 파일명 -->
       <header class="im-head">
-        <h2 class="im-file">{{ isNew ? '새 영상 올리기' : row.filename }}</h2>
+        <h2 class="im-file" :class="{ 'im-who': simple }">{{ simple ? simpleTitle : (isNew ? '새 영상 올리기' : row.filename) }}</h2>
         <button class="im-x" type="button" aria-label="닫기" :disabled="uploading" @click="close">×</button>
       </header>
-      <div class="im-body">
+      <!-- 간단 올리기 — 영상 · 캡션 · [다른 영상 선택 / 올리기] -->
+      <div v-if="simple" class="im-simple">
+        <input ref="fileInput" type="file" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.m4v,.webm" hidden @change="onPick">
+        <template v-if="pending">
+          <div class="im-video"><video :key="previewUrl" :src="previewUrl" controls playsinline preload="metadata" /></div>
+          <p class="im-up">{{ pending.name }} · {{ fmtSize(pending.size) }} · 아직 올리지 않음</p>
+        </template>
+        <div v-else class="im-drop" @dragover.prevent @drop.prevent="onDrop">
+          <p class="drop-t">올릴 영상을 선택하세요</p>
+          <button class="btn btn-primary" type="button" @click="fileInput?.click()">영상 선택</button>
+          <p class="drop-h">mp4 · mov · {{ MAX_MB }}MB 까지 · Wi-Fi 권장</p>
+        </div>
+        <label class="fld">
+          <span class="info-l">caption</span>
+          <textarea v-model="draft.caption" class="fld-input fld-area" rows="3" placeholder="영상 설명" :disabled="uploading" />
+        </label>
+        <p v-if="msg" class="up-msg">{{ msg }}</p>
+        <div class="im-foot">
+          <template v-if="uploading">
+            <div class="bar"><span :style="{ width: progress + '%' }" /></div>
+            <span class="up-prog">{{ stage }} {{ progress }}%</span>
+            <button class="btn btn-ghost" type="button" @click="cancelUpload">취소</button>
+          </template>
+          <template v-else>
+            <button v-if="pending" class="btn btn-ghost" type="button" @click="fileInput?.click()">다른 영상 선택</button>
+            <button class="btn btn-primary" type="button" :disabled="!canUpload" @click="upload">올리기</button>
+          </template>
+        </div>
+        <p v-if="uploading" class="ath-empty">올리는 동안 이 창을 닫거나 다른 앱으로 넘어가면 업로드가 끊길 수 있습니다.</p>
+      </div>
+      <div v-else class="im-body">
         <div class="im-left">
           <!-- 영법 · 성별 · 거리 — 한 줄 -->
           <div class="fld-row fld-row3">
@@ -491,6 +531,12 @@ const onDelete = async () => {
 .im-up { margin: 0; font-size: 11.5px; color: var(--ink-light); }
 .up-msg { margin: 0; font-size: 12.5px; color: var(--bad); }
 .pick-again { align-self: flex-start; }
+/* 간단 올리기 — 한 칸짜리 좁은 모달 */
+.im-box.im-narrow { width: min(560px, 100%); }
+.im-simple { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 12px; padding: 16px 20px 18px; overflow-y: auto; }
+.im-simple .im-video video { max-height: 50vh; }
+.im-simple .fld-area { min-height: 64px; }
+.im-file.im-who { font-family: var(--sans); font-size: 14px; font-weight: 700; }
 .up-prog { font-size: 12px; color: var(--ink-mute); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .foot-msg.hint { color: var(--ink-light); }
 .im-side { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 12px; padding: 20px; overflow-y: auto; }
