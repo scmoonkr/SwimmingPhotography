@@ -5,6 +5,7 @@ import multer from 'multer'
 import { ObjectId } from 'mongodb'
 import { SP } from '../db.js'
 import { publicUrl, putObject, deleteObject } from '../r2.js'
+import { canAny } from '../auth.js'
 
 const router = Router()
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024, files: 2000 } })
@@ -26,11 +27,28 @@ const toId = (v) => { try { return new ObjectId(String(v)) } catch { return null
 // 한 사진의 선수는 모두 같은 종목(영법·성별·거리)이다. 선수마다 자기 기록(times)에 따로 붙는다.
 // name·team·ageGroup·timeID(단일 필드)는 첫 번째 선수 값으로 함께 저장해 둔다 — 예전 화면·필터가 그대로 읽는다.
 // athletes 가 없는 예전 사진은 그 단일 필드를 한 명짜리 목록으로 본다.
+// 선수마다 contributor(그 선수를 고른 계정의 username)를 남긴다 — 남이 고른 선수는 빼거나 고칠 수 없다.
+// 예전 사진의 선수는 사진을 저장한 사람(images.contributor)이 고른 것으로 본다.
 const athletesOf = (im) => {
   if (Array.isArray(im?.athletes) && im.athletes.length) return im.athletes
   const name = String(im?.name || '').trim()
-  return name ? [{ name, team: im.team ?? '', ageGroup: im.ageGroup ?? '', timeID: im.timeID ?? null }] : []
+  return name ? [{ name, team: im.team ?? '', ageGroup: im.ageGroup ?? '', timeID: im.timeID ?? null, contributor: im.contributor ?? '' }] : []
 }
+// username → 표시 이름
+const userNames = async (usernames) => {
+  const who = [...new Set((usernames || []).filter(Boolean))]
+  const map = new Map()
+  if (who.length) {
+    const us = await (await SP()).collection('users').find({ username: { $in: who } }, { projection: { username: 1, name: 1 } }).toArray()
+    for (const u of us) map.set(u.username, u.name || u.username)
+  }
+  return map
+}
+// 응답용 선수 목록 — 고른 사람의 표시 이름을 붙인다
+const athletesOut = (im, nameOf) => athletesOf(im).map((a) => ({
+  name: a.name ?? '', team: a.team ?? '', ageGroup: a.ageGroup ?? '', timeID: a.timeID ?? null,
+  contributor: a.contributor ?? '', contributorName: a.contributor ? (nameOf.get(a.contributor) || a.contributor) : '',
+}))
 
 // 대회 select 옵션 — SP.competitions 에 등록된 대회 '전부', 최신순.
 // (images 에 있는 대회만 뽑으면 아직 사진을 안 올린 대회를 고를 수 없어 업로드 대상 선택이 안 된다.)
@@ -342,12 +360,7 @@ router.get('/', async (req, res) => {
       for (const a of arts) withImages.add(`${a.competitionID}|${a.unique}`)
     }
     // 저장한 사람(contributor=username) 의 표시 이름 — 카드에 이름으로 보여준다
-    const who = [...new Set(docs.map((d) => d.contributor).filter(Boolean))]
-    const nameOf = new Map()
-    if (who.length) {
-      const us = await (await SP()).collection('users').find({ username: { $in: who } }, { projection: { username: 1, name: 1 } }).toArray()
-      for (const u of us) nameOf.set(u.username, u.name || u.username)
-    }
+    const nameOf = await userNames(docs.flatMap((d) => [d.contributor, ...athletesOf(d).map((a) => a.contributor)]))
     // 저장은 상대경로 → 표시용 url·thumbnail 은 CLOUD_PUBLIC_URL 붙인 전체 URL. path/thumbPath 는 상대경로 보존.
     const abs = (p) => (!p ? '' : (/^https?:\/\//.test(p) ? p : publicUrl(p)))
     // 여러 명이 찍힌 사진은 그중 한 명의 기사에라도 사진이 있으면 '있음'
@@ -362,6 +375,7 @@ router.get('/', async (req, res) => {
       thumbPath: d.thumbnail || d.url || '',
       articleHasImages: hasArt(d),
       contributorName: d.contributor ? (nameOf.get(d.contributor) || d.contributor) : '',
+      athletes: athletesOut(d, nameOf),
     }))
     res.json(out)
   } catch (e) {
@@ -463,6 +477,7 @@ router.put('/:id', async (req, res) => {
     if (!_id) return res.status(400).json({ error: 'invalid id' })
     const body = req.body || {}
     const $set = { updatedAt: new Date() }
+    const $unset = {}
     // 저장한 사람 — 로그인 계정의 username (쓰기 게이트(app.js)가 req.user 를 채운다)
     if (req.user?.username) $set.contributor = req.user.username
     for (const k of EDITABLE) if (body[k] !== undefined) $set[k] = String(body[k] ?? '').trim()
@@ -475,18 +490,43 @@ router.put('/:id', async (req, res) => {
     // 선수 목록 — 여러 명이 찍힌 사진. 오면 이것이 기준이고, 단일 필드(name·team·ageGroup·timeID)는
     // 첫 번째 선수 값으로 맞춘다. timeIDs 는 기록 화면이 이 사진을 찾는 조인 키.
     if (Array.isArray(body.athletes)) {
+      const me = req.user?.username || ''
+      const cur = await (await coll()).findOne({ _id }, { projection: { athletes: 1, name: 1, team: 1, ageGroup: 1, timeID: 1, contributor: 1 } })
+      if (!cur) return res.status(404).json({ error: 'not found' })
+      const isAdmin = canAny(req.user, ['users'])          // 관리자는 누가 고른 선수든 정리할 수 있다
+      // 내 것인가 — 고른 사람이 나이거나, 고른 사람 기록이 없는(예전) 선수
+      const mine = (x) => isAdmin || !x.contributor || x.contributor === me
+      const before = athletesOf(cur)
+      const beforeBy = new Map(before.map((x) => [String(x.name || '').trim(), x]))   // 같은 종목 안에서 이름(name_unique)은 유일
+
       const list = []
+      const seen = new Set()
       for (const a of body.athletes) {
         const name = String(a?.name ?? '').normalize('NFC').trim()
-        if (!name) continue
+        if (!name || seen.has(name)) continue
+        seen.add(name)
+        const old = beforeBy.get(name)
+        // 남이 고른 선수는 보낸 값과 상관없이 원래대로 둔다
+        if (old && !mine(old)) { list.push({ ...old }); continue }
         const tv = String(a?.timeID ?? '').trim()
         if (tv !== '' && !Number.isFinite(Number(tv))) return res.status(400).json({ error: 'timeID 는 숫자여야 합니다.' })
-        list.push({ name, team: String(a?.team ?? '').normalize('NFC').trim(), ageGroup: String(a?.ageGroup ?? '').trim(), timeID: tv === '' ? null : Number(tv) })
+        list.push({
+          name, team: String(a?.team ?? '').normalize('NFC').trim(), ageGroup: String(a?.ageGroup ?? '').trim(),
+          timeID: tv === '' ? null : Number(tv),
+          contributor: old ? (old.contributor || me) : me,   // 새로 고른 선수는 내 이름으로
+        })
+      }
+      // 빠진 선수 — 남이 고른 선수면 막는다 (이름을 고친 것도 '빼고 새로 넣은 것'이라 여기서 걸린다)
+      const blocked = before.filter((x) => !seen.has(String(x.name || '').trim()) && !mine(x))
+      if (blocked.length) {
+        return res.status(403).json({ error: `다른 사람이 선택한 선수는 뺄 수 없습니다: ${blocked.map((x) => x.name).join(', ')}` })
       }
       const first = list[0] || { name: '', team: '', ageGroup: '', timeID: null }
       $set.athletes = list
       $set.timeIDs = [...new Set(list.map((a) => a.timeID).filter((v) => v != null))]
       $set.name = first.name; $set.team = first.team; $set.ageGroup = first.ageGroup; $set.timeID = first.timeID
+      // 선수가 한 명도 남지 않으면 사진의 contributor 도 지운다 — 아무도 고르지 않은 사진으로 돌아간다
+      if (!list.length) { delete $set.contributor; $unset.contributor = '' }
     }
     // timeID 는 숫자(또는 미매칭이면 null) — 문자열로 저장하면 times 조인이 깨진다
     if (body.timeID !== undefined && !Array.isArray(body.athletes)) {
@@ -506,12 +546,14 @@ router.put('/:id', async (req, res) => {
         $set.timeIDs = [...new Set(list.map((x) => x.timeID).filter((v) => v != null))]
       }
     }
-    const r = await (await coll()).findOneAndUpdate({ _id }, { $set }, { returnDocument: 'after' })
+    const update = Object.keys($unset).length ? { $set, $unset } : { $set }
+    const r = await (await coll()).findOneAndUpdate({ _id }, update, { returnDocument: 'after' })
     const doc = r && (r.value || r)
     if (!doc || !doc._id) return res.status(404).json({ error: 'not found' })
+    const nameOf = await userNames([doc.contributor, ...athletesOf(doc).map((a) => a.contributor)])
     res.json({ ok: true, ...Object.fromEntries(EDITABLE.map((k) => [k, doc[k] ?? ''])), timeID: doc.timeID ?? null, ageGroup: doc.ageGroup ?? '', caption: doc.translations?.ko?.caption ?? '',
-      athletes: athletesOf(doc), updatedAt: doc.updatedAt, contributor: doc.contributor ?? '',
-      contributorName: doc.contributor && doc.contributor === req.user?.username ? (req.user.name || doc.contributor) : (doc.contributor ?? ''),
+      athletes: athletesOut(doc, nameOf), updatedAt: doc.updatedAt, contributor: doc.contributor ?? '',
+      contributorName: doc.contributor ? (nameOf.get(doc.contributor) || doc.contributor) : '',
     })
   } catch (e) {
     res.status(500).json({ error: e.message })

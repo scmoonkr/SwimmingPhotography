@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 이미지 상세 모달 — 대시보드 Images Dir(imagesPage)의 행 클릭 모달과 같은 구성.
+// 이미지 상세 모달 — 공개 사이트 images 페이지의 카드 클릭 모달. 대시보드 Images Dir(imagesPage)의 모달과 같은 구성.
 //   머리줄(파일명) · 왼쪽: 영법/성별/거리 + 썸네일 + 저장한 사람/시각 · 오른쪽: 선수 목록(+선수 찾기) · 장면 · 캡션 · 삭제/저장
 // 저장·삭제는 서버가 로그인(세션 쿠키)을 요구한다. 저장하면 서버가 updatedAt 과 contributor(로그인 계정)를 남긴다.
 import { ref, watch } from 'vue'
@@ -23,7 +23,8 @@ const withCur = (opts: string[], cur: string) => (cur && !opts.includes(cur) ? [
 // 사진 한 장에 여러 선수가 찍힐 수 있다 — 선수마다 자기 기록(times)에 따로 붙는다.
 // 한 사진의 선수는 모두 같은 종목(영법·성별·거리)이라 종목은 사진에 한 번만 둔다.
 // timeID·ageGroup 은 입력칸이 없다 — 선수 찾기에서 고른 기록의 값을 들고 있다가 함께 저장한다.
-type Athlete = { name: string; team: string; ageGroup: string; timeID: number | null }
+// contributor — 그 선수를 고른 계정(username). 남이 고른 선수는 빼거나 고칠 수 없다(서버도 막는다).
+type Athlete = { name: string; team: string; ageGroup: string; timeID: number | null; contributor?: string; contributorName?: string }
 const draft = ref({
   discipline: '', gender: '', distance: '',
   athletes: [] as Athlete[], type: '', caption: '',
@@ -31,10 +32,16 @@ const draft = ref({
 // athletes 가 없는 예전 사진은 단일 필드(name·team·ageGroup·timeID)를 한 명짜리 목록으로 본다
 const athletesOf = (r: any): Athlete[] => {
   if (Array.isArray(r?.athletes) && r.athletes.length) {
-    return r.athletes.map((a: any) => ({ name: a.name ?? '', team: a.team ?? '', ageGroup: a.ageGroup ?? '', timeID: a.timeID ?? null }))
+    return r.athletes.map((a: any) => ({
+      name: a.name ?? '', team: a.team ?? '', ageGroup: a.ageGroup ?? '', timeID: a.timeID ?? null,
+      contributor: a.contributor ?? '', contributorName: a.contributorName ?? '',
+    }))
   }
-  return r?.name ? [{ name: r.name, team: r.team ?? '', ageGroup: r.ageGroup ?? '', timeID: r.timeID ?? null }] : []
+  return r?.name ? [{ name: r.name, team: r.team ?? '', ageGroup: r.ageGroup ?? '', timeID: r.timeID ?? null, contributor: r.contributor ?? '', contributorName: r.contributorName ?? '' }] : []
 }
+// 로그인 계정 — 내가 고른 선수만 빼거나 고칠 수 있다. 관리자(계정 관리 권한)는 모두 가능.
+const { user } = useAuth()
+const mine = (a: Athlete) => !a.contributor || a.contributor === user.value?.username || (user.value?.can || []).includes('users')
 // updatedAt → KST "yyyy-mm-dd hh:mm"
 const fmtTime = (v: any) => {
   if (!v) return ''
@@ -86,18 +93,19 @@ const isAdded = (t: any) => draft.value.athletes.some((a) => (t.timeID != null ?
 // 목록은 열어 둔다(여러 명을 이어서 고를 수 있게). 이미 있는 선수를 다시 누르면 뺀다.
 const pickAthlete = (t: any) => {
   if (isAdded(t)) {
-    draft.value.athletes = draft.value.athletes.filter((a) => !(t.timeID != null ? a.timeID === t.timeID : a.name === nuOf(t)))
+    // 다시 누르면 뺀다 — 내가 고른 선수만
+    draft.value.athletes = draft.value.athletes.filter((a) => !(t.timeID != null ? a.timeID === t.timeID : a.name === nuOf(t)) || !mine(a))
     return
   }
-  draft.value.athletes.push({ name: nuOf(t), team: t.team || '', ageGroup: t.ageGroup || '', timeID: t.timeID ?? null })
+  draft.value.athletes.push({ name: nuOf(t), team: t.team || '', ageGroup: t.ageGroup || '', timeID: t.timeID ?? null, contributor: user.value?.username || '', contributorName: user.value?.name || '' })
 }
 // 기록 없이 직접 적는 선수 — 빈 줄을 하나 붙인다
-const addBlank = () => { draft.value.athletes.push({ name: findQ.value.normalize('NFC').trim(), team: '', ageGroup: '', timeID: null }) }
-const removeAthlete = (i: number) => { draft.value.athletes.splice(i, 1) }
+const addBlank = () => { draft.value.athletes.push({ name: findQ.value.normalize('NFC').trim(), team: '', ageGroup: '', timeID: null, contributor: user.value?.username || '', contributorName: user.value?.name || '' }) }
+const removeAthlete = (i: number) => { if (mine(draft.value.athletes[i])) draft.value.athletes.splice(i, 1) }
 // 이름을 손으로 고치면 잡아 둔 기록과 어긋나므로 그 선수의 timeID·ageGroup 을 비운다
 const onNameInput = (a: Athlete) => { a.timeID = null; a.ageGroup = '' }
 // 영법·성별·거리를 바꾸면 모든 선수의 기록 연결이 어긋난다
-const onClassChange = () => { draft.value.athletes.forEach(onNameInput); closeFind() }
+const onClassChange = () => { draft.value.athletes.filter(mine).forEach(onNameInput); closeFind() }
 
 const close = () => { if (!saving.value && !deleting.value) emit('close') }
 const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close() }
@@ -219,12 +227,15 @@ const onDelete = async () => {
             <span class="info-l">선수<template v-if="draft.athletes.length"> {{ draft.athletes.length }}명</template></span>
             <div v-if="draft.athletes.length" class="ath-list">
               <div v-for="(a, i) in draft.athletes" :key="i" class="ath-row">
-                <input v-model="a.name" class="fld-input ath-name" type="text" placeholder="선수명" aria-label="선수명" @input="onNameInput(a)">
-                <input v-model="a.team" class="fld-input ath-team" type="text" placeholder="소속" aria-label="소속">
+                <input v-model="a.name" class="fld-input ath-name" type="text" placeholder="선수명" aria-label="선수명" :disabled="!mine(a)" @input="onNameInput(a)">
+                <input v-model="a.team" class="fld-input ath-team" type="text" placeholder="소속" aria-label="소속" :disabled="!mine(a)">
                 <span class="ath-link" :class="{ none: !a.timeID }" :title="a.timeID ? `timeID ${a.timeID}` : '기록에 연결되지 않았습니다'">
                   {{ a.timeID ? (a.ageGroup || a.timeID) : '미연결' }}
                 </span>
-                <button class="ath-x" type="button" aria-label="선수 빼기" title="빼기" @click="removeAthlete(i)">×</button>
+                <!-- 고른 사람 — 남이 고른 선수는 뺄 수 없다 -->
+                <span class="ath-by" :title="`선택한 사람: ${a.contributorName || a.contributor || '기록 없음'}`">{{ a.contributorName || a.contributor || '' }}</span>
+                <button v-if="mine(a)" class="ath-x" type="button" aria-label="선수 빼기" title="빼기" @click="removeAthlete(i)">×</button>
+                <span v-else class="ath-x ath-lock" title="다른 사람이 선택한 선수는 뺄 수 없습니다">·</span>
               </div>
             </div>
             <p v-else class="ath-empty">아직 고른 선수가 없습니다. 아래에서 찾아 추가하세요.</p>
@@ -240,7 +251,11 @@ const onDelete = async () => {
             </div>
             <!-- 선수 찾기 결과 — 누르면 선수 목록에 추가(다시 누르면 빠짐). 여러 명을 이어서 고를 수 있다 -->
             <div v-if="findOpen" class="find-panel">
-              <button class="find-close" type="button" aria-label="목록 닫기" title="목록 닫기" @click="closeFind">×</button>
+              <!-- 머리줄 — 스크롤해도 위에 붙어 있다 -->
+              <div class="find-head">
+                <span>{{ findLoading ? '' : `${findRows.length}명` }}</span>
+                <button class="find-close" type="button" @click="closeFind">닫기</button>
+              </div>
               <p v-if="findLoading" class="find-msg">조회 중…</p>
               <p v-else-if="findMsg" class="find-msg">{{ findMsg }}</p>
               <template v-else>
@@ -322,6 +337,10 @@ const onDelete = async () => {
 .ath-link.none { color: var(--ink-light); font-weight: 400; }
 .ath-x { flex: 0 0 auto; border: none; background: none; cursor: pointer; font-size: 17px; line-height: 1; color: var(--ink-light); padding: 2px 4px; }
 .ath-x:hover { color: var(--bad); }
+.ath-by { flex: 0 0 auto; max-width: 64px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--ink-light); }
+.ath-lock { cursor: default; text-align: center; }
+.ath-lock:hover { color: var(--ink-light); }
+.ath-row .fld-input:disabled { background: var(--paper-deep); color: var(--ink-mute); }
 .ath-empty { margin: 0; font-size: 12.5px; color: var(--ink-light); }
 .add-btn {
   flex: 0 0 auto; height: 36px; padding: 0 10px; font-family: var(--sans); font-size: 12.5px; color: var(--ink-mute); cursor: pointer; white-space: nowrap;
@@ -339,8 +358,12 @@ const onDelete = async () => {
 .find-btn svg { width: 16px; height: 16px; }
 .find-btn:hover, .find-btn.on { border-color: var(--orange); color: var(--orange); }
 .find-panel { position: relative; display: flex; flex-direction: column; max-height: 220px; overflow-y: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--paper); }
-.find-close { position: absolute; top: 4px; right: 6px; z-index: 1; border: none; background: none; cursor: pointer; font-size: 16px; line-height: 1; color: var(--ink-light); padding: 2px 4px; }
-.find-close:hover { color: var(--ink); }
+.find-head {
+  position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between;
+  padding: 5px 6px 5px 12px; font-size: 11.5px; color: var(--ink-light); background: var(--paper-deep); border-bottom: 1px solid var(--line);
+}
+.find-close { font-family: var(--sans); font-size: 12px; color: var(--ink); cursor: pointer; background: var(--paper); border: 1px solid var(--line); border-radius: 5px; padding: 3px 10px; }
+.find-close:hover { border-color: var(--orange); color: var(--orange); }
 .find-msg { margin: 0; padding: 10px 12px; font-size: 12.5px; color: var(--ink-mute); }
 .find-row {
   display: flex; align-items: baseline; gap: 8px; text-align: left; cursor: pointer;
@@ -351,7 +374,7 @@ const onDelete = async () => {
 .find-row:hover { background: var(--paper-deep); }
 .find-row.cur { box-shadow: inset 2px 0 0 var(--orange); }
 .find-row .fr-team { color: var(--orange); font-weight: 600; }
-.find-row .fr-meta { margin-left: auto; padding-right: 16px; font-size: 11.5px; color: var(--ink-light); white-space: nowrap; }
+.find-row .fr-meta { margin-left: auto; font-size: 11.5px; color: var(--ink-light); white-space: nowrap; }
 .im-foot { display: flex; align-items: center; gap: 10px; padding-top: 4px; }
 .foot-msg { flex: 1; font-size: 12px; color: var(--bad); }
 /* 공개 사이트에는 전역 버튼 스타일이 없어 여기서 정의한다 */

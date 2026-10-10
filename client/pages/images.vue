@@ -15,7 +15,7 @@ const DIST_OPTS = ['25M', '50M', '100M', '200M', '400M', '800M', '1500M']
 
 // ── 필터 ──
 const competitionID = ref<number | ''>('')
-// 기본값 — 자유형 · 남자 · 50M (가장 사진이 많은 종목부터 본다). '전체' 는 select 에서 고른다
+// 기본값 — 자유형 · 남자 · 50M. 영법·성별·거리는 '전체' 없이 항상 하나를 고른다(한 종목씩 본다)
 const discipline = ref('FR')
 const gender = ref('men')
 const distance = ref('50M')
@@ -91,15 +91,12 @@ const onDeleted = (r: any) => {
         </option>
       </select>
       <select v-model="discipline" class="f-sel" aria-label="영법">
-        <option value="">영법 전체</option>
         <option v-for="(ko, code) in DISC_KO" :key="code" :value="code">{{ ko }}</option>
       </select>
       <select v-model="gender" class="f-sel" aria-label="성별">
-        <option value="">성별 전체</option>
         <option v-for="(ko, code) in GENDER_KO" :key="code" :value="code">{{ ko }}</option>
       </select>
       <select v-model="distance" class="f-sel" aria-label="거리">
-        <option value="">거리 전체</option>
         <option v-for="d in DIST_OPTS" :key="d" :value="d">{{ d }}</option>
       </select>
       <select v-model="picked" class="f-sel" aria-label="선택 여부">

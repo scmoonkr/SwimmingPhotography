@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 로그인 — 작업용 화면(imagesSelect 등)에 들어가기 위한 것. 대시보드와 같은 계정을 쓴다.
+// 로그인 — 작업용 화면(images 등)에 들어가기 위한 것. 대시보드와 같은 계정을 쓴다.
 // 성공하면 원래 가려던 경로(?r=)로 돌아간다.
 useHead({ title: '로그인 — Swimming Photography', meta: [{ name: 'robots', content: 'noindex, nofollow' }] })
 

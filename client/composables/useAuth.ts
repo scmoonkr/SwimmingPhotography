@@ -1,6 +1,6 @@
 // 로그인 상태 — 서버 세션 쿠키(sp_sess) 기준. 대시보드와 같은 계정·같은 API(/api/auth)를 쓴다.
 // 쿠키는 httpOnly 라 JS 로 읽을 수 없으므로 상태는 /api/auth/me 로 확인한다.
-// 공개 사이트는 대부분 로그인이 필요 없다 — 작업용 화면(imagesSelect)만 middleware 'auth' 로 막는다.
+// 공개 사이트는 대부분 로그인이 필요 없다 — 작업용 화면(images)만 middleware 'auth' 로 막는다.
 export function useAuth() {
   const user = useState<any | null>('auth:user', () => null)
   const checked = useState<boolean>('auth:checked', () => false)
