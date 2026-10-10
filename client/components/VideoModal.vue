@@ -615,6 +615,9 @@ const onDelete = async () => {
 .find-row .fr-meta { margin-left: auto; font-size: 11.5px; color: var(--ink-light); white-space: nowrap; }
 .im-foot { display: flex; align-items: center; gap: 10px; padding-top: 4px; }
 .im-foot .btn-primary { margin-left: auto; }
+/* 올리는 중 — 진행 막대가 남는 폭만 쓰고, 퍼센트와 취소 단추는 한 줄에 그대로 둔다 */
+.im-foot .bar { flex: 1 1 0; width: auto; min-width: 40px; }
+.im-foot .btn { flex: 0 0 auto; white-space: nowrap; }
 .foot-msg { flex: 1; font-size: 12px; color: var(--bad); }
 /* 공개 사이트에는 전역 버튼 스타일이 없어 여기서 정의한다 */
 .btn { font-family: var(--sans); font-size: 13.5px; font-weight: 500; border: 1px solid transparent; border-radius: 6px; padding: 8px 16px; cursor: pointer; }

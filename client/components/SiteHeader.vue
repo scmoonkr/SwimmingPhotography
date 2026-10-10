@@ -5,9 +5,14 @@ import { computed, ref } from 'vue'
 
 const { isEN, toggle, t } = useLang()
 
-// 대회 목록에서는 언어 토글을 감춘다 — 대회명·수영장이 원문 그대로라 번역할 것이 없다.
 const route = useRoute()
-const showLang = computed(() => !String(route.path || '').startsWith('/competitions'))
+// 언어 토글을 숨기는 화면 — 홈 · 기사 · 속보 · 대회 목록과, 한글로만 쓰는 작업용 화면(images · videos · videoscard).
+// 그 주소와 그 아래 경로(/article/…)에서 숨긴다. 홈('/')은 정확히 그 주소일 때만.
+const NO_LANG = ['/article', '/breakingnews', '/competitions', '/images', '/videos', '/videoscard']
+const showLang = computed(() => {
+  const p = String(route.path || '/')
+  return p !== '/' && !NO_LANG.some((b) => p === b || p.startsWith(b + '/'))
+})
 
 // 언어 토글: 현재 언어 = 진하게. hover 시 반대 언어 미리보기.
 const preview = ref<'ko' | 'en' | null>(null)
