@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // 영상(기록표) — 대회의 기록(times)을 종목별 표로 보여주고, 기록마다 영상을 보거나 올린다.
 // 필터: 대회 · 성별 · 종목(영법) · 거리 — 성별·종목·거리는 '전체'가 기본.
-// 종목(부 · 그룹 · 성별 · 영법 · 거리 · 코스)마다 표 하나, 표 안은 이름순.
-//   열: no · name · ageGroup · gender · team · discipline · distance · course · time · rank · status · 영상(있으면) · 올리기
+// 종목(부 · 그룹 · 성별 · 영법 · 거리 · 코스)마다 표 하나, 표 안은 기록 빠른 순(같으면 순위 → 이름).
+//   열: no · name · ageGroup · gender · team · discipline · distance · time · rank · status · 영상(있으면) · 올리기 (코스는 종목 제목에만)
 // 올리기 아이콘 → 그 선수가 미리 채워진 영상 올리기 모달(VideoModal). 영상 아이콘 → 재생 모달.
 // 카드로 훑어보는 화면은 videoscard 페이지. 내부 작업용이라 메뉴에 걸지 않고 검색 노출도 막는다.
 import { computed, onMounted, ref, watch } from 'vue'
@@ -55,6 +55,17 @@ watch([competitionID, gender, discipline, distance], load)
 const ko = (a: any, b: any) => String(a ?? '').localeCompare(String(b ?? ''), 'ko', { numeric: true })
 const distN = (v: any) => { const m = String(v || '').match(/(\d+)/); return m ? Number(m[1]) : Infinity }
 const ord = (list: string[], v: string) => { const i = list.indexOf(v); return i < 0 ? list.length : i }
+// 기록을 견줄 수 있는 수로 — 서버의 timeStamp(하루를 1로 본 값)를 쓰고, 없으면 "01:49.04"·"25.34" 글자를 초로 읽는다
+const timeN = (r: any) => {
+  if (r.status) return Infinity
+  if (Number(r.timeStamp) > 0) return Number(r.timeStamp) * 86400
+  const m = String(r.time || '').trim().match(/^(?:(\d+):)?(?:(\d+):)?(\d+(?:\.\d+)?)$/)
+  if (!m) return Infinity
+  const parts = [m[1], m[2]].filter((v) => v != null).map(Number)
+  const sec = parts.reduce((acc, v) => acc * 60 + v, 0) * 60 + Number(m[3])
+  return sec > 0 ? sec : Infinity
+}
+const rankN = (r: any) => (Number(r.rank) > 0 ? Number(r.rank) : Infinity)
 const groups = computed(() => {
   const by = new Map<string, any>()
   for (const r of rows.value) {
@@ -69,7 +80,8 @@ const groups = computed(() => {
     by.get(key).rows.push(r)
   }
   const out = [...by.values()]
-  for (const g of out) g.rows.sort((a: any, b: any) => ko(a.name, b.name))      // 표 안은 이름순
+  // 표 안은 기록(time) 빠른 순 — 같으면 순위(rank), 그다음 이름. 기록이 없거나 실격(status)이면 맨 뒤.
+  for (const g of out) g.rows.sort((a: any, b: any) => (timeN(a) - timeN(b)) || (rankN(a) - rankN(b)) || ko(a.name, b.name))
   // 종목 순서 — 그룹 → 성별 → 영법 → 거리 → 코스
   return out.sort((a, b) => ko(a.ageGroup, b.ageGroup)
     || (ord(GENDER_ORDER, a.gender) - ord(GENDER_ORDER, b.gender))
@@ -146,7 +158,7 @@ const onChanged = async () => { selected.value = null; await load() }
           <thead>
             <tr>
               <th class="num">no</th><th>name</th><th>ageGroup</th><th>gender</th><th>team</th>
-              <th>discipline</th><th>distance</th><th>course</th><th class="num">time</th><th class="num">rank</th><th>status</th>
+              <th>discipline</th><th>distance</th><th class="num">time</th><th class="num">rank</th><th>status</th>
               <th class="ic" aria-label="영상" /><th class="ic" aria-label="올리기" />
             </tr>
           </thead>
@@ -159,7 +171,6 @@ const onChanged = async () => { selected.value = null; await load() }
               <td>{{ r.team }}</td>
               <td>{{ DISC_KO[r.discipline] || r.discipline }}</td>
               <td>{{ r.distance }}</td>
-              <td>{{ r.course }}</td>
               <td class="num mono">{{ r.time }}</td>
               <td class="num">{{ r.rank }}</td>
               <td class="st">{{ r.status }}</td>

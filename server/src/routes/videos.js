@@ -79,7 +79,7 @@ router.get('/times', async (req, res) => {
     if (distance) filter.distance = String(distance)
     const sp = await SP()
     const times = await sp.collection('times')
-      .find(filter, { projection: { timeID: 1, name: 1, name_unique: 1, team: 1, ageGroup: 1, isAdult: 1, gender: 1, discipline: 1, distance: 1, course: 1, time: 1, rank: 1, status: 1, round: 1, competitionID: 1 } })
+      .find(filter, { projection: { timeID: 1, name: 1, name_unique: 1, team: 1, ageGroup: 1, isAdult: 1, gender: 1, discipline: 1, distance: 1, course: 1, time: 1, timeStamp: 1, rank: 1, status: 1, round: 1, competitionID: 1 } })
       .limit(10000).toArray()
     const ids = times.map((t) => t.timeID).filter((v) => v != null)
     const vids = ids.length ? await (await coll()).find({ timeIDs: { $in: ids } }).sort({ createdAt: 1 }).toArray() : []
@@ -94,7 +94,7 @@ router.get('/times', async (req, res) => {
       name: (Array.isArray(t.name_unique) ? t.name_unique.join(',') : String(t.name_unique ?? '')) || t.name || '',
       team: t.team || '', ageGroup: t.ageGroup || '', isAdult: !!t.isAdult,
       gender: t.gender || '', discipline: t.discipline || '', distance: t.distance || '', course: t.course || '',
-      time: t.time || '', rank: t.rank ?? '', status: t.status || '', round: t.round || '',
+      time: t.time || '', timeStamp: t.timeStamp ?? null, rank: t.rank ?? '', status: t.status || '', round: t.round || '',
       videos: byTime.get(t.timeID) || [],
     })))
   } catch (e) {
