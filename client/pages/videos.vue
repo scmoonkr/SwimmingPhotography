@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 영상(기록표) — 대회의 기록(times)을 종목별 표로 보여주고, 기록마다 영상을 보거나 올린다.
 // 필터: 대회 · 성별 · 종목(영법) · 거리 — 성별·종목·거리는 '전체'가 기본.
-// 종목(부 · 그룹 · 성별 · 영법 · 거리 · 코스)마다 표 하나, 표 안은 기록 빠른 순(같으면 순위 → 이름).
+// 종목(부 · 그룹 · 성별 · 영법 · 거리 · 코스 · 예선/결선)마다 표 하나, 표 안은 기록 빠른 순(같으면 순위 → 이름).
 //   열: no · name · ageGroup · gender · team · discipline · distance · time · rank · status · 영상(있으면) · 올리기 (코스는 종목 제목에만)
 // 올리기 아이콘 → 그 선수가 미리 채워진 영상 올리기 모달(VideoModal). 영상 아이콘 → 재생 모달.
 // 카드로 훑어보는 화면은 videoscard 페이지. 내부 작업용이라 메뉴에 걸지 않고 검색 노출도 막는다.
@@ -51,7 +51,8 @@ onMounted(async () => {
 })
 watch([competitionID, gender, discipline, distance], load)
 
-// ── 종목별 묶음 ── 종목 = 부 · 그룹 · 성별 · 영법 · 거리 · 코스 (예: 성인부 성인1그룹 남자 자유형 50M LCM)
+// ── 종목별 묶음 ── 종목 = 부 · 그룹 · 성별 · 영법 · 거리 · 코스 · 라운드 (예: 성인부 1그룹 남자 자유형 50M LCM 예선)
+// 라운드(예선/결선)가 없는 기록은 라운드 없이 묶는다.
 const ko = (a: any, b: any) => String(a ?? '').localeCompare(String(b ?? ''), 'ko', { numeric: true })
 const distN = (v: any) => { const m = String(v || '').match(/(\d+)/); return m ? Number(m[1]) : Infinity }
 const ord = (list: string[], v: string) => { const i = list.indexOf(v); return i < 0 ? list.length : i }
@@ -66,14 +67,28 @@ const timeN = (r: any) => {
   return sec > 0 ? sec : Infinity
 }
 const rankN = (r: any) => (Number(r.rank) > 0 ? Number(r.rank) : Infinity)
+// 라운드 — 기록마다 표기가 섞여 있어(예선·결승·finals·preliminaries …) 예선/준결/결선 으로 맞춘다. 없으면 ''(종목에서 무시)
+const roundKo = (v: any) => {
+  const t = String(v || '').trim()
+  if (!t) return ''
+  if (/준결|semi/i.test(t)) return '준결'          // '준결승' 은 '결' 을 포함하니 먼저 거른다
+  if (/결|final/i.test(t)) return '결선'
+  if (/예선|prelim|heat/i.test(t)) return '예선'
+  return t
+}
+const ROUND_ORDER = ['', '예선', '준결', '결선']
+// 그룹 표기 — 앞에 '성인부'를 붙이므로 그룹 이름의 '성인'은 뗀다 (성인1그룹 → 1그룹, 성인 -159 → -159)
+// 성인이 아닌 기록은 앞에 '학생부'를 붙이고 그룹 이름은 그대로 둔다 (학생부 초등 3학년 …)
+const groupLabel = (r: any) => (r.isAdult ? String(r.ageGroup || '').replace(/^성인\s*/, '') : (r.ageGroup || ''))
 const groups = computed(() => {
   const by = new Map<string, any>()
   for (const r of rows.value) {
-    const key = [r.isAdult ? 1 : 0, r.ageGroup, r.gender, r.discipline, r.distance, r.course].join('|')
+    const round = roundKo(r.round)
+    const key = [r.isAdult ? 1 : 0, r.ageGroup, r.gender, r.discipline, r.distance, r.course, round].join('|')
     if (!by.has(key)) {
       by.set(key, {
-        key, isAdult: r.isAdult, ageGroup: r.ageGroup, gender: r.gender, discipline: r.discipline, distance: r.distance, course: r.course,
-        title: [r.isAdult ? '성인부' : '', r.ageGroup, GENDER_KO[r.gender] || r.gender, DISC_KO[r.discipline] || r.discipline, r.distance, r.course].filter(Boolean).join(' '),
+        key, isAdult: r.isAdult, ageGroup: r.ageGroup, gender: r.gender, discipline: r.discipline, distance: r.distance, course: r.course, round,
+        title: [r.isAdult ? '성인부' : '학생부', groupLabel(r), GENDER_KO[r.gender] || r.gender, DISC_KO[r.discipline] || r.discipline, r.distance, r.course, round].filter(Boolean).join(' '),
         rows: [] as any[],
       })
     }
@@ -82,12 +97,13 @@ const groups = computed(() => {
   const out = [...by.values()]
   // 표 안은 기록(time) 빠른 순 — 같으면 순위(rank), 그다음 이름. 기록이 없거나 실격(status)이면 맨 뒤.
   for (const g of out) g.rows.sort((a: any, b: any) => (timeN(a) - timeN(b)) || (rankN(a) - rankN(b)) || ko(a.name, b.name))
-  // 종목 순서 — 그룹 → 성별 → 영법 → 거리 → 코스
+  // 종목 순서 — 그룹 → 성별 → 영법 → 거리 → 코스 → 라운드(예선 → 준결 → 결선)
   return out.sort((a, b) => ko(a.ageGroup, b.ageGroup)
     || (ord(GENDER_ORDER, a.gender) - ord(GENDER_ORDER, b.gender))
     || (ord(DISC_ORDER, a.discipline) - ord(DISC_ORDER, b.discipline))
     || (distN(a.distance) - distN(b.distance))
-    || ko(a.course, b.course))
+    || ko(a.course, b.course)
+    || (ord(ROUND_ORDER, a.round) - ord(ROUND_ORDER, b.round)))
 })
 const withVideo = computed(() => rows.value.filter((r) => r.videos?.length).length)
 
