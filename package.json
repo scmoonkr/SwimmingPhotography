@@ -4,6 +4,7 @@
   "private": true,
   "workspaces": [
     "server",
+    "backend",
     "client",
     "dashboard"
   ],
@@ -11,6 +12,7 @@
     "server": "npm run dev --workspace=server",
     "client": "npm run dev --workspace=client",
     "dashboard": "npm run dev --workspace=dashboard",
+    "backend": "npm run dev --workspace=backend",
     "dev": "npm run server & npm run client & npm run dashboard"
   },
   "dependencies": {

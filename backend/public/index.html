@@ -1,0 +1,725 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>메달뱅크 업무관리</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=Noto+Serif+KR:wght@700&display=swap">
+<link rel="stylesheet" href="/admin.css">
+</head>
+<body>
+<div id="app"></div>
+<dialog id="dlg" class="drawer"></dialog>
+
+<script>
+const $ = (s) => document.querySelector(s)
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+const day = (d) => (d ? new Date(d).toISOString().slice(0, 10) : '')
+const won = (n) => (n == null ? '' : Number(n).toLocaleString('ko-KR'))
+const badge = (txt, cls) => `<span class="badge ${cls}">${esc(txt)}</span>`
+const debounce = (fn, ms = 250) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms) } }
+const thumb = (url) => (url ? `<img class="cell-img" src="${esc(url)}" alt="" loading="lazy">` : '<span class="cell-img empty">없음</span>')
+const optName = (m) => `${m.name}${m.color ? ' · ' + m.color : ''}${m.size ? ' ' + m.size : ''} (${m.code})`
+
+let me = null
+let tab = 'orders'
+const cache = {}                       // 거래처·고객 선택 목록
+
+async function api(path, { method = 'GET', body } = {}) {
+  const r = await fetch('/api' + path, {
+    method, credentials: 'same-origin',
+    headers: body ? { 'content-type': 'application/json' } : {},
+    body: body ? JSON.stringify(body) : undefined,
+  })
+  const j = await r.json().catch(() => ({}))
+  if (r.status === 401 && path !== '/auth/login') { me = null; render(); throw new Error('로그인이 필요합니다.') }
+  if (!r.ok) throw new Error(j.error || r.statusText)
+  return j
+}
+
+// ── 입력 ↔ 본문 변환 (한 줄에 하나, 쉼표로 구분) ─────────────
+const rows = (t) => String(t).split('\n').map((l) => l.trim()).filter(Boolean).map((l) => l.split(',').map((s) => s.trim()))
+const itemsToText = (a = []) => a.map((i) => [i.productName, i.color, i.size, i.qty, i.unitPrice, i.note].join(', ')).join('\n')
+const textToItems = (t) => rows(t).map(([productName, color, size, qty, unitPrice, ...note]) => ({ productName, color, size, qty: Number(qty) || 0, unitPrice: Number(unitPrice) || 0, note: note.join(', ') }))
+const bomToText = (a = []) => a.map((b) => [b.code, b.qty].join(', ')).join('\n')
+const textToBom = (t) => rows(t).map(([code, qty]) => ({ code, qty: Number(qty) || 0 }))
+const tagsToText = (a = []) => a.join(', ')
+const textToTags = (t) => t.split(',').map((s) => s.trim()).filter(Boolean)
+
+const STATUSES = ['예정', '접수', '제작중', '검수', '배송준비', '출고', '완료', '취소']
+const ORDER_BADGE = { 완료: 'b-good', 출고: 'b-good', 취소: 'b-bad', 예정: 'b-mute' }
+const PO_BADGE = { 발주: 'b-warn', 부분입고: 'b-warn', 입고완료: 'b-good', 취소: 'b-bad' }
+const ACTIVE = { k: 'active', l: '사용여부', t: 'select', opts: ['true', 'false'], names: ['사용', '중지'], def: 'true', bool: 1 }
+
+// ── 목록 화면 정의 (등록·수정은 오른쪽 드로어) ─────────────────
+const stockCol = (o) => (o._low ? `<span class="low">${won(o._on)}</span>` : won(o._on ?? 0))
+const ENT = {
+  orders: {
+    label: '주문', en: 'Orders', api: '/orders', search: true, filter: { key: 'status', opts: STATUSES, label: '상태 전체' },
+    cols: [
+      ['orderNo', '#', (o) => o.orderNo, 'r'], ['title', '주문명', (o) => esc(o.title)], ['partner', '거래처', (o) => esc(o.partnerName)],
+      ['status', '상태', (o) => badge(o.status, ORDER_BADGE[o.status] || 'b-warn')], ['due', '납기', (o) => day(o.dueAt)],
+      ['pri', '우선', (o) => ['', '높음', '긴급', '최우선'][o.priority || 0]],
+      ['total', '합계', (o) => won(o.amounts?.total), 'r'], ['bal', '잔금', (o) => won(o.amounts?.balance), 'r'],
+    ],
+    fields: [
+      { k: 'title', l: '주문명', t: 'text', wide: 1 },
+      { k: 'partnerId', l: '거래처', t: 'ref', ref: 'partners' }, { k: 'customerId', l: '담당 고객', t: 'ref', ref: 'customers' },
+      { k: 'orderedAt', l: '주문일', t: 'date' }, { k: 'dueAt', l: '납기(출발필수)', t: 'date' },
+      { k: 'status', l: '상태', t: 'select', opts: STATUSES, def: '접수' },
+      { k: 'priority', l: '우선순위', t: 'select', opts: ['0', '1', '2', '3'], names: ['보통', '높음', '긴급', '최우선'], def: '0', num: 1 },
+      { k: 'items', l: '품목 (한 줄에 하나)', t: 'area', to: itemsToText, from: textToItems, hint: '품목명, 색상, 사이즈, 수량, 단가, 비고' },
+      { k: 'tags', l: '태그 (쉼표)', t: 'text', to: tagsToText, from: textToTags },
+      { k: 'paid', l: '입금액', t: 'number' }, { k: 'vat', l: '부가세 별도', t: 'select', opts: ['false', 'true'], names: ['아니오', '예'], def: 'false', bool: 1 },
+      { k: 'memo', l: '요청사항 / 메모', t: 'area' },
+    ],
+    // 상태는 별도 엔드포인트라서 저장을 나눠 보낸다
+    async save(rec, body) {
+      const status = body.status; delete body.status
+      if (rec) { await api(`/orders/${rec._id}`, { method: 'PATCH', body }); if (status !== rec.status) await api(`/orders/${rec._id}/status`, { method: 'POST', body: { status } }) }
+      else await api('/orders', { method: 'POST', body: { ...body, status } })
+    },
+  },
+  partners: {
+    label: '거래처', en: 'Partners', api: '/partners', search: true,
+    cols: [['name', '거래처', (o) => esc(o.name)], ['contactName', '담당자', (o) => esc(o.contactName)], ['phone', '전화', (o) => esc(o.phone)], ['bizNo', '사업자번호', (o) => esc(o.bizNo)]],
+    fields: [
+      { k: 'name', l: '거래처명', t: 'text', wide: 1 }, { k: 'contactName', l: '담당자', t: 'text' }, { k: 'phone', l: '전화', t: 'text' },
+      { k: 'email', l: '이메일', t: 'text' }, { k: 'bizNo', l: '사업자번호', t: 'text' }, { k: 'address', l: '주소', t: 'text', wide: 1 },
+      { k: 'tags', l: '태그 (쉼표)', t: 'text', to: tagsToText, from: textToTags }, { k: 'memo', l: '메모', t: 'area' },
+    ],
+  },
+  customers: {
+    label: '고객', en: 'Customers', api: '/customers', search: true,
+    cols: [['name', '이름', (o) => esc(o.name)], ['partner', '소속 거래처', (o) => esc(cache.partnersMap?.[o.partnerId] || '')], ['phone', '전화', (o) => esc(o.phone)], ['email', '이메일', (o) => esc(o.email)]],
+    fields: [
+      { k: 'name', l: '이름', t: 'text', wide: 1 }, { k: 'partnerId', l: '소속 거래처', t: 'ref', ref: 'partners' },
+      { k: 'phone', l: '전화', t: 'text' }, { k: 'email', l: '이메일', t: 'text' }, { k: 'address', l: '주소', t: 'text', wide: 1 },
+      { k: 'tags', l: '태그 (쉼표)', t: 'text', to: tagsToText, from: textToTags }, { k: 'memo', l: '메모', t: 'area' },
+    ],
+  },
+}
+
+// ── 공통 UI ──────────────────────────────────────────────
+const MENU = [
+  ['영업', [
+    ['orders', '주문', '<path d="M4 3h16v18l-3-2-3 2-3-2-3 2-3-2-1 1V3Z"/><path d="M8 7h8M8 11h8M8 15h5"/>'],
+    ['partners', '거래처', '<path d="M3 21h18M5 21V8l7-4 7 4v13"/><path d="M9 21v-6h6v6"/>'],
+    ['customers', '고객', '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>'],
+  ]],
+  ['재고관리', [
+    ['stock', '재고현황', '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 4v16"/>'],
+    ['materials', '물품', '<path d="M21 8 12 3 3 8v8l9 5 9-5Z"/><path d="m3 8 9 5 9-5M12 13v8"/>'],
+    ['goods', '상품', '<path d="M20 12v9H4v-9M2 7h20v5H2zM12 21V7M12 7H7.5a2.5 2.5 0 1 1 0-5C11 2 12 7 12 7Zm0 0h4.5a2.5 2.5 0 1 0 0-5C13 2 12 7 12 7Z"/>'],
+    ['po', '발주·입고', '<path d="M3 7h13v10H3zM16 10h3l2 3v4h-5"/><circle cx="7" cy="18" r="1.6"/><circle cx="17" cy="18" r="1.6"/>'],
+    ['ship', '출고', '<path d="M12 3v12M7 10l5 5 5-5M4 21h16"/>'],
+    ['stocktake', '재고검수', '<path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/>'],
+  ]],
+]
+const VIEWS = {
+  materials: () => viewItems('materials'), goods: () => viewItems('goods'),
+  stock: () => viewStock(), po: () => viewPO(), ship: () => viewShip(), stocktake: () => viewStocktake(),
+}
+
+function render() {
+  const app = $('#app')
+  if (!me) {
+    app.innerHTML = `<div class="auth-shell"><form class="auth-card" id="lf">
+      <div class="bk">메달뱅크<span>.</span></div><div class="bs">Business Admin</div>
+      <label class="field"><span class="field-label">아이디</span><input class="field-input" name="u" autocomplete="username" required autofocus></label>
+      <label class="field"><span class="field-label">비밀번호</span><input class="field-input" name="p" type="password" autocomplete="current-password" required></label>
+      <div class="auth-err" id="le"></div><button class="btn btn-primary" style="justify-content:center">로그인</button></form></div>`
+    $('#lf').onsubmit = async (e) => {
+      e.preventDefault()
+      const f = new FormData(e.target)
+      try { me = (await api('/auth/login', { method: 'POST', body: { username: f.get('u'), password: f.get('p') } })).user; render() }
+      catch (x) { $('#le').textContent = x.message }
+    }
+    return
+  }
+  const cur = MENU.flatMap((g) => g[1]).find((t) => t[0] === tab)
+  const nav = MENU.map(([sec, items]) => `<div class="nav-sec">${sec}</div>${items.map(([k, l, ic]) =>
+    `<button class="nav-item ${k === tab ? 'on' : ''}" data-t="${k}"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${ic}</svg></span><span class="lbl">${l}</span></button>`).join('')}`).join('')
+  app.innerHTML = `<div class="dash"><aside class="sidebar">
+      <div class="sb-brand"><div class="bk">메달뱅크<span>.</span></div><div class="bs">Business Admin</div></div>
+      <nav class="nav">${nav}</nav></aside>
+    <div class="main"><header class="topbar"><span class="tb-title">${cur ? cur[1] : ''}</span><span class="tb-spacer"></span>
+      <span class="tb-user-name"><span class="tb-avatar">${esc((me.name || '?').trim().charAt(0))}</span>${esc(me.name)} · ${esc(me.role)}</span>
+      <button class="tb-logout" id="lo">로그아웃</button></header>
+      <div class="content" id="main"></div></div></div>`
+  app.querySelectorAll('.nav-item').forEach((b) => { b.onclick = () => { tab = b.dataset.t; render() } })
+  $('#lo').onclick = async () => { await api('/auth/logout', { method: 'POST' }).catch(() => {}); me = null; render() }
+  ;(VIEWS[tab] || (() => viewList(ENT[tab])))()
+}
+
+async function refs() {
+  const [p, c] = await Promise.all([api('/partners?limit=500'), api('/customers?limit=500')])
+  cache.partners = p.items; cache.customers = c.items
+  cache.partnersMap = Object.fromEntries(p.items.map((x) => [x._id, x.name]))
+}
+
+// 페이지 틀: 헤더(영문 라벨 · 제목 · 등록 버튼) + 테이블 카드
+function pageShell({ en, title, addLabel, tools = '' }) {
+  $('#main').innerHTML = `<div class="page-head"><div class="ph-main"><div class="ph-en">${esc(en)}</div><h1>${esc(title)}</h1></div>
+    <div class="ph-actions">${addLabel && me.can.includes('write') ? `<button class="btn btn-primary" id="add">+ ${esc(addLabel)}</button>` : ''}</div></div>
+    <div class="table-card"><div class="table-tools">${tools}<span class="table-count" id="ft"></span></div>
+      <div class="table-scroll" id="tbl"><table class="data"><tbody><tr class="empty-row"><td>불러오는 중…</td></tr></tbody></table></div></div>`
+}
+const emptyTable = (msg) => `<table class="data"><tbody><tr class="empty-row"><td>${esc(msg)}</td></tr></tbody></table>`
+function paintTable(items, cols, onRow, emptyMsg = '데이터가 없습니다.') {
+  const t = $('#tbl')
+  if (!items.length) { t.innerHTML = emptyTable(emptyMsg); return }
+  const cls = (c) => (c[3] === 'r' ? 'num' : '')
+  t.innerHTML = `<table class="data"><thead><tr>${cols.map((c) => `<th class="${cls(c)}">${c[1]}</th>`).join('')}</tr></thead><tbody>${
+    items.map((o, i) => `<tr class="${onRow ? 'clickable' : ''}" data-i="${i}">${cols.map((c) => `<td class="${cls(c)}">${c[2](o)}</td>`).join('')}</tr>`).join('')}</tbody></table>`
+  if (onRow) t.querySelectorAll('tr[data-i]').forEach((tr) => { tr.onclick = () => onRow(items[tr.dataset.i]) })
+}
+
+// 드로어 틀 — 본문(body)·하단(foot) HTML 을 받아 연다
+function shell(title, body, foot) {
+  const dlg = $('#dlg')
+  dlg.innerHTML = `<div style="display:flex;flex-direction:column;height:100%">
+    <header class="drawer-head"><h2>${title}</h2><button type="button" class="drawer-x" id="dxx" aria-label="닫기">×</button></header>
+    <div class="drawer-body">${body}<div class="drawer-err" id="de"></div></div>
+    <footer class="drawer-foot">${foot}</footer></div>`
+  dlg.showModal()
+  $('#dxx').onclick = () => dlg.close()
+  const c = $('#dc'); if (c) c.onclick = () => dlg.close()
+  return dlg
+}
+const fieldHtml = (label, input, full) => `<label class="field ${full ? 'full' : ''}"><span class="field-label">${label}</span>${input}</label>`
+const closeFoot = (...btns) => `<span class="sp"></span><button type="button" class="btn btn-ghost" id="dc">닫기</button>${btns.join('')}`
+const setErr = (m) => { const e = $('#de'); if (e) e.textContent = m || '' }
+// 코드 선택 보조 — 고르면 textarea 에 한 줄(코드, 1) 을 덧붙인다
+const pickerHtml = (id, list) => `<div class="field full"><span class="field-label">품목 선택</span><div style="display:flex;gap:8px">
+  <select class="field-input" id="${id}_s">${list.map((m) => `<option value="${esc(m.code)}">${esc(optName(m))}</option>`).join('')}</select>
+  <button type="button" class="btn btn-ghost" id="${id}_b">+ 추가</button></div></div>`
+function wirePicker(id, area, suffix = ', 1') {
+  const b = $(`#${id}_b`)
+  if (!b) return
+  b.onclick = () => {
+    const code = $(`#${id}_s`).value
+    if (!code) return
+    const el = $(area)
+    el.value = (el.value.trim() ? el.value.trim() + '\n' : '') + code + suffix
+  }
+}
+
+// ── 일반 목록 + 등록/수정 드로어 ──────────────────────────
+async function viewList(E) {
+  const canW = me.can.includes('write')
+  pageShell({
+    en: E.en, title: E.label, addLabel: canW ? `${E.label} 등록` : '',
+    tools: `${E.search ? '<input id="q" class="table-search" placeholder="검색…" type="search">' : ''}${
+      E.filter ? `<select id="f" class="table-select"><option value="">${E.filter.label}</option>${E.filter.opts.map((o) => `<option>${o}</option>`).join('')}</select>` : ''}`,
+  })
+  const load = async () => {
+    try {
+      await refs()
+      const p = new URLSearchParams({ limit: '300' })
+      if ($('#q')?.value) p.set('q', $('#q').value)
+      if ($('#f')?.value) p.set(E.filter.key, $('#f').value)
+      const { items, total } = await api(`${E.api}?${p}`)
+      if (E.stockKind) {                       // 현재고를 붙인다
+        const st = new Map((await api(`/stock?kind=${E.stockKind}`)).items.map((r) => [r.code, r]))
+        for (const o of items) { const s = st.get(o.code); o._on = s?.onHand || 0; o._low = !!s?.low }
+      }
+      paintTable(items, E.cols, (o) => openForm(E, o, load))
+      $('#ft').textContent = `${items.length} / ${total}`
+    } catch (e) { $('#tbl').innerHTML = emptyTable(e.message) }
+  }
+  $('#q')?.addEventListener('input', debounce(load))
+  $('#f')?.addEventListener('change', load)
+  $('#add')?.addEventListener('click', () => openForm(E, null, load))
+  load()
+}
+
+async function openForm(E, rec, done, prefill) {
+  let detail = rec || prefill       // prefill: 같은 물품에 옵션 추가할 때 이름·분류 등을 미리 채운다
+  if (rec && E.api === '/orders') detail = await api(`/orders/${rec._id}`).catch(() => rec)   // 변경이력 포함
+  const canW = me.can.includes('write'), canD = me.can.includes('delete')
+  const fields = E.fields.filter((f) => !(rec ? f.createOnly : f.editOnly))
+  const matList = fields.some((f) => f.pick) ? (await api('/materials?active=1&limit=500')).items : []
+
+  const val = (f) => {
+    const v = detail ? detail[f.k] : undefined
+    if (f.to) return f.to(v)
+    if (f.t === 'date') return day(v)
+    if (v == null) return f.def ?? ''
+    return String(v)
+  }
+  const input = (f) => {
+    const id = `f_${f.k}`, v = val(f), dis = canW ? '' : 'disabled'
+    const hint = f.hint ? `<span class="field-hint">${esc(f.hint)}</span>` : ''
+    if (f.t === 'image') {
+      return `<div class="img-field"><span id="${id}_pv">${thumb(v)}</span><div class="img-side">
+        <input type="hidden" id="${id}" value="${esc(v)}">
+        ${canW ? `<input type="file" id="${id}_file" accept="image/jpeg,image/png,image/webp,image/gif"><button type="button" class="btn btn-ghost" id="${id}_rm" style="align-self:flex-start">이미지 제거</button>` : ''}
+        <span class="field-hint">jpg · png · webp · gif, 5MB 이하</span></div></div>`
+    }
+    if (f.t === 'meta') return `<div class="field-input" style="background:none;padding-left:0">${esc(v)}</div>`
+    if (f.t === 'area') return `<textarea class="field-input" id="${id}" ${dis}>${esc(v)}</textarea>${hint}`
+    if (f.t === 'select') return `<select class="field-input" id="${id}" ${dis}>${f.opts.map((o, i) => `<option value="${o}" ${o === v ? 'selected' : ''}>${esc(f.names?.[i] || o)}</option>`).join('')}</select>`
+    if (f.t === 'ref') return `<select class="field-input" id="${id}" ${dis}><option value="">(없음)</option>${(cache[f.ref] || []).map((x) => `<option value="${x._id}" ${x._id === v ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>`
+    return `<input class="field-input" id="${id}" type="${f.t === 'number' ? 'number' : f.t === 'date' ? 'date' : 'text'}" value="${esc(v)}" ${dis}>${hint}`
+  }
+  const a = detail?.amounts
+  const body = fields.map((f) => {
+    const pick = f.pick && canW ? pickerHtml(`pk_${f.k}`, matList) : ''
+    return pick + fieldHtml(f.l, input(f), f.wide || f.t === 'area')
+  }).join('')
+    + (a ? `<div class="drawer-note">공급가 ${won(a.supply)} · 부가세 ${won(a.vat)} · 합계 ${won(a.total)} · 잔금 ${won(a.balance)}</div>` : '')
+    + (detail?.logs?.length ? `<div class="drawer-logs">${detail.logs.map((l) => `${new Date(l.at).toLocaleString('ko-KR')} · ${esc(l.by)} · ${esc(l.action)} ${esc(l.detail?.from ? `${l.detail.from}→${l.detail.to}` : (l.detail?.fields || []).join(','))}`).join('<br>')}</div>` : '')
+
+  const dlg = shell(`${E.label} ${rec ? '수정' : '등록'}${detail?.orderNo ? ` · #${detail.orderNo}` : ''}`, body,
+    `${rec && canD ? '<button type="button" class="btn btn-danger" id="dx">삭제</button>' : ''}${rec && canW && E.variants ? '<button type="button" class="btn btn-ghost" id="dv">옵션 추가</button>' : ''}${closeFoot(canW ? '<button type="button" class="btn btn-primary" id="save">저장</button>' : '')}`)
+  for (const f of fields) if (f.pick) wirePicker(`pk_${f.k}`, `#f_${f.k}`)
+  for (const f of fields) {
+    if (f.t !== 'image') continue
+    const id = `#f_${f.k}`
+    const setImg = (url) => { $(id).value = url; $(`${id}_pv`).innerHTML = thumb(url) }
+    $(`${id}_file`)?.addEventListener('change', async (ev) => {
+      const file = ev.target.files[0]
+      if (!file) return
+      setErr('')
+      try {
+        const fd = new FormData(); fd.append('file', file)
+        const r = await fetch('/api/uploads/image', { method: 'POST', body: fd, credentials: 'same-origin' })
+        const j = await r.json().catch(() => ({}))
+        if (!r.ok) throw new Error(j.error || r.statusText)
+        setImg(j.url)
+      } catch (e) { setErr(e.message); ev.target.value = '' }
+    })
+    $(`${id}_rm`)?.addEventListener('click', () => setImg(''))
+  }
+
+  $('#dv')?.addEventListener('click', () => {
+    const { _id, code, color, size, createdAt, updatedAt, createdBy, _on, _low, ...rest } = rec
+    dlg.close(); openForm(E, null, done, rest)
+  })
+  $('#dx')?.addEventListener('click', async () => {
+    if (!confirm('삭제할까요? 되돌릴 수 없습니다.')) return
+    try { await api(`${E.api}/${rec._id}`, { method: 'DELETE' }); dlg.close(); done() } catch (e) { setErr(e.message) }
+  })
+  $('#save')?.addEventListener('click', async () => {
+    const body = {}
+    for (const f of fields) {
+      if (f.t === 'meta') continue
+      const raw = $(`#f_${f.k}`).value
+      if (f.from) body[f.k] = f.from(raw)
+      else if (f.bool) body[f.k] = raw === 'true'
+      else if (f.t === 'number' || f.num) body[f.k] = Number(raw) || 0
+      else if (f.t === 'ref' || f.t === 'date') body[f.k] = raw || null
+      else body[f.k] = raw
+    }
+    try {
+      if (E.save) await E.save(rec, body)
+      else if (rec) await api(`${E.api}/${rec._id}`, { method: 'PATCH', body })
+      else await api(E.api, { method: 'POST', body })
+      dlg.close(); done()
+    } catch (e) { setErr(e.message) }
+  })
+}
+
+// ── 물품 · 상품 (부모 1건 + 색상×사이즈 옵션) ─────────────────
+const ITEM = {
+  materials: { label: '물품', en: 'Materials', price: 'purchasePrice', priceLabel: '구입가격' },
+  goods: { label: '상품', en: 'Goods', price: 'salePrice', priceLabel: '판매가' },
+}
+
+async function viewItems(key) {
+  const I = ITEM[key], canW = me.can.includes('write')
+  pageShell({
+    en: I.en, title: I.label, addLabel: canW ? `${I.label} 등록` : '',
+    tools: '<input id="q" class="table-search" placeholder="이름·코드·색상·사이즈 검색…" type="search">',
+  })
+  const load = async () => {
+    try {
+      const p = new URLSearchParams({ limit: '300' })
+      if ($('#q').value) p.set('q', $('#q').value)
+      const { items, total } = await api(`/${key}?${p}`)
+      paintTable(items, [
+        ['img', '', (o) => thumb(o.image)],
+        ['name', `${I.label}명`, (o) => `<b>${esc(o.name)}</b>`],
+        ['cat', '분류', (o) => badge(o.category || '-', 'b-mute')],
+        key === 'materials' ? ['sup', '발주처', (o) => esc(o.supplier)] : ['dc', '디자인코드', (o) => esc(o.designCode)],
+        ['opt', '옵션', (o) => `${won(o.optionCount)}개`, 'r'],
+        ['price', I.priceLabel, (o) => won(o[I.price]), 'r'],
+        ['on', '총재고', (o) => `${won(o.totalOnHand)} ${esc(o.unit)}`, 'r'],
+        ['st', '', (o) => (o.lowCount ? badge(`부족 ${o.lowCount}`, 'b-bad') : '') + (o.active === false ? badge('중지', 'b-mute') : '')],
+      ], (o) => openItem(key, o, load), `등록된 ${I.label}이 없습니다.`)
+      $('#ft').textContent = `${items.length} / ${total}`
+    } catch (e) { $('#tbl').innerHTML = emptyTable(e.message) }
+  }
+  $('#q').addEventListener('input', debounce(load))
+  $('#add')?.addEventListener('click', () => openItem(key, null, load))
+  load()
+}
+
+async function openItem(key, rec, done) {
+  const I = ITEM[key], canW = me.can.includes('write'), canD = me.can.includes('delete')
+  const it = rec ? await api(`/${key}/${rec._id}`)
+    : { name: '', category: '', supplier: '', designCode: '', unit: '개', purchasePrice: 0, salePrice: 0, bom: [], memo: '', active: true, options: [] }
+  const opts = (it.options || []).map((o) => ({ ...o }))
+  const mats = key === 'goods' && canW ? (await api('/materials/options?active=1')).items : []
+  const dis = canW ? '' : 'disabled'
+  const inp = (id, v, type = 'text', extra = '') => `<input class="field-input" id="${id}" type="${type}" value="${esc(v)}" ${dis} ${extra}>`
+
+  let body = fieldHtml(`${I.label}명`, inp('i_name', it.name), true)
+    + fieldHtml('분류', inp('i_cat', it.category) + '<span class="field-hint">예: 수모, 실, 자수 부자재</span>')
+    + (key === 'materials' ? fieldHtml('발주처', inp('i_sup', it.supplier)) : fieldHtml('디자인코드', inp('i_dc', it.designCode)))
+    + fieldHtml(`${I.priceLabel} (기본)`, inp('i_price', it[I.price] ?? 0, 'number', 'min="0"'))
+    + fieldHtml('단위', inp('i_unit', it.unit || '개'))
+    + fieldHtml('사용여부', `<select class="field-input" id="i_act" ${dis}><option value="true" ${it.active !== false ? 'selected' : ''}>사용</option><option value="false" ${it.active === false ? 'selected' : ''}>중지</option></select>`)
+  if (key === 'goods') {
+    body += (canW ? pickerHtml('pk_bom', mats) : '')
+      + fieldHtml('구성 물품 (한 줄에 하나)', `<textarea class="field-input" id="i_bom" ${dis}>${esc(bomToText(it.bom))}</textarea><span class="field-hint">물품 옵션코드, 수량 — 이 상품 1개를 만드는 데 드는 물품</span>`, true)
+  }
+  body += fieldHtml('메모', `<textarea class="field-input" id="i_memo" ${dis}>${esc(it.memo || '')}</textarea>`, true)
+    + `<div class="field full"><span class="field-label">옵션 — 색상 × 사이즈 (이미지·안전재고·재고는 옵션별)</span>
+      ${canW ? `<div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+        <input class="field-input" id="g_colors" placeholder="색상 (쉼표)  예: 블랙, 화이트" style="flex:1;min-width:160px">
+        <input class="field-input" id="g_sizes" placeholder="사이즈 (쉼표)  예: S, M, L" style="flex:1;min-width:160px">
+        <button type="button" class="btn btn-ghost" id="g_add">조합 추가</button></div>` : ''}
+      <div class="table-scroll" id="opt_tbl"></div></div>`
+
+  const paintOpts = () => {
+    const t = $('#opt_tbl')
+    if (!opts.length) {
+      t.innerHTML = '<div class="drawer-note">옵션이 없습니다. 색상·사이즈를 입력해 "조합 추가"를 누르세요. 비워 두고 저장하면 옵션 없는 단일 품목으로 등록됩니다.</div>'
+      return
+    }
+    t.innerHTML = `<table class="data"><thead><tr><th>이미지</th><th>색상</th><th>사이즈</th><th>코드</th><th class="num">안전재고</th><th class="num">개별 가격</th><th class="num">현재고</th><th>사용</th><th></th></tr></thead><tbody>${
+      opts.map((o, i) => `<tr>
+        <td><label style="cursor:${canW ? 'pointer' : 'default'};display:block">${thumb(o.image)}${canW ? `<input type="file" hidden accept="image/jpeg,image/png,image/webp,image/gif" data-img="${i}">` : ''}</label>${
+          o.image && canW ? `<button type="button" class="tb-logout" style="margin:4px 0 0" data-ri="${i}">제거</button>` : ''}</td>
+        <td><input class="field-input" style="width:100px" data-o="${i}" data-f="color" value="${esc(o.color)}" ${dis}></td>
+        <td><input class="field-input" style="width:84px" data-o="${i}" data-f="size" value="${esc(o.size)}" ${dis}></td>
+        <td class="mono">${esc(o.code || '자동')}</td>
+        <td class="num"><input class="field-input" style="width:80px;text-align:right" type="number" min="0" data-o="${i}" data-f="safetyStock" value="${o.safetyStock ?? 0}" ${dis}></td>
+        <td class="num"><input class="field-input" style="width:96px;text-align:right" type="number" min="0" data-o="${i}" data-f="price" value="${o.price ?? ''}" placeholder="기본" ${dis}></td>
+        <td class="num">${o.code ? won(o.onHand ?? 0) : '-'}</td>
+        <td><input type="checkbox" data-o="${i}" data-f="active" ${o.active !== false ? 'checked' : ''} ${dis}></td>
+        <td>${canW ? `<button type="button" class="drawer-x" data-rm="${i}" title="옵션 삭제" style="font-size:18px">×</button>` : ''}</td></tr>`).join('')}</tbody></table>`
+    t.querySelectorAll('[data-o]').forEach((el) => {
+      el.oninput = el.onchange = () => {
+        const o = opts[el.dataset.o], f = el.dataset.f
+        o[f] = f === 'active' ? el.checked : f === 'safetyStock' ? Number(el.value) || 0 : f === 'price' ? (el.value === '' ? null : Number(el.value)) : el.value
+      }
+    })
+    t.querySelectorAll('[data-rm]').forEach((b) => { b.onclick = () => { opts.splice(Number(b.dataset.rm), 1); paintOpts() } })
+    t.querySelectorAll('[data-ri]').forEach((b) => { b.onclick = () => { opts[b.dataset.ri].image = ''; paintOpts() } })
+    t.querySelectorAll('[data-img]').forEach((f) => {
+      f.onchange = async () => {
+        const file = f.files[0]
+        if (!file) return
+        setErr('')
+        try {
+          const fd = new FormData(); fd.append('file', file)
+          const r = await fetch('/api/uploads/image', { method: 'POST', body: fd, credentials: 'same-origin' })
+          const j = await r.json().catch(() => ({}))
+          if (!r.ok) throw new Error(j.error || r.statusText)
+          opts[f.dataset.img].image = j.url
+          paintOpts()
+        } catch (e) { setErr(e.message) }
+      }
+    })
+  }
+
+  const dlg = shell(rec ? `${I.label} 수정 · ${esc(it.name)}` : `${I.label} 등록`, body,
+    `${rec && canD ? '<button type="button" class="btn btn-danger" id="ix">삭제</button>' : ''}${closeFoot(canW ? '<button type="button" class="btn btn-primary" id="save">저장</button>' : '')}`)
+  paintOpts()
+  wirePicker('pk_bom', '#i_bom')
+
+  $('#g_add')?.addEventListener('click', () => {
+    const cs = textToTags($('#g_colors').value), ss = textToTags($('#g_sizes').value)
+    for (const c of cs.length ? cs : ['']) for (const sz of ss.length ? ss : ['']) {
+      if (!opts.some((o) => o.color === c && o.size === sz)) opts.push({ code: '', color: c, size: sz, image: '', safetyStock: 0, price: null, active: true })
+    }
+    $('#g_colors').value = ''; $('#g_sizes').value = ''
+    paintOpts()
+  })
+  $('#ix')?.addEventListener('click', async () => {
+    if (!confirm('삭제할까요? 되돌릴 수 없습니다.')) return
+    try { await api(`/${key}/${rec._id}`, { method: 'DELETE' }); dlg.close(); done() } catch (e) { setErr(e.message) }
+  })
+  $('#save')?.addEventListener('click', async () => {
+    const b = {
+      name: $('#i_name').value, category: $('#i_cat').value, unit: $('#i_unit').value, memo: $('#i_memo').value,
+      active: $('#i_act').value === 'true', [I.price]: Number($('#i_price').value) || 0,
+      options: opts.map(({ code, color, size, image, safetyStock, price, active }) => ({ code, color, size, image, safetyStock, price, active })),
+    }
+    if (key === 'materials') b.supplier = $('#i_sup').value
+    else { b.designCode = $('#i_dc').value; b.bom = textToBom($('#i_bom').value) }
+    try {
+      if (rec) await api(`/${key}/${rec._id}`, { method: 'PATCH', body: b })
+      else await api(`/${key}`, { method: 'POST', body: b })
+      dlg.close(); done()
+    } catch (e) { setErr(e.message) }
+  })
+}
+
+// ── 재고현황 (+ 입출고 · 이력) ────────────────────────────
+async function viewStock() {
+  const canW = me.can.includes('write')
+  pageShell({
+    en: 'Stock', title: '재고현황', addLabel: canW ? '입출고 등록' : '',
+    tools: `<select id="k" class="table-select"><option value="material">물품</option><option value="goods">상품</option></select>
+      <select id="v" class="table-select"><option value="list">목록 보기</option><option value="matrix">색상×사이즈 보기</option></select>
+      <input id="q" class="table-search" placeholder="이름·코드·색상 검색…" type="search">
+      <label class="table-check"><input type="checkbox" id="low"> 안전재고 이하만</label>`,
+  })
+  let list = []
+  const load = async () => {
+    try {
+      const p = new URLSearchParams({ kind: $('#k').value })
+      if ($('#q').value) p.set('q', $('#q').value)
+      if ($('#low').checked) p.set('low', '1')
+      list = (await api(`/stock?${p}`)).items
+      if ($('#v').value === 'matrix') paintMatrix(list, canW ? (r) => openMove(r, load) : null)
+      else paintTable(list, [
+        ['img', '', (r) => thumb(r.image)], ['code', '코드', (r) => `<span class="mono">${esc(r.code)}</span>`], ['name', '이름', (r) => `<b>${esc(r.name)}</b>`],
+        ['cat', '분류', (r) => badge(r.category || '-', 'b-mute')], ['color', '색상', (r) => esc(r.color)], ['size', '사이즈', (r) => esc(r.size)],
+        ['sup', '발주처', (r) => esc(r.supplier)],
+        ['on', '현재고', (r) => `<span class="${r.low ? 'low' : ''}">${won(r.onHand)} ${esc(r.unit)}</span>`, 'r'],
+        ['ss', '안전재고', (r) => won(r.safetyStock), 'r'], ['last', '최근 변동', (r) => day(r.lastMoveAt)],
+      ], canW ? (r) => openMove(r, load) : null, '등록된 항목이 없습니다. 먼저 물품·상품을 등록하세요.')
+      $('#ft').textContent = `${list.length}건`
+    } catch (e) { $('#tbl').innerHTML = emptyTable(e.message) }
+  }
+  $('#k').onchange = load
+  $('#v').onchange = load
+  $('#q').addEventListener('input', debounce(load))
+  $('#low').onchange = load
+  $('#add')?.addEventListener('click', () => (list.length ? openMove(list[0], load, list) : alert('먼저 물품·상품을 등록하세요.')))
+  load()
+}
+
+// 이름별로 묶어 색상(행) × 사이즈(열) 표로 보여 준다 — 예: 수모 블랙 L 의 재고가 한눈에
+function paintMatrix(list, onCell) {
+  const t = $('#tbl')
+  if (!list.length) { t.innerHTML = emptyTable('등록된 항목이 없습니다.'); return }
+  const groups = new Map()
+  for (const r of list) { if (!groups.has(r.name)) groups.set(r.name, []); groups.get(r.name).push(r) }
+  const sizeRank = ['XS', 'S', 'M', 'L', 'XL', 'XXL']
+  const bySize = (a, b) => (sizeRank.indexOf(a) + 1 || 99) - (sizeRank.indexOf(b) + 1 || 99) || a.localeCompare(b, 'ko')
+  const cells = []
+  t.innerHTML = [...groups].map(([name, items]) => {
+    const sizes = [...new Set(items.map((r) => r.size))].sort(bySize)
+    const colors = [...new Set(items.map((r) => r.color))].sort((a, b) => a.localeCompare(b, 'ko'))
+    const find = (c, s) => items.find((r) => r.color === c && r.size === s)
+    const total = items.reduce((s, r) => s + r.onHand, 0)
+    return `<div style="padding:14px 18px 6px;font-weight:700">${esc(name)} <span class="hint" style="font-weight:400;color:var(--ink-light)">합계 ${won(total)} ${esc(items[0].unit)}</span></div>
+      <table class="data"><thead><tr><th>색상 \\ 사이즈</th>${sizes.map((s) => `<th class="num">${esc(s || '-')}</th>`).join('')}</tr></thead><tbody>${
+        colors.map((c) => `<tr><td class="strong">${esc(c || '-')}</td>${sizes.map((s) => {
+          const r = find(c, s)
+          if (!r) return '<td class="num muted">·</td>'
+          cells.push(r)
+          return `<td class="num ${onCell ? 'clickable' : ''} ${r.low ? 'low' : ''}" data-ci="${cells.length - 1}" style="${onCell ? 'cursor:pointer' : ''}">${won(r.onHand)}</td>`
+        }).join('')}</tr>`).join('')}</tbody></table>`
+  }).join('')
+  if (onCell) t.querySelectorAll('[data-ci]').forEach((td) => { td.onclick = () => onCell(cells[td.dataset.ci]) })
+}
+
+async function openMove(row, done, all) {
+  const choices = all || [row]
+  const hist = (await api(`/stock/moves?kind=${row.kind}&code=${encodeURIComponent(row.code)}&limit=10`).catch(() => ({ items: [] }))).items
+  const body = fieldHtml('품목', `<select class="field-input" id="m_code">${choices.map((r) => `<option value="${esc(r.code)}" ${r.code === row.code ? 'selected' : ''}>${esc(optName(r))} — 현재 ${won(r.onHand)}</option>`).join('')}</select>`, true)
+    + fieldHtml('구분', '<select class="field-input" id="m_type"><option value="in">입고</option><option value="out">출고(사용)</option><option value="adjust">실사 보정</option></select>')
+    + fieldHtml('수량', '<input class="field-input" id="m_qty" type="number" min="0" step="any">')
+    + fieldHtml('사유', '<input class="field-input" id="m_reason" placeholder="예: 기타 입고, 자수 사용, 폐기">', true)
+    + '<div class="drawer-note" id="m_h"></div>'
+    + (hist.length ? `<div class="drawer-logs">${hist.map((m) => `${day(m.at)} · ${({ in: '입고', out: '출고', adjust: '보정' })[m.type]} ${m.delta > 0 ? '+' : ''}${won(m.delta)} → ${won(m.balance)} · ${esc(m.reason)} ${esc(m.note)}`).join('<br>')}</div>` : '')
+  const dlg = shell('입출고 등록', body, closeFoot('<button type="button" class="btn btn-primary" id="save">등록</button>'))
+  const hint = () => { $('#m_h').textContent = $('#m_type').value === 'adjust' ? '실사 보정은 "실제로 센 수량"을 입력하세요. 현재고와의 차이가 이력으로 남습니다. (여러 품목은 재고검수 메뉴 이용)' : '' }
+  $('#m_type').onchange = hint; hint()
+  $('#save').onclick = async () => {
+    try {
+      await api('/stock/moves', { method: 'POST', body: { kind: row.kind, code: $('#m_code').value, type: $('#m_type').value, qty: Number($('#m_qty').value), reason: $('#m_reason').value } })
+      dlg.close(); done()
+    } catch (e) { setErr(e.message) }
+  }
+}
+
+// ── 발주 · 입고 ──────────────────────────────────────────
+async function viewPO() {
+  pageShell({
+    en: 'Purchase Orders', title: '발주·입고', addLabel: '물품 발주',
+    tools: `<input id="q" class="table-search" placeholder="발주처·품목 검색…" type="search">
+      <select id="f" class="table-select"><option value="">상태 전체</option>${['발주', '부분입고', '입고완료', '취소'].map((s) => `<option>${s}</option>`).join('')}</select>`,
+  })
+  const load = async () => {
+    try {
+      const p = new URLSearchParams({ limit: '200' })
+      if ($('#q').value) p.set('q', $('#q').value)
+      if ($('#f').value) p.set('status', $('#f').value)
+      const { items, total } = await api(`/purchase-orders?${p}`)
+      paintTable(items, [
+        ['no', '#', (o) => o.poNo, 'r'], ['sup', '발주처', (o) => esc(o.supplier)],
+        ['lines', '품목', (o) => esc(`${o.lines[0]?.name || ''}${o.lines.length > 1 ? ` 외 ${o.lines.length - 1}건` : ''}`)],
+        ['ordered', '발주일', (o) => day(o.orderedAt)], ['exp', '입고예정', (o) => day(o.expectedAt)],
+        ['prog', '입고', (o) => `${won(o.lines.reduce((s, l) => s + l.receivedQty, 0))} / ${won(o.lines.reduce((s, l) => s + l.qty, 0))}`, 'r'],
+        ['total', '금액', (o) => won(o.total), 'r'], ['st', '상태', (o) => badge(o.status, PO_BADGE[o.status] || 'b-mute')],
+      ], (o) => openPO(o, load), '발주 내역이 없습니다.')
+      $('#ft').textContent = `${items.length} / ${total}`
+    } catch (e) { $('#tbl').innerHTML = emptyTable(e.message) }
+  }
+  $('#q').addEventListener('input', debounce(load))
+  $('#f').onchange = load
+  $('#add')?.addEventListener('click', () => openPO(null, load))
+  load()
+}
+
+async function openPO(rec, done) {
+  const canW = me.can.includes('write'), canD = me.can.includes('delete')
+  const po = rec ? await api(`/purchase-orders/${rec._id}`) : null
+  const mats = (await api('/materials/options?active=1')).items
+  const received = po?.lines.some((l) => l.receivedQty > 0)
+  const editable = canW && (!po || (!received && po.status !== '취소'))
+  const canReceive = canW && po && po.status !== '취소' && po.status !== '입고완료'
+  const linesText = (po?.lines || []).map((l) => [l.code, l.qty, l.unitPrice].join(', ')).join('\n')
+  const dis = canW && po?.status !== '취소' ? '' : 'disabled'
+
+  let body = fieldHtml('발주처', `<input class="field-input" id="p_sup" value="${esc(po?.supplier || '')}" list="p_sups" ${dis}><datalist id="p_sups">${[...new Set(mats.map((m) => m.supplier).filter(Boolean))].map((s) => `<option value="${esc(s)}">`).join('')}</datalist>`, true)
+    + fieldHtml('발주일', `<input class="field-input" id="p_ord" type="date" value="${day(po?.orderedAt)}" ${dis}>`)
+    + fieldHtml('입고 예정일', `<input class="field-input" id="p_exp" type="date" value="${day(po?.expectedAt)}" ${dis}>`)
+  if (editable) {
+    body += pickerHtml('pk_po', mats)
+      + fieldHtml('발주 품목 (한 줄에 하나)', `<textarea class="field-input" id="p_lines">${esc(linesText)}</textarea><span class="field-hint">물품코드, 수량, 단가(비우면 구입가격)</span>`, true)
+  }
+  body += fieldHtml('메모', `<textarea class="field-input" id="p_memo" ${dis}>${esc(po?.memo || '')}</textarea>`, true)
+  if (po) {
+    body += `<div class="field full"><span class="field-label">품목 · 입고 (합계 ${won(po.total)}원)</span><table class="data"><thead><tr><th>물품</th><th class="num">발주</th><th class="num">기입고</th><th class="num">단가</th>${canReceive ? '<th class="num">이번 입고</th>' : ''}</tr></thead><tbody>${
+      po.lines.map((l) => `<tr><td>${esc(optName(l))}</td><td class="num">${won(l.qty)}</td><td class="num">${won(l.receivedQty)}</td><td class="num">${won(l.unitPrice)}</td>${
+        canReceive ? `<td class="num"><input class="field-input" style="width:90px;text-align:right" type="number" min="0" data-rc="${esc(l.code)}" value="${Math.max(0, l.qty - l.receivedQty)}"></td>` : ''}</tr>`).join('')}</tbody></table></div>`
+  }
+  const dlg = shell(po ? `발주 #${po.poNo} · ${esc(po.status)}` : '물품 발주', body,
+    `${po && canD && !received ? '<button type="button" class="btn btn-danger" id="px">삭제</button>' : ''}${po && canW && !received && po.status === '발주' ? '<button type="button" class="btn btn-ghost" id="pc">발주 취소</button>' : ''}${
+      closeFoot(canReceive ? '<button type="button" class="btn btn-ghost" id="prc">입고 처리</button>' : '', canW && po?.status !== '취소' ? '<button type="button" class="btn btn-primary" id="save">저장</button>' : '')}`)
+  wirePicker('pk_po', '#p_lines')
+
+  const run = async (fn) => { try { await fn(); dlg.close(); done() } catch (e) { setErr(e.message) } }
+  $('#save')?.addEventListener('click', () => run(async () => {
+    const body = { supplier: $('#p_sup').value, orderedAt: $('#p_ord').value || null, expectedAt: $('#p_exp').value || null, memo: $('#p_memo').value }
+    if ($('#p_lines')) body.lines = rows($('#p_lines').value).map(([code, qty, unitPrice]) => ({ code, qty: Number(qty) || 0, unitPrice: unitPrice === '' || unitPrice == null ? null : Number(unitPrice) }))
+    if (po) await api(`/purchase-orders/${po._id}`, { method: 'PATCH', body })
+    else await api('/purchase-orders', { method: 'POST', body })
+  }))
+  $('#prc')?.addEventListener('click', () => run(async () => {
+    const lines = [...document.querySelectorAll('[data-rc]')].map((i) => ({ code: i.dataset.rc, qty: Number(i.value) || 0 })).filter((l) => l.qty > 0)
+    await api(`/purchase-orders/${po._id}/receive`, { method: 'POST', body: { lines } })
+  }))
+  $('#pc')?.addEventListener('click', () => { if (confirm('발주를 취소할까요?')) run(() => api(`/purchase-orders/${po._id}/cancel`, { method: 'POST' })) })
+  $('#px')?.addEventListener('click', () => { if (confirm('삭제할까요?')) run(() => api(`/purchase-orders/${po._id}`, { method: 'DELETE' })) })
+}
+
+// ── 출고 (상품) ──────────────────────────────────────────
+async function viewShip() {
+  pageShell({ en: 'Shipments', title: '출고', addLabel: '출고 등록', tools: '<span class="table-count" style="margin-left:0">상품 출고 이력 (최근 200건)</span>' })
+  const load = async () => {
+    try {
+      const { items } = await api('/stock/moves?kind=goods&type=out&limit=200')
+      paintTable(items, [
+        ['at', '출고일', (m) => day(m.at)], ['code', '코드', (m) => `<span class="mono">${esc(m.code)}</span>`], ['name', '상품', (m) => `<b>${esc(m.name)}</b>`],
+        ['color', '색상', (m) => esc(m.color)], ['size', '사이즈', (m) => esc(m.size)], ['qty', '수량', (m) => won(-m.delta), 'r'],
+        ['reason', '사유', (m) => esc(m.reason)], ['note', '비고', (m) => esc(m.note)], ['by', '등록', (m) => esc(m.by)],
+      ], null, '출고 이력이 없습니다.')
+      $('#ft').textContent = `${items.length}건`
+    } catch (e) { $('#tbl').innerHTML = emptyTable(e.message) }
+  }
+  $('#add')?.addEventListener('click', () => openShip(load))
+  load()
+}
+
+async function openShip(done) {
+  const [g, o, st] = await Promise.all([api('/goods/options?active=1'), api('/orders?limit=100&sort=-orderNo'), api('/stock?kind=goods')])
+  const on = new Map(st.items.map((r) => [r.code, r.onHand]))
+  const list = g.items.map((x) => ({ ...x, name: `${x.name}`, code: x.code, _on: on.get(x.code) || 0 }))
+  const body = pickerHtml('pk_sh', list)
+    + fieldHtml('출고 상품 (한 줄에 하나)', '<textarea class="field-input" id="s_lines"></textarea><span class="field-hint">상품코드, 수량</span>', true)
+    + fieldHtml('사유', `<select class="field-input" id="s_reason">${['판매출고', '샘플', '폐기', '기타'].map((r) => `<option>${r}</option>`).join('')}</select>`)
+    + fieldHtml('연결 주문', `<select class="field-input" id="s_order"><option value="">(없음)</option>${o.items.map((x) => `<option value="${x._id}">#${x.orderNo} ${esc(x.title)}</option>`).join('')}</select>`)
+    + fieldHtml('비고', '<input class="field-input" id="s_note" placeholder="운송장번호, 수령처 등">', true)
+    + `<div class="drawer-note">현재고: ${list.slice(0, 12).map((x) => `${esc(x.code)} ${won(x._on)}`).join(' · ') || '등록된 상품 없음'}</div>`
+  const dlg = shell('출고 등록', body, closeFoot('<button type="button" class="btn btn-primary" id="save">출고</button>'))
+  wirePicker('pk_sh', '#s_lines')
+  $('#save').onclick = async () => {
+    const moves = rows($('#s_lines').value).map(([code, qty]) => ({
+      kind: 'goods', code, type: 'out', qty: Number(qty) || 0, reason: $('#s_reason').value, note: $('#s_note').value, orderId: $('#s_order').value || null,
+    }))
+    if (!moves.length) return setErr('출고할 상품을 입력하세요.')
+    try { await api('/stock/moves', { method: 'POST', body: { moves } }); dlg.close(); done() } catch (e) { setErr(e.message) }
+  }
+}
+
+// ── 재고검수 ─────────────────────────────────────────────
+async function viewStocktake() {
+  pageShell({ en: 'Stocktake', title: '재고검수', addLabel: '검수 시작' })
+  const load = async () => {
+    try {
+      const { items } = await api('/stocktakes')
+      paintTable(items, [
+        ['no', '#', (s) => s.no, 'r'], ['kind', '대상', (s) => (s.kind === 'goods' ? '상품' : '물품')],
+        ['st', '상태', (s) => badge(s.status, s.status === '완료' ? 'b-good' : 'b-warn')], ['note', '메모', (s) => esc(s.note)],
+        ['cr', '시작', (s) => day(s.createdAt)], ['done', '완료', (s) => day(s.completedAt)],
+        ['adj', '보정 건수', (s) => (s.status === '완료' ? won(s.adjusted) : ''), 'r'],
+      ], (s) => openStocktake(s, load), '검수 내역이 없습니다. "검수 시작"으로 현재고를 스냅샷해 실사를 시작하세요.')
+      $('#ft').textContent = `${items.length}건`
+    } catch (e) { $('#tbl').innerHTML = emptyTable(e.message) }
+  }
+  $('#add')?.addEventListener('click', () => openStocktakeNew(load))
+  load()
+}
+
+function openStocktakeNew(done) {
+  const body = fieldHtml('대상', '<select class="field-input" id="t_kind"><option value="material">물품</option><option value="goods">상품</option></select>')
+    + fieldHtml('분류 (비우면 전체)', '<input class="field-input" id="t_cat" placeholder="예: 수모">')
+    + fieldHtml('메모', '<input class="field-input" id="t_note" placeholder="예: 10월 정기 실사">', true)
+    + '<div class="drawer-note">시작하면 지금의 전산 수량이 기록됩니다. 실제로 센 수량을 입력하고 완료하면 차이만큼 재고가 보정됩니다.</div>'
+  const dlg = shell('재고검수 시작', body, closeFoot('<button type="button" class="btn btn-primary" id="save">시작</button>'))
+  $('#save').onclick = async () => {
+    try {
+      const st = await api('/stocktakes', { method: 'POST', body: { kind: $('#t_kind').value, category: $('#t_cat').value, note: $('#t_note').value } })
+      dlg.close(); done(); openStocktake(st, done)
+    } catch (e) { setErr(e.message) }
+  }
+}
+
+async function openStocktake(rec, done) {
+  const st = await api(`/stocktakes/${rec._id}`)
+  const open = st.status === '진행중'
+  const canW = me.can.includes('write')
+  const diffCls = (d) => (d == null || d === 0 ? '' : d < 0 ? 'low' : '')
+  const body = `<div class="drawer-note">${st.kind === 'goods' ? '상품' : '물품'} 검수 #${st.no} · ${esc(st.status)}${st.note ? ' · ' + esc(st.note) : ''}${
+    open ? ' — 실제로 센 수량을 입력하세요. 비워 둔 줄은 보정하지 않습니다.' : ` · 보정 ${won(st.adjusted)}건, 미입력 ${won(st.skipped)}건`}</div>
+    <div class="field full"><table class="data"><thead><tr><th>코드</th><th>이름</th><th>색상</th><th>사이즈</th><th class="num">전산</th><th class="num">실사</th><th class="num">차이</th></tr></thead><tbody>${
+      st.lines.map((l) => `<tr><td class="mono">${esc(l.code)}</td><td>${esc(l.name)}</td><td>${esc(l.color)}</td><td>${esc(l.size)}</td><td class="num">${won(l.systemQty)}</td>
+        <td class="num">${open && canW ? `<input class="field-input" style="width:90px;text-align:right" type="number" min="0" step="any" data-ct="${esc(l.code)}" data-sys="${l.systemQty}" value="${l.countedQty ?? ''}">` : won(l.countedQty)}</td>
+        <td class="num ${diffCls(l.diff)}" data-df="${esc(l.code)}">${l.diff == null ? '' : (l.diff > 0 ? '+' : '') + won(l.diff)}</td></tr>`).join('')}</tbody></table></div>`
+  const dlg = shell(`재고검수 #${st.no}`, body,
+    `${open && canW ? '<button type="button" class="btn btn-danger" id="tx">삭제</button>' : ''}${closeFoot(open && canW ? '<button type="button" class="btn btn-ghost" id="tsv">저장</button><button type="button" class="btn btn-primary" id="tcp">검수 완료(재고 보정)</button>' : '')}`)
+  document.querySelectorAll('[data-ct]').forEach((inp) => {
+    inp.oninput = () => {
+      const cell = document.querySelector(`[data-df="${CSS.escape(inp.dataset.ct)}"]`)
+      if (inp.value === '') { cell.textContent = ''; return }
+      const d = Number(inp.value) - Number(inp.dataset.sys)
+      cell.textContent = (d > 0 ? '+' : '') + won(d); cell.className = `num ${d < 0 ? 'low' : ''}`
+    }
+  })
+  const collect = () => [...document.querySelectorAll('[data-ct]')].map((i) => ({ code: i.dataset.ct, countedQty: i.value }))
+  const run = async (fn) => { try { await fn(); dlg.close(); done() } catch (e) { setErr(e.message) } }
+  $('#tsv')?.addEventListener('click', () => run(() => api(`/stocktakes/${st._id}`, { method: 'PATCH', body: { lines: collect() } })))
+  $('#tcp')?.addEventListener('click', () => {
+    if (!confirm('입력한 실사 수량으로 재고를 보정합니다. 완료 후에는 되돌릴 수 없습니다.')) return
+    run(async () => { await api(`/stocktakes/${st._id}`, { method: 'PATCH', body: { lines: collect() } }); await api(`/stocktakes/${st._id}/complete`, { method: 'POST' }) })
+  })
+  $('#tx')?.addEventListener('click', () => { if (confirm('이 검수를 삭제할까요?')) run(() => api(`/stocktakes/${st._id}`, { method: 'DELETE' })) })
+}
+
+api('/auth/me').then((r) => { me = r.user }).catch(() => {}).finally(render)
+</script>
+</body>
+</html>

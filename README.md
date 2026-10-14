@@ -46,6 +46,7 @@ npm install        # 루트에서 한 번 → client/server 의존성 모두 설
 | `npm run server` | 서버만 실행 (http://localhost:6640) |
 | `npm run client` | 클라이언트만 실행 (http://localhost:6641) |
 | `npm run dashboard` | 클라이언트만 실행 (http://localhost:6642) |
+| `npm run backend` | 업무관리(주문·거래처·물품·재고) API + 관리 화면 (http://localhost:6643) |
 
 접속 주소:
 
@@ -174,3 +175,4 @@ SwimmingPhotography/
 2. LLM 기사 생성
 3. 생성된 기사 json import
 4. images upload(upload하고 매칭안된것 찾아서 매칭)
+
