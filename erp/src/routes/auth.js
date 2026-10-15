@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import {
   users, createSession, destroySession, verifyPassword, readToken,
-  setSessionCookie, clearSessionCookie, userFromRequest, capsOf, roleOf,
+  setSessionCookie, clearSessionCookie, userFromRequest, capsOf, roleOf, jobsOf,
 } from '../auth.js'
 
 const router = Router()
@@ -19,7 +19,8 @@ router.post('/login', async (req, res) => {
     setSessionCookie(res, await createSession(u.username, req))
     await c.updateOne({ _id: u._id }, { $set: { lastLoginAt: new Date() } })
     const role = roleOf(u.role)
-    res.json({ ok: true, user: { username: u.username, name: u.name || u.username, role, can: capsOf(role) } })
+    const jobs = jobsOf(u.jobs)
+    res.json({ ok: true, user: { username: u.username, name: u.name || u.username, role, jobs, can: capsOf(role, jobs) } })
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 

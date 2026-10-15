@@ -67,7 +67,7 @@ router.get('/:id', async (req, res) => {
   } catch (e) { fail(res, e) }
 })
 
-router.post('/', requireCap('write'), async (req, res) => {
+router.post('/', requireCap('stock'), async (req, res) => {
   try {
     const b = req.body || {}
     const lines = await buildLines(b.lines)
@@ -84,7 +84,7 @@ router.post('/', requireCap('write'), async (req, res) => {
 })
 
 // 수정 — 입고가 시작된 뒤에는 품목을 바꿀 수 없다(발주처·예정일·메모만).
-router.patch('/:id', requireCap('write'), async (req, res) => {
+router.patch('/:id', requireCap('stock'), async (req, res) => {
   try {
     const _id = oid(req.params.id)
     const c = await col('purchaseOrders')
@@ -106,7 +106,7 @@ router.patch('/:id', requireCap('write'), async (req, res) => {
 })
 
 // 입고 — { lines: [{ code, qty }] } 로 일부만도 가능. 발주 수량을 넘겨 들어와도 받는다(상태는 입고완료).
-router.post('/:id/receive', requireCap('write'), async (req, res) => {
+router.post('/:id/receive', requireCap('stock'), async (req, res) => {
   try {
     const _id = oid(req.params.id)
     const c = await col('purchaseOrders')
@@ -133,7 +133,7 @@ router.post('/:id/receive', requireCap('write'), async (req, res) => {
 })
 
 // 취소 — 입고 전에만
-router.post('/:id/cancel', requireCap('write'), async (req, res) => {
+router.post('/:id/cancel', requireCap('stock'), async (req, res) => {
   try {
     const _id = oid(req.params.id)
     const c = await col('purchaseOrders')

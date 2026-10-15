@@ -5,7 +5,7 @@ import cors from 'cors'
 import dotenv from 'dotenv'
 
 // 모노레포 루트의 .env 를 먼저 로드 (라우터 import 보다 앞서야 한다)
-const __dirname = path.dirname(fileURLToPath(import.meta.url)) // backend/src
+const __dirname = path.dirname(fileURLToPath(import.meta.url)) // erp/src
 dotenv.config({ path: path.resolve(__dirname, '../../.env') })
 
 const { requireAuth, requireCap } = await import('./auth.js')
@@ -18,6 +18,10 @@ const { default: purchaseOrdersRouter } = await import('./routes/purchaseOrders.
 const { default: stocktakesRouter } = await import('./routes/stocktakes.js')
 const { default: stockRouter } = await import('./routes/stock.js')
 const { default: uploadsRouter } = await import('./routes/uploads.js')
+const { default: filesRouter } = await import('./routes/files.js')
+const { default: scheduleRouter } = await import('./routes/schedule.js')
+const { default: settingsRouter } = await import('./routes/settings.js')
+const { default: designsRouter } = await import('./routes/designs.js')
 
 const app = express()
 
@@ -42,6 +46,10 @@ app.use('/api/purchase-orders', purchaseOrdersRouter)
 app.use('/api/stocktakes', stocktakesRouter)
 app.use('/api/stock', stockRouter)
 app.use('/api/uploads', uploadsRouter)
+app.use('/api/files', filesRouter)
+app.use('/api/schedule', scheduleRouter)
+app.use('/api/settings', settingsRouter)
+app.use('/api/designs', designsRouter)
 app.use('/api/partners', crudRouter('partners',
   ['name', 'contactName', 'phone', 'email', 'address', 'bizNo', 'memo', 'tags'],
   { searchIn: ['name', 'contactName', 'phone', 'bizNo'] }))

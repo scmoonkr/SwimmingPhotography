@@ -1,0 +1,2053 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>메달뱅크 업무관리</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=Noto+Serif+KR:wght@700&display=swap">
+<link rel="stylesheet" href="/admin.css">
+</head>
+<body>
+<div id="app"></div>
+<dialog id="dlg" class="drawer"></dialog>
+
+<script>
+const $ = (s) => document.querySelector(s)
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+const day = (d) => (d ? new Date(d).toISOString().slice(0, 10) : '')
+const won = (n) => (n == null ? '' : Number(n).toLocaleString('ko-KR'))
+const badge = (txt, cls) => `<span class="badge ${cls}">${esc(txt)}</span>`
+const debounce = (fn, ms = 250) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms) } }
+// 이미지 주소: 예전 S3 주소(http…)는 그대로, 서버 저장 경로('items/…', 'orders/…')는 /api/files 로 본다
+const imgSrc = (u) => (/^https?:\/\//.test(u) ? u : `/api/files/${String(u).split('/').map(encodeURIComponent).join('/')}`)
+const thumb = (url) => (url ? `<img class="cell-img" src="${esc(imgSrc(url))}" alt="" loading="lazy">` : '<span class="cell-img empty">없음</span>')
+const optName = (m) => `${m.name}${m.color ? ' · ' + m.color : ''}${m.size ? ' ' + m.size : ''} (${m.code})`
+
+// 드로어 바깥(어두운 배경)을 누르면 닫는다. 안에서 글자를 드래그하다 바깥에서 놓은 경우는 닫지 않도록
+// 눌렀을 때(mousedown)도 바깥이었는지 함께 본다.
+{
+  const dlg = document.getElementById('dlg')
+  let downOnBackdrop = false
+  dlg.addEventListener('mousedown', (e) => { downOnBackdrop = e.target === dlg })
+  dlg.addEventListener('click', (e) => { if (e.target === dlg && downOnBackdrop) dlg.close() })
+}
+
+let me = null
+let tab = 'orders'
+const cache = {}                       // 거래처·고객 선택 목록
+
+async function api(path, { method = 'GET', body } = {}) {
+  const r = await fetch('/api' + path, {
+    method, credentials: 'same-origin',
+    headers: body ? { 'content-type': 'application/json' } : {},
+    body: body ? JSON.stringify(body) : undefined,
+  })
+  const j = await r.json().catch(() => ({}))
+  if (r.status === 401 && path !== '/auth/login') { me = null; render(); throw new Error('로그인이 필요합니다.') }
+  if (!r.ok) throw new Error(j.error || r.statusText)
+  return j
+}
+
+// ── 입력 ↔ 본문 변환 (한 줄에 하나, 쉼표로 구분) ─────────────
+const rows = (t) => String(t).split('\n').map((l) => l.trim()).filter(Boolean).map((l) => l.split(',').map((s) => s.trim()))
+const itemsToText = (a = []) => a.map((i) => [i.productName, i.color, i.size, i.qty, i.unitPrice, i.note].join(', ')).join('\n')
+const textToItems = (t) => rows(t).map(([productName, color, size, qty, unitPrice, ...note]) => ({ productName, color, size, qty: Number(qty) || 0, unitPrice: Number(unitPrice) || 0, note: note.join(', ') }))
+const bomToText = (a = []) => a.map((b) => [b.code, b.qty].join(', ')).join('\n')
+const textToBom = (t) => rows(t).map(([code, qty]) => ({ code, qty: Number(qty) || 0 }))
+const tagsToText = (a = []) => a.join(', ')
+const textToTags = (t) => t.split(',').map((s) => s.trim()).filter(Boolean)
+
+const STATUSES = ['예정', '접수', '작업배정', '제작중', '검수', '배송준비', '출고', '완료', '취소']
+const ORDER_BADGE = { 완료: 'b-good', 출고: 'b-good', 취소: 'b-bad', 예정: 'b-mute', 작업배정: 'b-info' }
+const PO_BADGE = { 발주: 'b-warn', 부분입고: 'b-warn', 입고완료: 'b-good', 취소: 'b-bad' }
+const ACTIVE = { k: 'active', l: '사용여부', t: 'select', opts: ['true', 'false'], names: ['사용', '중지'], def: 'true', bool: 1 }
+
+// ── 목록 화면 정의 (등록·수정은 오른쪽 드로어) ─────────────────
+const stockCol = (o) => (o._low ? `<span class="low">${won(o._on)}</span>` : won(o._on ?? 0))
+const ENT = {
+  orders: {
+    label: '주문', en: 'Orders', api: '/orders', search: true, filter: { key: 'status', opts: STATUSES, label: '진행 중 (완료 제외)', defaultValue: STATUSES.filter((x) => x !== '완료').join(','), extra: [{ label: '전체 (완료 포함)', value: '*' }] },
+    cols: [
+      ['orderNo', '#', (o) => o.orderNo, 'r'], ['title', '주문명', (o) => esc(o.title)], ['partner', '거래처', (o) => esc(o.partnerName)],
+      ['status', '상태', (o) => badge(o.status, ORDER_BADGE[o.status] || 'b-warn')], ['due', '납기', (o) => day(o.dueAt)],
+      ['pri', '우선', (o) => ['', '높음', '긴급', '최우선'][o.priority || 0]],
+      ['pc', '명세', (o) => (o.pieceCount ? `${o.pieceCount}줄` : ''), 'r'],
+      ['qty', '수량', (o) => (o.totalQty ? `${won(o.totalQty)}장` : ''), 'r'],
+      ['total', '합계', (o) => won(o.amounts?.total), 'r'], ['bal', '잔금', (o) => won(o.amounts?.balance), 'r'],
+    ],
+    fields: [
+      { k: 'title', l: '주문명', t: 'text', wide: 1 },
+      { k: 'partnerId', l: '거래처', t: 'ref', ref: 'partners' }, { k: 'customerId', l: '담당 고객', t: 'ref', ref: 'customers' },
+      { k: 'orderedAt', l: '주문일', t: 'date' }, { k: 'dueAt', l: '납기(출발필수)', t: 'date' },
+      { k: 'status', l: '상태', t: 'select', opts: STATUSES, def: '접수' },
+      { k: 'designNotNeeded', l: '디자인', t: 'select', opts: ['false', 'true'], names: ['필요', '불필요(자수 디자인 없음)'], def: 'false', bool: 1 },
+      { k: 'priority', l: '우선순위', t: 'select', opts: ['0', '1', '2', '3'], names: ['보통', '높음', '긴급', '최우선'], def: '0', num: 1 },
+      { k: 'items', l: '품목 (한 줄에 하나)', t: 'area', to: itemsToText, from: textToItems, hint: '품목명, 색상, 사이즈, 수량, 단가, 비고' },
+      { k: 'tags', l: '태그 (쉼표)', t: 'text', to: tagsToText, from: textToTags },
+      { k: 'paid', l: '입금액', t: 'number' }, { k: 'vat', l: '부가세 별도', t: 'select', opts: ['false', 'true'], names: ['아니오', '예'], def: 'false', bool: 1 },
+      { k: 'content', l: '내용', t: 'area', wide: 1 },
+      { k: 'request', l: '요청사항', t: 'area', wide: 1 },
+    ],
+    // 상태는 별도 엔드포인트라서 저장을 나눠 보낸다
+    async save(rec, body) {
+      const status = body.status; delete body.status
+      if (rec) { await api(`/orders/${rec._id}`, { method: 'PATCH', body }); if (status !== rec.status) await api(`/orders/${rec._id}/status`, { method: 'POST', body: { status } }) }
+      else await api('/orders', { method: 'POST', body: { ...body, status } })
+    },
+  },
+  partners: {
+    label: '거래처', en: 'Partners', api: '/partners', search: true,
+    cols: [['name', '거래처', (o) => esc(o.name)], ['contactName', '담당자', (o) => esc(o.contactName)], ['phone', '전화', (o) => esc(o.phone)], ['bizNo', '사업자번호', (o) => esc(o.bizNo)]],
+    fields: [
+      { k: 'name', l: '거래처명', t: 'text', wide: 1 }, { k: 'contactName', l: '담당자', t: 'text' }, { k: 'phone', l: '전화', t: 'text' },
+      { k: 'email', l: '이메일', t: 'text' }, { k: 'bizNo', l: '사업자번호', t: 'text' }, { k: 'address', l: '주소', t: 'text', wide: 1 },
+      { k: 'tags', l: '태그 (쉼표)', t: 'text', to: tagsToText, from: textToTags }, { k: 'memo', l: '메모', t: 'area' },
+    ],
+  },
+  customers: {
+    label: '고객', en: 'Customers', api: '/customers', search: true,
+    cols: [['name', '이름', (o) => esc(o.name)], ['partner', '소속 거래처', (o) => esc(cache.partnersMap?.[o.partnerId] || '')], ['phone', '전화', (o) => esc(o.phone)], ['email', '이메일', (o) => esc(o.email)]],
+    fields: [
+      { k: 'name', l: '이름', t: 'text', wide: 1 }, { k: 'partnerId', l: '소속 거래처', t: 'ref', ref: 'partners' },
+      { k: 'phone', l: '전화', t: 'text' }, { k: 'email', l: '이메일', t: 'text' }, { k: 'address', l: '주소', t: 'text', wide: 1 },
+      { k: 'tags', l: '태그 (쉼표)', t: 'text', to: tagsToText, from: textToTags }, { k: 'memo', l: '메모', t: 'area' },
+    ],
+  },
+}
+
+// ── 공통 UI ──────────────────────────────────────────────
+const MENU = [
+  ['영업', [
+    ['orders', '주문', '<path d="M4 3h16v18l-3-2-3 2-3-2-3 2-3-2-1 1V3Z"/><path d="M8 7h8M8 11h8M8 15h5"/>'],
+    ['partners', '거래처', '<path d="M3 21h18M5 21V8l7-4 7 4v13"/><path d="M9 21v-6h6v6"/>'],
+    ['customers', '고객', '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>'],
+  ]],
+  ['작업', [
+    ['schedule', '작업관리', '<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4M8 14h3M13 14h3M8 18h3"/>'],
+    ['designs', '디자인', '<path d="M12 3l2.5 5.5L20 9l-4 4 1 6-5-3-5 3 1-6-4-4 5.5-.5z"/>'],
+  ]],
+  ['설정', [
+    ['settings', '설정', '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>'],
+  ]],
+  ['재고관리', [
+    ['stock', '재고현황', '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 4v16"/>'],
+    ['materials', '물품', '<path d="M21 8 12 3 3 8v8l9 5 9-5Z"/><path d="m3 8 9 5 9-5M12 13v8"/>'],
+    ['goods', '상품', '<path d="M20 12v9H4v-9M2 7h20v5H2zM12 21V7M12 7H7.5a2.5 2.5 0 1 1 0-5C11 2 12 7 12 7Zm0 0h4.5a2.5 2.5 0 1 0 0-5C13 2 12 7 12 7Z"/>'],
+    ['po', '발주·입고', '<path d="M3 7h13v10H3zM16 10h3l2 3v4h-5"/><circle cx="7" cy="18" r="1.6"/><circle cx="17" cy="18" r="1.6"/>'],
+    ['ship', '출고', '<path d="M12 3v12M7 10l5 5 5-5M4 21h16"/>'],
+    ['stocktake', '재고검수', '<path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/>'],
+  ]],
+]
+const VIEWS = {
+  materials: () => viewItems('materials'), goods: () => viewItems('goods'),
+  settings: () => viewSettings(), designs: () => viewDesigns(), schedule: () => viewSchedule(), stock: () => viewStock(), po: () => viewPO(), ship: () => viewShip(), stocktake: () => viewStocktake(),
+}
+
+function render() {
+  const app = $('#app')
+  if (!me) {
+    app.innerHTML = `<div class="auth-shell"><form class="auth-card" id="lf">
+      <div class="bk">메달뱅크<span>.</span></div><div class="bs">Business Admin</div>
+      <label class="field"><span class="field-label">아이디</span><input class="field-input" name="u" autocomplete="username" required autofocus></label>
+      <label class="field"><span class="field-label">비밀번호</span><input class="field-input" name="p" type="password" autocomplete="current-password" required></label>
+      <div class="auth-err" id="le"></div><button class="btn btn-primary" style="justify-content:center">로그인</button></form></div>`
+    $('#lf').onsubmit = async (e) => {
+      e.preventDefault()
+      const f = new FormData(e.target)
+      try { me = (await api('/auth/login', { method: 'POST', body: { username: f.get('u'), password: f.get('p') } })).user; render() }
+      catch (x) { $('#le').textContent = x.message }
+    }
+    return
+  }
+  // 작업자(worker)는 작업관리만 쓴다
+  const MENU_SHOWN = me.role === 'worker' ? MENU.filter((g) => g[0] === '작업') : MENU
+  if (me.role === 'worker' && tab !== 'schedule') tab = 'schedule'
+  const cur = MENU_SHOWN.flatMap((g) => g[1]).find((t) => t[0] === tab)
+  const nav = MENU_SHOWN.map(([sec, items]) => `<div class="nav-sec">${sec}</div>${items.map(([k, l, ic]) =>
+    `<button class="nav-item ${k === tab ? 'on' : ''}" data-t="${k}"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${ic}</svg></span><span class="lbl">${l}</span></button>`).join('')}`).join('')
+  app.innerHTML = `<div class="dash"><aside class="sidebar">
+      <div class="sb-brand"><div class="bk">메달뱅크<span>.</span></div><div class="bs">Business Admin</div></div>
+      <nav class="nav">${nav}</nav></aside>
+    <div class="main"><header class="topbar"><span class="tb-title">${cur ? cur[1] : ''}</span><span class="tb-spacer"></span>
+      <span class="tb-user-name"><span class="tb-avatar">${esc((me.name || '?').trim().charAt(0))}</span>${esc(me.name)} · ${esc(me.role)}${me.jobs?.length ? '/' + esc(me.jobs.join(',')) : ''}</span>
+      <button class="tb-logout" id="lo">로그아웃</button></header>
+      <div class="content" id="main"></div></div></div>`
+  app.querySelectorAll('.nav-item').forEach((b) => {
+    b.onclick = () => {
+      if (tab === 'schedule' && b.dataset.t !== 'schedule' && draftCount()) {
+        if (!confirm('저장하지 않은 작업배정 변경이 있습니다. 버리고 이동할까요?')) return
+        draftReset()
+      }
+      tab = b.dataset.t
+      render()
+    }
+  })
+  $('#lo').onclick = async () => { await api('/auth/logout', { method: 'POST' }).catch(() => {}); me = null; render() }
+  ;(VIEWS[tab] || (() => viewList(ENT[tab])))()
+}
+
+async function refs() {
+  const [p, c] = await Promise.all([api('/partners?limit=500'), api('/customers?limit=500')])
+  cache.partners = p.items; cache.customers = c.items
+  cache.partnersMap = Object.fromEntries(p.items.map((x) => [x._id, x.name]))
+}
+
+// 페이지 틀: 헤더(영문 라벨 · 제목 · 등록 버튼) + 테이블 카드
+function pageShell({ en, title, addLabel, tools = '' }) {
+  $('#main').innerHTML = `<div class="page-head"><div class="ph-main"><div class="ph-en">${esc(en)}</div><h1>${esc(title)}</h1></div>
+    <div class="ph-actions">${addLabel ? `<button class="btn btn-primary" id="add">+ ${esc(addLabel)}</button>` : ''}</div></div>
+    <div class="table-card"><div class="table-tools">${tools}<span class="table-count" id="ft"></span></div>
+      <div class="table-scroll" id="tbl"><table class="data"><tbody><tr class="empty-row"><td>불러오는 중…</td></tr></tbody></table></div></div>`
+}
+const emptyTable = (msg) => `<table class="data"><tbody><tr class="empty-row"><td>${esc(msg)}</td></tr></tbody></table>`
+function paintTable(items, cols, onRow, emptyMsg = '데이터가 없습니다.') {
+  const t = $('#tbl')
+  if (!items.length) { t.innerHTML = emptyTable(emptyMsg); return }
+  const cls = (c) => (c[3] === 'r' ? 'num' : '')
+  t.innerHTML = `<table class="data"><thead><tr>${cols.map((c) => `<th class="${cls(c)}">${c[1]}</th>`).join('')}</tr></thead><tbody>${
+    items.map((o, i) => `<tr class="${onRow ? 'clickable' : ''}" data-i="${i}">${cols.map((c) => `<td class="${cls(c)}">${c[2](o)}</td>`).join('')}</tr>`).join('')}</tbody></table>`
+  if (onRow) t.querySelectorAll('tr[data-i]').forEach((tr) => { tr.onclick = () => onRow(items[tr.dataset.i]) })
+}
+
+// 드로어 틀 — 본문(body)·하단(foot) HTML 을 받아 연다
+function shell(title, body, foot) {
+  const dlg = $('#dlg')
+  dlg.innerHTML = `<div style="display:flex;flex-direction:column;height:100%">
+    <header class="drawer-head"><h2>${title}</h2><button type="button" class="drawer-x" id="dxx" aria-label="닫기">×</button></header>
+    <div class="drawer-body">${body}<div class="drawer-err" id="de"></div></div>
+    <footer class="drawer-foot">${foot}</footer></div>`
+  dlg.showModal()
+  $('#dxx').onclick = () => dlg.close()
+  const c = $('#dc'); if (c) c.onclick = () => dlg.close()
+  return dlg
+}
+const fieldHtml = (label, input, full) => `<label class="field ${full ? 'full' : ''}"><span class="field-label">${label}</span>${input}</label>`
+const closeFoot = (...btns) => `<span class="sp"></span><button type="button" class="btn btn-ghost" id="dc">닫기</button>${btns.join('')}`
+const setErr = (m) => { const e = $('#de'); if (e) e.textContent = m || '' }
+// 코드 선택 보조 — 고르면 textarea 에 한 줄(코드, 1) 을 덧붙인다
+const pickerHtml = (id, list) => `<div class="field full"><span class="field-label">품목 선택</span><div style="display:flex;gap:8px">
+  <select class="field-input" id="${id}_s">${list.map((m) => `<option value="${esc(m.code)}">${esc(optName(m))}</option>`).join('')}</select>
+  <button type="button" class="btn btn-ghost" id="${id}_b">+ 추가</button></div></div>`
+function wirePicker(id, area, suffix = ', 1') {
+  const b = $(`#${id}_b`)
+  if (!b) return
+  b.onclick = () => {
+    const code = $(`#${id}_s`).value
+    if (!code) return
+    const el = $(area)
+    el.value = (el.value.trim() ? el.value.trim() + '\n' : '') + code + suffix
+  }
+}
+
+// ── 일반 목록 + 등록/수정 드로어 ──────────────────────────
+async function viewList(E) {
+  const canW = me.can.includes('orders')
+  pageShell({
+    en: E.en, title: E.label, addLabel: canW ? `${E.label} 등록` : '',
+    tools: `${E.search ? '<input id="q" class="table-search" placeholder="검색…" type="search">' : ''}${
+      E.filter ? `<select id="f" class="table-select"><option value="">${E.filter.label}</option>${(E.filter.extra || []).map((x) => `<option value="${esc(x.value)}">${esc(x.label)}</option>`).join('')}${E.filter.opts.map((o) => `<option>${o}</option>`).join('')}</select>` : ''}`,
+  })
+  const load = async () => {
+    try {
+      await refs()
+      const p = new URLSearchParams({ limit: '300' })
+      if ($('#q')?.value) p.set('q', $('#q').value)
+      // 기본(선택 없음)은 완료를 뺀 목록이다. 단, 검색어를 넣으면 완료까지 포함해 찾는다.
+      const fv = $('#f')?.value
+      if (fv && fv !== '*') p.set(E.filter.key, fv)
+      else if (!fv && E.filter.defaultValue && !$('#q')?.value) p.set(E.filter.key, E.filter.defaultValue)
+      const { items, total } = await api(`${E.api}?${p}`)
+      if (E.stockKind) {                       // 현재고를 붙인다
+        const st = new Map((await api(`/stock?kind=${E.stockKind}`)).items.map((r) => [r.code, r]))
+        for (const o of items) { const s = st.get(o.code); o._on = s?.onHand || 0; o._low = !!s?.low }
+      }
+      paintTable(items, E.cols, (o) => openForm(E, o, load))
+      $('#ft').textContent = `${items.length} / ${total}`
+    } catch (e) { $('#tbl').innerHTML = emptyTable(e.message) }
+  }
+  $('#q')?.addEventListener('input', debounce(load))
+  $('#f')?.addEventListener('change', load)
+  $('#add')?.addEventListener('click', () => openForm(E, null, load))
+  load()
+}
+
+async function openForm(E, rec, done, prefill) {
+  let detail = rec || prefill       // prefill: 같은 물품에 옵션 추가할 때 이름·분류 등을 미리 채운다
+  if (rec && E.api === '/orders') detail = await api(`/orders/${rec._id}`).catch(() => rec)   // 변경이력 포함
+  let getPieces = null
+  let getDesigns = null
+  const canW = me.can.includes('orders'), canD = me.can.includes('delete')
+  const fields = E.fields.filter((f) => !(rec ? f.createOnly : f.editOnly))
+  const matList = fields.some((f) => f.pick) ? (await api('/materials?active=1&limit=500')).items : []
+
+  const val = (f) => {
+    const v = detail ? detail[f.k] : undefined
+    if (f.to) return f.to(v)
+    if (f.t === 'date') return day(v)
+    if (v == null) return f.def ?? ''
+    return String(v)
+  }
+  const input = (f) => {
+    const id = `f_${f.k}`, v = val(f), dis = canW ? '' : 'disabled'
+    const hint = f.hint ? `<span class="field-hint">${esc(f.hint)}</span>` : ''
+    if (f.t === 'image') {
+      return `<div class="img-field"><span id="${id}_pv">${thumb(v)}</span><div class="img-side">
+        <input type="hidden" id="${id}" value="${esc(v)}">
+        ${canW ? `<input type="file" id="${id}_file" accept="image/jpeg,image/png,image/webp,image/gif"><button type="button" class="btn btn-ghost" id="${id}_rm" style="align-self:flex-start">이미지 제거</button>` : ''}
+        <span class="field-hint">jpg · png · webp · gif, 5MB 이하</span></div></div>`
+    }
+    if (f.t === 'meta') return `<div class="field-input" style="background:none;padding-left:0">${esc(v)}</div>`
+    if (f.t === 'area') return `<textarea class="field-input" id="${id}" ${dis}>${esc(v)}</textarea>${hint}`
+    if (f.t === 'select') return `<select class="field-input" id="${id}" ${dis}>${f.opts.map((o, i) => `<option value="${o}" ${o === v ? 'selected' : ''}>${esc(f.names?.[i] || o)}</option>`).join('')}</select>`
+    if (f.t === 'ref') return `<select class="field-input" id="${id}" ${dis}><option value="">(없음)</option>${(cache[f.ref] || []).map((x) => `<option value="${x._id}" ${x._id === v ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>`
+    return `<input class="field-input" id="${id}" type="${f.t === 'number' ? 'number' : f.t === 'date' ? 'date' : 'text'}" value="${esc(v)}" ${dis}>${hint}`
+  }
+  const a = detail?.amounts
+  const body = fields.map((f) => {
+    const pick = f.pick && canW ? pickerHtml(`pk_${f.k}`, matList) : ''
+    return pick + fieldHtml(f.l, input(f), f.wide || f.t === 'area')
+  }).join('')
+    + (E.api === '/orders' ? '<div class="field full"><span class="field-label">디자인 — 자수 파일 · 컬러 (재주문은 이전 디자인을 연결)</span><div id="dz_box"></div></div>' : '')
+    + (E.api === '/orders' ? '<div class="field full"><span class="field-label">제작 명세 — 주문자별 색상·사이즈·위치·이니셜</span><div id="pc_box"></div></div>' : '')
+    + (rec && E.api === '/orders' ? '<div class="field full"><span class="field-label">첨부 이미지</span><div id="att_box"></div></div><div class="field full"><span class="field-label">메모</span><div id="notes_box"></div></div>' : '')
+    + (a ? `<div class="drawer-note">공급가 ${won(a.supply)} · 부가세 ${won(a.vat)} · 합계 ${won(a.total)} · 잔금 ${won(a.balance)}</div>` : '')
+    + (detail?.logs?.length ? `<div class="drawer-logs">${detail.logs.map((l) => `${new Date(l.at).toLocaleString('ko-KR')} · ${esc(l.by)} · ${esc(l.action)} ${esc(l.detail?.from ? `${l.detail.from}→${l.detail.to}` : (l.detail?.fields || []).join(','))}`).join('<br>')}</div>` : '')
+
+  const dlg = shell(`${E.label} ${rec ? '수정' : '등록'}${detail?.orderNo ? ` · #${detail.orderNo}` : ''}`, body,
+    `${rec && canD ? '<button type="button" class="btn btn-danger" id="dx">삭제</button>' : ''}${rec && canW && E.variants ? '<button type="button" class="btn btn-ghost" id="dv">옵션 추가</button>' : ''}${closeFoot(canW ? '<button type="button" class="btn btn-primary" id="save">저장</button>' : '')}`)
+  for (const f of fields) if (f.pick) wirePicker(`pk_${f.k}`, `#f_${f.k}`)
+  if (E.api === '/orders') getPieces = wirePieces(detail?.pieces || [], canW)
+  if (E.api === '/orders') getDesigns = wireDesigns(detail?.designsState || [], canW, () => $('#f_partnerId')?.value || '')
+  if (rec && E.api === '/orders') { wireAttachments(rec, detail.attachments || [], canW); wireNotes(rec, detail.notes || [], canW) }
+  for (const f of fields) {
+    if (f.t !== 'image') continue
+    const id = `#f_${f.k}`
+    const setImg = (url) => { $(id).value = url; $(`${id}_pv`).innerHTML = thumb(url) }
+    $(`${id}_file`)?.addEventListener('change', async (ev) => {
+      const file = ev.target.files[0]
+      if (!file) return
+      setErr('')
+      try {
+        const fd = new FormData(); fd.append('file', file)
+        const r = await fetch('/api/uploads/image', { method: 'POST', body: fd, credentials: 'same-origin' })
+        const j = await r.json().catch(() => ({}))
+        if (!r.ok) throw new Error(j.error || r.statusText)
+        setImg(j.path)
+      } catch (e) { setErr(e.message); ev.target.value = '' }
+    })
+    $(`${id}_rm`)?.addEventListener('click', () => setImg(''))
+  }
+
+  $('#dv')?.addEventListener('click', () => {
+    const { _id, code, color, size, createdAt, updatedAt, createdBy, _on, _low, ...rest } = rec
+    dlg.close(); openForm(E, null, done, rest)
+  })
+  $('#dx')?.addEventListener('click', async () => {
+    if (!confirm('삭제할까요? 되돌릴 수 없습니다.')) return
+    try { await api(`${E.api}/${rec._id}`, { method: 'DELETE' }); dlg.close(); done() } catch (e) { setErr(e.message) }
+  })
+  $('#save')?.addEventListener('click', async () => {
+    const body = {}
+    for (const f of fields) {
+      if (f.t === 'meta') continue
+      const raw = $(`#f_${f.k}`).value
+      if (f.from) body[f.k] = f.from(raw)
+      else if (f.bool) body[f.k] = raw === 'true'
+      else if (f.t === 'number' || f.num) body[f.k] = Number(raw) || 0
+      else if (f.t === 'ref' || f.t === 'date') body[f.k] = raw || null
+      else body[f.k] = raw
+    }
+    if (getPieces) body.pieces = getPieces()
+    if (getDesigns) body.designs = getDesigns()
+    try {
+      if (E.save) await E.save(rec, body)
+      else if (rec) await api(`${E.api}/${rec._id}`, { method: 'PATCH', body })
+      else await api(E.api, { method: 'POST', body })
+      dlg.close(); done()
+    } catch (e) { setErr(e.message) }
+  })
+}
+
+// ── 물품 · 상품 (부모 1건 + 색상×사이즈 옵션) ─────────────────
+const ITEM = {
+  materials: { label: '물품', en: 'Materials', price: 'purchasePrice', priceLabel: '구입가격' },
+  goods: { label: '상품', en: 'Goods', price: 'salePrice', priceLabel: '판매가' },
+}
+
+async function viewItems(key) {
+  const I = ITEM[key], canW = me.can.includes('stock')
+  pageShell({
+    en: I.en, title: I.label, addLabel: canW ? `${I.label} 등록` : '',
+    tools: '<input id="q" class="table-search" placeholder="이름·코드·색상·사이즈 검색…" type="search">',
+  })
+  const load = async () => {
+    try {
+      const p = new URLSearchParams({ limit: '300' })
+      if ($('#q').value) p.set('q', $('#q').value)
+      const { items, total } = await api(`/${key}?${p}`)
+      paintTable(items, [
+        ['img', '', (o) => thumb(o.image)],
+        ['name', `${I.label}명`, (o) => `<b>${esc(o.name)}</b>`],
+        ['cat', '분류', (o) => badge(o.category || '-', 'b-mute')],
+        key === 'materials' ? ['sup', '발주처', (o) => esc(o.supplier)] : ['dc', '디자인코드', (o) => esc(o.designCode)],
+        ['opt', '옵션', (o) => `${won(o.optionCount)}개`, 'r'],
+        ['price', I.priceLabel, (o) => won(o[I.price]), 'r'],
+        ['on', '총재고', (o) => `${won(o.totalOnHand)} ${esc(o.unit)}`, 'r'],
+        ['st', '', (o) => (o.lowCount ? badge(`부족 ${o.lowCount}`, 'b-bad') : '') + (o.active === false ? badge('중지', 'b-mute') : '')],
+      ], (o) => openItem(key, o, load), `등록된 ${I.label}이 없습니다.`)
+      $('#ft').textContent = `${items.length} / ${total}`
+    } catch (e) { $('#tbl').innerHTML = emptyTable(e.message) }
+  }
+  $('#q').addEventListener('input', debounce(load))
+  $('#add')?.addEventListener('click', () => openItem(key, null, load))
+  load()
+}
+
+async function openItem(key, rec, done) {
+  const I = ITEM[key], canW = me.can.includes('stock'), canD = me.can.includes('delete')
+  const it = rec ? await api(`/${key}/${rec._id}`)
+    : { name: '', category: '', supplier: '', designCode: '', unit: '개', purchasePrice: 0, salePrice: 0, bom: [], memo: '', active: true, options: [] }
+  const opts = (it.options || []).map((o) => ({ ...o }))
+  const mats = key === 'goods' && canW ? (await api('/materials/options?active=1')).items : []
+  const dis = canW ? '' : 'disabled'
+  const inp = (id, v, type = 'text', extra = '') => `<input class="field-input" id="${id}" type="${type}" value="${esc(v)}" ${dis} ${extra}>`
+
+  let body = fieldHtml(`${I.label}명`, inp('i_name', it.name), true)
+    + fieldHtml('분류', inp('i_cat', it.category) + '<span class="field-hint">예: 수모, 실, 자수 부자재</span>')
+    + (key === 'materials' ? fieldHtml('발주처', inp('i_sup', it.supplier)) : fieldHtml('디자인코드', inp('i_dc', it.designCode)))
+    + fieldHtml(`${I.priceLabel} (기본)`, inp('i_price', it[I.price] ?? 0, 'number', 'min="0"'))
+    + fieldHtml('단위', inp('i_unit', it.unit || '개'))
+    + fieldHtml('사용여부', `<select class="field-input" id="i_act" ${dis}><option value="true" ${it.active !== false ? 'selected' : ''}>사용</option><option value="false" ${it.active === false ? 'selected' : ''}>중지</option></select>`)
+  if (key === 'goods') {
+    body += (canW ? pickerHtml('pk_bom', mats) : '')
+      + fieldHtml('구성 물품 (한 줄에 하나)', `<textarea class="field-input" id="i_bom" ${dis}>${esc(bomToText(it.bom))}</textarea><span class="field-hint">물품 옵션코드, 수량 — 이 상품 1개를 만드는 데 드는 물품</span>`, true)
+  }
+  body += fieldHtml('메모', `<textarea class="field-input" id="i_memo" ${dis}>${esc(it.memo || '')}</textarea>`, true)
+    + `<div class="field full"><span class="field-label">옵션 — 색상 × 사이즈 (이미지·안전재고·재고는 옵션별)</span>
+      ${canW ? `<div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+        <input class="field-input" id="g_colors" placeholder="색상 (쉼표)  예: 블랙, 화이트" style="flex:1;min-width:160px">
+        <input class="field-input" id="g_sizes" placeholder="사이즈 (쉼표)  예: S, M, L" style="flex:1;min-width:160px">
+        <input class="field-input" id="g_code" placeholder="코드 (비우면 자동)" style="flex:1;min-width:130px" title="조합이 여러 개면 코드-1, 코드-2 … 로 붙습니다">
+        <button type="button" class="btn btn-ghost" id="g_add">조합 추가</button></div>` : ''}
+      <div class="table-scroll" id="opt_tbl"></div></div>`
+
+  const paintOpts = () => {
+    const t = $('#opt_tbl')
+    if (!opts.length) {
+      t.innerHTML = '<div class="drawer-note">옵션이 없습니다. 색상·사이즈를 입력해 "조합 추가"를 누르세요. 비워 두고 저장하면 옵션 없는 단일 품목으로 등록됩니다.</div>'
+      return
+    }
+    t.innerHTML = `<table class="data"><thead><tr><th>이미지</th><th>색상</th><th>사이즈</th><th>코드</th><th class="num">안전재고</th><th class="num">개별 가격</th><th class="num">현재고</th><th>사용</th><th></th></tr></thead><tbody>${
+      opts.map((o, i) => `<tr>
+        <td><label style="cursor:${canW ? 'pointer' : 'default'};display:block">${thumb(o.image)}${canW ? `<input type="file" hidden accept="image/jpeg,image/png,image/webp,image/gif" data-img="${i}">` : ''}</label>${
+          o.image && canW ? `<button type="button" class="tb-logout" style="margin:4px 0 0" data-ri="${i}">제거</button>` : ''}</td>
+        <td><input class="field-input" style="width:100px" data-o="${i}" data-f="color" value="${esc(o.color)}" ${dis}></td>
+        <td><input class="field-input" style="width:84px" data-o="${i}" data-f="size" value="${esc(o.size)}" ${dis}></td>
+        <td>${canW && (o._new || !o.code) ? `<input class="field-input mono" style="width:112px;padding:6px 8px" data-o="${i}" data-f="code" value="${esc(o.code)}" placeholder="자동">` : `<span class="mono">${esc(o.code)}</span>`}</td>
+        <td class="num"><input class="field-input" style="width:80px;text-align:right" type="number" min="0" data-o="${i}" data-f="safetyStock" value="${o.safetyStock ?? 0}" ${dis}></td>
+        <td class="num"><input class="field-input" style="width:96px;text-align:right" type="number" min="0" data-o="${i}" data-f="price" value="${o.price ?? ''}" placeholder="기본" ${dis}></td>
+        <td class="num">${o.code ? won(o.onHand ?? 0) : '-'}</td>
+        <td><input type="checkbox" data-o="${i}" data-f="active" ${o.active !== false ? 'checked' : ''} ${dis}></td>
+        <td>${canW ? `<button type="button" class="drawer-x" data-rm="${i}" title="옵션 삭제" style="font-size:18px">×</button>` : ''}</td></tr>`).join('')}</tbody></table>`
+    t.querySelectorAll('[data-o]').forEach((el) => {
+      el.oninput = el.onchange = () => {
+        const o = opts[el.dataset.o], f = el.dataset.f
+        o[f] = f === 'active' ? el.checked : f === 'safetyStock' ? Number(el.value) || 0 : f === 'price' ? (el.value === '' ? null : Number(el.value)) : el.value
+      }
+    })
+    t.querySelectorAll('[data-rm]').forEach((b) => { b.onclick = () => { opts.splice(Number(b.dataset.rm), 1); paintOpts() } })
+    t.querySelectorAll('[data-ri]').forEach((b) => { b.onclick = () => { opts[b.dataset.ri].image = ''; paintOpts() } })
+    t.querySelectorAll('[data-img]').forEach((f) => {
+      f.onchange = async () => {
+        const file = f.files[0]
+        if (!file) return
+        setErr('')
+        try {
+          const fd = new FormData(); fd.append('file', file)
+          const r = await fetch('/api/uploads/image', { method: 'POST', body: fd, credentials: 'same-origin' })
+          const j = await r.json().catch(() => ({}))
+          if (!r.ok) throw new Error(j.error || r.statusText)
+          opts[f.dataset.img].image = j.path
+          paintOpts()
+        } catch (e) { setErr(e.message) }
+      }
+    })
+  }
+
+  const dlg = shell(rec ? `${I.label} 수정 · ${esc(it.name)}` : `${I.label} 등록`, body,
+    `${rec && canD ? '<button type="button" class="btn btn-danger" id="ix">삭제</button>' : ''}${closeFoot(canW ? '<button type="button" class="btn btn-primary" id="save">저장</button>' : '')}`)
+  paintOpts()
+  wirePicker('pk_bom', '#i_bom')
+
+  $('#g_add')?.addEventListener('click', () => {
+    const cs = textToTags($('#g_colors').value), ss = textToTags($('#g_sizes').value)
+    const base = $('#g_code').value.trim()
+    // 새로 만들 조합 목록 (이미 있는 색상·사이즈는 건너뛴다)
+    const combos = []
+    for (const c of cs.length ? cs : ['']) for (const sz of ss.length ? ss : ['']) {
+      if (!opts.some((o) => o.color === c && o.size === sz)) combos.push({ c, sz })
+    }
+    if (!combos.length) { setErr('추가할 새 조합이 없습니다(이미 있는 색상·사이즈).'); return }
+    if (base && /[\s/\\]/.test(base)) { setErr('코드에는 공백이나 슬래시를 쓸 수 없습니다.'); return }
+    // 코드: 조합이 하나면 그대로, 여러 개면 코드-1, 코드-2 …
+    const want = combos.map((_, i) => (!base ? '' : combos.length === 1 ? base : `${base}-${i + 1}`))
+    const taken = new Set(opts.map((o) => o.code).filter(Boolean))
+    const dup = want.find((cd) => cd && taken.has(cd))
+    if (dup) { setErr(`이미 쓰는 코드입니다: ${dup}`); return }
+    combos.forEach((x, i) => opts.push({ code: want[i], _new: true, color: x.c, size: x.sz, image: '', safetyStock: 0, price: null, active: true }))
+    $('#g_colors').value = ''; $('#g_sizes').value = ''; $('#g_code').value = ''
+    setErr('')
+    paintOpts()
+  })
+  $('#ix')?.addEventListener('click', async () => {
+    if (!confirm('삭제할까요? 되돌릴 수 없습니다.')) return
+    try { await api(`/${key}/${rec._id}`, { method: 'DELETE' }); dlg.close(); done() } catch (e) { setErr(e.message) }
+  })
+  $('#save')?.addEventListener('click', async () => {
+    const b = {
+      name: $('#i_name').value, category: $('#i_cat').value, unit: $('#i_unit').value, memo: $('#i_memo').value,
+      active: $('#i_act').value === 'true', [I.price]: Number($('#i_price').value) || 0,
+      options: opts.map(({ code, color, size, image, safetyStock, price, active }) => ({ code, color, size, image, safetyStock, price, active })),
+    }
+    if (key === 'materials') b.supplier = $('#i_sup').value
+    else { b.designCode = $('#i_dc').value; b.bom = textToBom($('#i_bom').value) }
+    try {
+      if (rec) await api(`/${key}/${rec._id}`, { method: 'PATCH', body: b })
+      else await api(`/${key}`, { method: 'POST', body: b })
+      dlg.close(); done()
+    } catch (e) { setErr(e.message) }
+  })
+}
+
+// 제작 명세 — 주문자별(장별) 색상·사이즈·위치·이니셜·이니셜색상·비고.
+// 엑셀·구글시트·Notion 표를 복사해 붙이면 서버가 열 이름을 보고 알맞은 칸으로 넣는다.
+const PC_COLS = [['person', '주문자', 92], ['color', '색상', 72], ['size', '사이즈', 62], ['position', '위치', 96], ['initials', '이니셜(왼쪽)', 110], ['initialsRight', '오른쪽 이니셜', 110], ['initialColor', '이니셜색상', 84], ['note', '비고', 170]]
+function wirePieces(initial, canW) {
+  let list = initial.map((p) => ({ ...p }))
+  const box = $('#pc_box')
+  const dis = canW ? '' : 'disabled'
+  const titleQty = () => {
+    const m = String($('#f_title')?.value || '').match(/#\s*(\d+)(?:\s*\+\s*(\d+))?\s*장/)
+    return m ? Number(m[1]) + Number(m[2] || 0) : null
+  }
+  const groups = () => {
+    const m = new Map()
+    list.forEach((p) => { const k = `${p.color || '-'} ${p.size || '-'}`; m.set(k, (m.get(k) || 0) + 1) })
+    return [...m].sort((a, b) => a[0].localeCompare(b[0], 'ko'))
+  }
+  const paintSum = () => {
+    const el = $('#pc_sum')
+    if (!el) return
+    const q = titleQty()
+    const warn = list.length && q && q !== list.length ? ` ⚠ 주문명의 #${q}장과 명세 ${list.length}줄이 다릅니다.` : ''
+    el.textContent = list.length ? `총 ${list.length}줄 · ${groups().map(([k, n]) => `${k} ${n}`).join(' · ')}${warn}` : '명세가 없습니다. (여러 장을 사람별로 다르게 주문할 때 사용)'
+  }
+  const renumber = () => list.forEach((p, i) => { p.no = i + 1 })
+  const paint = () => {
+    renumber()
+    box.innerHTML = `<div class="drawer-note" id="pc_sum" style="margin-bottom:8px"></div>${
+      canW ? `<textarea class="field-input" id="pc_paste" placeholder="엑셀·구글시트·Notion 표를 복사해서 여기에 붙여넣으세요.&#10;첫 줄이 제목 행이면 열 이름(주문자, 색상, 사이즈, 위치, 이니셜, 이니셜색상, 비고 …)으로 자동 매핑합니다." style="min-height:72px"></textarea>
+        <div style="display:flex;gap:8px;margin:8px 0;flex-wrap:wrap"><button type="button" class="btn btn-ghost" id="pc_add">붙여넣은 표 추가</button><button type="button" class="btn btn-ghost" id="pc_rep">전체 바꾸기</button><button type="button" class="btn btn-ghost" id="pc_row">+ 줄 추가</button><span style="flex:1"></span><button type="button" class="btn btn-ghost" id="pc_items">품목 요약에 반영</button></div>
+        <div class="field-hint" id="pc_info"></div>` : ''}
+      ${list.length ? `<div class="table-scroll" style="max-height:420px;overflow:auto"><table class="data"><thead><tr><th class="num">#</th>${PC_COLS.map((c) => `<th>${c[1]}</th>`).join('')}<th></th></tr></thead><tbody>${
+        list.map((p, i) => `<tr><td class="num">${p.no}</td>${PC_COLS.map(([k, , w]) => `<td><input class="field-input" style="width:${w}px;padding:6px 8px" data-r="${i}" data-f="${k}" value="${esc(p[k] ?? '')}" ${dis}></td>`).join('')}<td>${
+          canW ? `<button type="button" class="drawer-x" style="font-size:18px" data-rr="${i}" title="줄 삭제">×</button>` : ''}</td></tr>`).join('')}</tbody></table></div>` : ''}`
+    paintSum()
+    box.querySelectorAll('[data-r]').forEach((el) => {
+      el.oninput = () => { list[el.dataset.r][el.dataset.f] = el.value; paintSum() }
+    })
+    box.querySelectorAll('[data-rr]').forEach((b) => { b.onclick = () => { list.splice(Number(b.dataset.rr), 1); paint() } })
+    const convert = async (replace) => {
+      const text = $('#pc_paste').value
+      if (!text.trim()) return
+      setErr('')
+      try {
+        const r = await api('/orders/parse-pieces', { method: 'POST', body: { text } })
+        if (!r.pieces.length) { $('#pc_info').textContent = (r.warnings || []).join(' ') || '인식된 줄이 없습니다.'; return }
+        if (replace && list.length && !confirm(`기존 ${list.length}줄을 지우고 ${r.pieces.length}줄로 바꿀까요?`)) return
+        list = replace ? r.pieces : list.concat(r.pieces)
+        paint()
+        const mapped = (r.mapping || []).filter((m) => m.field).map((m) => `${m.header}→${PC_COLS.find((c) => c[0] === m.field)?.[1] || (m.field === 'qty' ? '수량' : '번호')}`)
+        $('#pc_info').textContent = `${r.pieces.length}줄을 넣었습니다. ${r.format === 'free' ? '' : `인식한 열: ${mapped.join(', ') || '(순서대로)'}`}${(r.warnings || []).length ? ' ' + r.warnings.join(' ') : ''}`
+      } catch (e) { setErr(e.message) }
+    }
+    $('#pc_add')?.addEventListener('click', () => convert(false))
+    $('#pc_rep')?.addEventListener('click', () => convert(true))
+    $('#pc_row')?.addEventListener('click', () => { list.push({ no: 0, person: '', color: '', size: '', position: '', initials: '', initialsRight: '', initialColor: '', note: '' }); paint() })
+    $('#pc_items')?.addEventListener('click', () => {
+      const area = $('#f_items')
+      if (!area || !list.length) return
+      if (area.value.trim() && !confirm('품목을 색상×사이즈별 수량으로 바꿀까요? 지금 입력된 품목은 사라집니다.')) return
+      const m = new Map()
+      list.forEach((p) => { const k = `${p.color || ''}\u0000${p.size || ''}`; m.set(k, (m.get(k) || 0) + 1) })
+      area.value = [...m].map(([k, n]) => { const [c, s] = k.split('\u0000'); return `, ${c}, ${s}, ${n}, 0,` }).join('\n')
+    })
+  }
+  $('#f_title')?.addEventListener('input', paintSum)
+  paint()
+  return () => { renumber(); return list }
+}
+
+// 주문 메모 — 계속 덧붙이는 기록 (작성자 · 시각). Ctrl+Enter 로 추가.
+function wireNotes(order, initial, canW) {
+  let list = [...initial]
+  const box = $('#notes_box')
+  const when = (d) => new Date(d).toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short' })
+  const paint = () => {
+    box.innerHTML = `<div style="display:flex;flex-direction:column;gap:10px">${
+      list.map((n) => `<div style="background:var(--paper-deep);border-radius:8px;padding:10px 12px">
+        <div style="display:flex;gap:8px;align-items:center;font-size:12px;color:var(--ink-light);margin-bottom:4px"><span>${esc(n.by === 'notion' ? 'Notion 이관' : (n.byName || n.by))}</span><span>${when(n.at)}</span><span style="flex:1"></span>${
+          canW ? `<button type="button" class="tb-logout" style="margin:0" data-note-rm="${esc(n._id)}">삭제</button>` : ''}</div>
+        <div style="white-space:pre-wrap;font-size:13.5px;line-height:1.6">${esc(n.text)}</div></div>`).join('') || '<span class="field-hint">메모가 없습니다.</span>'}</div>${
+      canW ? '<div style="margin-top:10px;display:flex;gap:8px;align-items:flex-start"><textarea class="field-input" id="note_new" placeholder="메모를 입력하세요 (Ctrl+Enter 로 추가)" style="min-height:64px"></textarea><button type="button" class="btn btn-ghost" id="note_add">추가</button></div>' : ''}`
+    const add = async () => {
+      const ta = $('#note_new')
+      const text = ta.value.trim()
+      if (!text) return
+      setErr('')
+      try { list = (await api(`/orders/${order._id}/notes`, { method: 'POST', body: { text } })).notes; paint(); $('#note_new').focus() } catch (e) { setErr(e.message) }
+    }
+    $('#note_add')?.addEventListener('click', add)
+    $('#note_new')?.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); add() } })
+    box.querySelectorAll('[data-note-rm]').forEach((b) => {
+      b.onclick = async () => {
+        if (!confirm('이 메모를 삭제할까요?')) return
+        try { list = (await api(`/orders/${order._id}/notes/${b.dataset.noteRm}`, { method: 'DELETE' })).notes; paint() } catch (e) { setErr(e.message) }
+      }
+    })
+  }
+  paint()
+}
+
+// 주문 첨부 이미지 — 목록(클릭하면 원본) + 추가 + 제거
+function wireAttachments(order, initial, canW) {
+  let list = [...initial]
+  const box = $('#att_box')
+  const paint = () => {
+    box.innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start">${
+      list.map((p, i) => `<div style="width:120px"><a href="${esc(imgSrc(p))}" target="_blank" rel="noopener"><img class="cell-img" style="width:120px;height:120px" src="${esc(imgSrc(p))}" alt="" loading="lazy"></a>${
+        canW ? `<button type="button" class="tb-logout" style="margin:4px 0 0" data-att-rm="${i}">제거</button>` : ''}</div>`).join('') || '<span class="field-hint">첨부된 이미지가 없습니다.</span>'}</div>${
+      canW ? '<input type="file" id="att_file" accept="image/jpeg,image/png,image/webp,image/gif" multiple style="margin-top:10px;font-size:12.5px">' : ''}`
+    box.querySelectorAll('[data-att-rm]').forEach((b) => {
+      b.onclick = async () => {
+        if (!confirm('이 이미지를 제거할까요?')) return
+        try { list = (await api(`/orders/${order._id}/attachments?path=${encodeURIComponent(list[b.dataset.attRm])}`, { method: 'DELETE' })).attachments; paint() } catch (e) { setErr(e.message) }
+      }
+    })
+    $('#att_file')?.addEventListener('change', async (ev) => {
+      const files = [...ev.target.files]
+      if (!files.length) return
+      setErr('')
+      try {
+        const fd = new FormData()
+        files.forEach((f) => fd.append('files', f))
+        const r = await fetch(`/api/orders/${order._id}/attachments`, { method: 'POST', body: fd, credentials: 'same-origin' })
+        const j = await r.json().catch(() => ({}))
+        if (!r.ok) throw new Error(j.error || r.statusText)
+        list = j.attachments; paint()
+      } catch (e) { setErr(e.message) }
+    })
+  }
+  paint()
+}
+
+// ── 작업관리 (접수 주문 → 일정표로 끌어다 놓기 → 저장하면 '작업배정') ───────
+// 좌측: 접수 상태 주문만. 날짜로 끌어 놓으면 임시 배정(점선)이 되고, 오른쪽 위 [저장]을 눌러야 주문 상태가 '작업배정'이 된다.
+// 되돌리기: 일정 칸을 좌측 목록으로 끌어다 놓거나 작업지시를 삭제하면, 그 주문의 배정이 모두 없어질 때 '접수'로 돌아간다.
+// 일정표에는 '#주문번호 수량장' 으로 보이고, 칸을 다른 날짜로 끌면 옮겨진다. 일/주/월 보기.
+const SCH = { view: 'month', cur: new Date(), q: '', orders: [], entries: [], dues: [], cap: {}, cfg: { machines: 8, perMachine: 10 }, leftTab: 'orders', dq: [] }
+try { const v = localStorage.getItem('sch_view'); if (['day', 'week', 'month'].includes(v)) SCH.view = v } catch (e) { /* 저장소 사용 불가 */ }
+// 저장 전 임시 변경 — adds: 새 배정, edits: 기존 배정의 변경본(전체 스냅샷), removes: 삭제할 배정(id → orderId)
+const DRAFT = { adds: [], edits: new Map(), removes: new Map(), noMerge: new Set(), cancelAll: new Set(), seq: 0 }
+const draftCount = () => DRAFT.adds.length + DRAFT.edits.size + DRAFT.removes.size + DRAFT.cancelAll.size
+const draftReset = () => { DRAFT.adds = []; DRAFT.edits = new Map(); DRAFT.removes = new Map(); DRAFT.noMerge = new Set(); DRAFT.cancelAll = new Set() }
+
+const p2 = (n) => String(n).padStart(2, '0')
+const ymd = (d) => `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`
+const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x }
+const DOW = ['일', '월', '화', '수', '목', '금', '토']
+const WORK_ST = ['지시', '진행', '완료']
+
+function schRange() {
+  const c = SCH.cur
+  if (SCH.view === 'day') return [c, c]
+  if (SCH.view === 'week') { const s = addDays(c, -c.getDay()); return [s, addDays(s, 6)] }
+  const first = new Date(c.getFullYear(), c.getMonth(), 1, 12)
+  const last = new Date(c.getFullYear(), c.getMonth() + 1, 0, 12)
+  return [addDays(first, -first.getDay()), addDays(last, 6 - last.getDay())]
+}
+function schLabel() {
+  const c = SCH.cur
+  if (SCH.view === 'month') return `${c.getFullYear()}년 ${c.getMonth() + 1}월`
+  if (SCH.view === 'day') return `${c.getMonth() + 1}월 ${c.getDate()}일 (${DOW[c.getDay()]})`
+  const [s, e] = schRange()
+  return `${s.getMonth() + 1}/${s.getDate()} – ${e.getMonth() + 1}/${e.getDate()}`
+}
+
+// ── 임시 변경 다루기 ────────────────────────────────────
+const findEntry = (id) => DRAFT.adds.find((a) => a._id === id) || DRAFT.edits.get(id) || SCH.entries.find((e) => e._id === id)
+function stageAdd(order, date) {
+  DRAFT.adds.push({
+    _id: `new-${++DRAFT.seq}`, orderId: order._id, orderNo: order.orderNo, date, qty: order.totalQty || 1, task: '', status: '지시', note: '',
+    order: { orderNo: order.orderNo, title: order.title, partnerName: order.partnerName, dueAt: order.dueAt, totalQty: order.totalQty, status: order.status },
+  })
+}
+function stageChange(id, changes) {
+  const add = DRAFT.adds.find((a) => a._id === id)
+  if (add) { Object.assign(add, changes); return }
+  const base = findEntry(id)
+  if (base) DRAFT.edits.set(id, { ...base, ...changes, _base: base._base || { qty: base.qty, task: base.task || '' } })
+}
+function stageRemove(id) {
+  const i = DRAFT.adds.findIndex((a) => a._id === id)
+  if (i >= 0) { DRAFT.adds.splice(i, 1); return }
+  const base = findEntry(id)
+  DRAFT.edits.delete(id)
+  if (base) DRAFT.removes.set(id, { orderId: base.orderId, qty: base._base?.qty ?? base.qty, task: base._base?.task ?? (base.task || '') })
+}
+// 주문의 공정별 배정 합계 { '': n, '로고': n, '이니셜': n } — 서버 값에 저장 전 변경을 반영한다
+function taskTotals(orderId) {
+  const o = SCH.orders.find((x) => String(x._id) === String(orderId))
+  const t = DRAFT.cancelAll.has(String(orderId)) ? {} : { ...(o?.taskQty || {}) }
+  const add = (task, n) => { t[task || ''] = (t[task || ''] || 0) + n }
+  DRAFT.adds.forEach((a) => { if (String(a.orderId) === String(orderId)) add(a.task, a.qty) })
+  DRAFT.edits.forEach((e) => { if (String(e.orderId) === String(orderId)) { add(e._base?.task, -(e._base?.qty || 0)); add(e.task, e.qty) } })
+  DRAFT.removes.forEach((r) => { if (String(r.orderId) === String(orderId)) add(r.task, -r.qty) })
+  return t
+}
+// 지금까지 화면이 아는 배정 전부(서버 값 + 임시 변경 + 새 배정) — 보이는 기간 밖의 것은 포함되지 않는다
+function knownEntries() {
+  const out = []
+  const gone = (e) => DRAFT.cancelAll.has(String(e.orderId))
+  for (const e of SCH.entries) if (!DRAFT.removes.has(e._id) && !DRAFT.edits.has(e._id) && !gone(e)) out.push(e)
+  DRAFT.edits.forEach((e) => { if (!gone(e)) out.push(e) })
+  DRAFT.adds.forEach((a) => out.push(a))
+  return out
+}
+// 일정 칸을 날짜에 놓기. 그 날짜에 같은 주문·같은 공정의 (완료되지 않은) 배정이 있으면 수량을 합친다.
+//   · 놓은 자리의 칸(hitId)이 같은 주문·공정이면 그 칸에 합치고, 아니면 그 날짜의 같은 주문·공정 배정에 합친다.
+//   · 합치면 원래 칸은 사라진다. 임시 변경이므로 [저장]을 눌러야 반영된다.
+function dropEntry(srcId, date, hitId) {
+  const src = findEntry(srcId)
+  if (!src) return null
+  const same = (e) => e && e._id !== srcId && String(e.orderId) === String(src.orderId) && (e.task || '') === (src.task || '') && e.status !== '완료'
+  const day = currentEntries().filter((e) => e.date === date)
+  let target = hitId ? day.find((e) => e._id === hitId && same(e)) : null
+  if (!target && src.status !== '완료') target = day.find(same)
+  if (!target || src.status === '완료') {
+    if (src.date !== date) stageChange(srcId, { date })
+    return { merged: false }
+  }
+  const status = src.status === '진행' || target.status === '진행' ? '진행' : target.status
+  const note = [target.note, src.note].filter((x) => x && x.trim()).join(' / ')
+  if (!String(srcId).startsWith('new-')) DRAFT.noMerge.add(srcId)         // 화면에서 합쳤으니 서버가 또 합치지 않게
+  stageChange(target._id, { qty: target.qty + src.qty, status, note })
+  stageRemove(srcId)
+  return { merged: true, qty: src.qty, date, orderNo: src.orderNo, task: src.task || '' }
+}
+
+// 배정 취소 — 취소한 수량은 같은 주문·같은 공정의 남은 배정(완료 제외) 중 가장 빠른 날짜에 합쳐 총 수량을 지킨다.
+// 남은 배정이 하나도 없으면 주문 전체가 접수로 돌아간다. 보이는 기간 밖의 배정은 서버가 저장할 때 합친다.
+function cancelEntry(id) {
+  const en = findEntry(id)
+  if (!en) return null
+  if (en.status === '완료') { alert('완료된 작업지시는 취소할 수 없습니다.'); return null }
+  const others = knownEntries()
+    .filter((e) => String(e.orderId) === String(en.orderId) && e._id !== id && e.status !== '완료' && (e.task || '') === (en.task || ''))
+    .sort((a, b) => a.date.localeCompare(b.date))
+  let into = null
+  if (others.length) {
+    into = others[0]
+    stageChange(into._id, { qty: into.qty + en.qty })
+    if (!String(id).startsWith('new-')) DRAFT.noMerge.add(id)       // 화면에서 합쳤으니 서버가 또 합치지 않게
+  }
+  stageRemove(id)
+  return into ? { date: into.date, qty: en.qty } : null
+}
+
+// 화면에 보일 배정: 서버 값에 임시 변경을 덮어쓴 것 + 새 배정
+function currentEntries() {
+  const out = []
+  const gone = (e) => DRAFT.cancelAll.has(String(e.orderId))
+  for (const e of SCH.entries) {
+    if (DRAFT.removes.has(e._id) || DRAFT.edits.has(e._id) || gone(e)) continue
+    out.push(e)
+  }
+  for (const e of DRAFT.edits.values()) if (!gone(e)) out.push({ ...e, _draft: true })
+  for (const a of DRAFT.adds) out.push({ ...a, _draft: true })
+  const [s, en] = schRange()
+  const [a, b] = [ymd(s), ymd(en)]
+  return out.filter((e) => e.date >= a && e.date <= b).sort((x, y) => x.date.localeCompare(y.date) || x.orderNo - y.orderNo)
+}
+// 좌측 목록: 접수 상태이면서 (임시 변경까지 반영해) 배정이 하나도 없는 주문
+function leftOrders() {
+  return SCH.orders.filter((o) => {
+    const id = String(o._id)
+    const adds = DRAFT.adds.filter((x) => String(x.orderId) === id).length
+    if (DRAFT.cancelAll.has(id)) return adds === 0               // 전체 취소 대기 중 — 새로 배정하지 않았다면 접수 목록으로
+    const removed = [...DRAFT.removes.values()].filter((r) => String(r.orderId) === id).length
+    return o.scheduledDays - removed + adds <= 0
+  })
+}
+
+// 공정이 둘 이상(로고·이니셜) 배정된 주문인가
+function multiTask(orderId) {
+  return Object.values(taskTotals(orderId)).filter((n) => n > 0).length >= 2
+}
+// 주문 전체 배정 취소 — 로고·이니셜 등 공정과 날짜에 상관없이 모두 지우고 접수로 되돌린다 (저장 시 반영)
+function cancelOrderAll(orderId) {
+  const id = String(orderId)
+  if (knownEntries().some((e) => String(e.orderId) === id && e.status === '완료')) {
+    alert('완료된 작업지시가 있어 주문 전체 배정을 취소할 수 없습니다.')
+    return false
+  }
+  DRAFT.adds = DRAFT.adds.filter((a) => String(a.orderId) !== id)
+  for (const [k, e] of [...DRAFT.edits]) if (String(e.orderId) === id) DRAFT.edits.delete(k)
+  for (const [k, r] of [...DRAFT.removes]) if (String(r.orderId) === id) { DRAFT.removes.delete(k); DRAFT.noMerge.delete(k) }
+  const o = SCH.orders.find((x) => String(x._id) === id)
+  if (o && o.scheduledDays > 0) DRAFT.cancelAll.add(id)         // 서버에 저장된 배정이 있을 때만 서버에서 지운다
+  return true
+}
+
+async function viewSchedule() {
+  const canW = me.can.includes('orders')
+  const canWork = me.can.includes('work')
+  const canDesign = me.can.includes('design')
+  const hasLeft = canW || canDesign                       // 주문관리(배정) 또는 디자인 담당만 왼쪽 목록을 쓴다
+  if (!canW && canDesign) SCH.leftTab = 'design'
+  if (!canW && canWork && !canDesign && !SCH.workInit) { SCH.workInit = true; SCH.view = 'day'; SCH.cur = new Date() }    // 작업자는 오늘 할 일부터 본다
+  $('#main').innerHTML = `<div class="sch ${hasLeft ? '' : 'solo'}">
+    ${hasLeft ? `<section class="table-card sch-left" id="sch_left">
+      <div class="table-tools" style="flex-wrap:wrap"><span class="sch-seg">${canW ? '<button data-lt="orders">접수 주문</button>' : ''}<button data-lt="design">디자인 필요 <b id="dq_n"></b></button></span>
+        <input id="sq" class="table-search" style="max-width:none;flex:1;min-width:120px" placeholder="검색…" type="search" value="${esc(SCH.q)}"></div>
+      <div class="sch-orders" id="sch_orders"></div>
+    </section>` : ''}
+    <section class="table-card sch-right">
+      <div class="table-tools sch-bar">
+        <span class="sch-nav"><button id="s_prev" title="이전">‹</button><button id="s_today">오늘</button><button id="s_next" title="다음">›</button></span>
+        <span class="sch-label" id="s_label"></span><span class="sch-wmsg" id="w_msg"></span>
+        <span class="sch-over" id="s_over"></span>
+        <span class="sch-seg">${[['day', '일'], ['week', '주'], ['month', '월']].map(([k, l]) => `<button data-v="${k}">${l}</button>`).join('')}</span>
+        <span style="flex:1"></span>
+        ${canW ? '<span class="sch-save"><span class="msg" id="s_msg"></span><button class="btn btn-ghost" id="s_cancel">변경 취소</button><button class="btn btn-primary" id="s_save">저장</button></span>' : ''}
+      </div>
+      <div class="sch-cal" id="sch_cal"></div>
+    </section></div>`
+
+  const step = (dir) => {
+    const c = new Date(SCH.cur)
+    if (SCH.view === 'month') c.setMonth(c.getMonth() + dir, 1)
+    else c.setDate(c.getDate() + dir * (SCH.view === 'week' ? 7 : 1))
+    SCH.cur = c
+    load()
+  }
+  $('#s_prev').onclick = () => step(-1)
+  $('#s_next').onclick = () => step(1)
+  $('#s_today').onclick = () => { SCH.cur = new Date(); load() }
+  document.querySelectorAll('.sch-seg button').forEach((b) => {
+    b.onclick = () => { SCH.view = b.dataset.v; try { localStorage.setItem('sch_view', SCH.view) } catch (e) { /* 무시 */ } load() }
+  })
+  $('#sq')?.addEventListener('input', debounce(() => { SCH.q = $('#sq').value; load() }))
+
+  // 저장 / 변경 취소
+  $('#s_cancel')?.addEventListener('click', () => { if (!draftCount() || confirm('저장하지 않은 변경을 모두 취소할까요?')) { draftReset(); load() } })
+  $('#s_save')?.addEventListener('click', async () => {
+    if (!draftCount()) return
+    const btn = $('#s_save')
+    btn.disabled = true
+    try {
+      const r = await api('/schedule/commit', {
+        method: 'POST',
+        body: {
+          adds: DRAFT.adds.map((a) => ({ orderId: a.orderId, date: a.date, qty: a.qty, note: a.note, task: a.task || '' })),
+          edits: [...DRAFT.edits.values()].map((e) => ({ id: e._id, date: e.date, qty: e.qty, status: e.status, note: e.note, task: e.task || '' })),
+          removes: [...DRAFT.removes.keys()],
+          noMerge: [...DRAFT.noMerge],
+          cancelOrders: [...DRAFT.cancelAll],
+        },
+      })
+      draftReset()
+      await load()
+      const to = (r.statusChanged || []).filter((c) => c.to === '작업배정').length
+      const back = (r.statusChanged || []).filter((c) => c.to === '접수').length
+      const mg = (r.merged || []).map((m) => `#${m.orderNo} ${m.qty}장${m.task ? m.task : ''} → ${m.date.slice(5).replace('-', '/')}`).join(', ')
+      $('#s_msg').textContent = `저장됨${to ? ` · ${to}건 작업배정` : ''}${back ? ` · ${back}건 접수로 복귀` : ''}${mg ? ` · 수량 합침: ${mg}` : ''}`
+      setTimeout(() => { const m = $('#s_msg'); if (m && !draftCount()) m.textContent = '' }, 4000)
+    } catch (e) { alert(e.message); btn.disabled = false }
+  })
+
+  // 좌측 목록으로 일정 칸을 끌어다 놓으면 배정 취소(접수로 되돌림)
+  const left = $('#sch_left')
+  if (canW) {
+    left.addEventListener('dragover', (ev) => { ev.preventDefault(); left.classList.add('over') })
+    left.addEventListener('dragleave', (ev) => { if (!left.contains(ev.relatedTarget)) left.classList.remove('over') })
+    left.addEventListener('drop', (ev) => {
+      ev.preventDefault()
+      left.classList.remove('over')
+      const d = dragData(ev)
+      if (d?.k === 'entry' && SCH.leftTab === 'orders') {
+        const en = findEntry(d.id)
+        if (en && multiTask(en.orderId)) {
+          // 로고·이니셜이 나뉜 주문은 한 칸만 빼면 다른 공정이 남아 주문이 계속 작업배정에 묶인다 — 전체를 되돌릴지 묻는다
+          if (confirm(`#${en.orderNo} 은(는) 로고·이니셜로 나뉘어 있습니다.\n주문의 배정을 모두 취소하고 접수 상태로 되돌릴까요?\n\n(이 칸만 취소하려면 칸을 눌러 "이 배정만 취소"를 사용하세요)`)) cancelOrderAll(en.orderId)
+        } else cancelEntry(d.id)
+        paint()
+      }
+    })
+  }
+
+  const paint = () => { paintLeft(canW, canDesign || canW); paintCal(canW, paint, canWork); paintDirty() }
+  document.querySelectorAll('[data-lt]').forEach((b) => { b.onclick = () => { SCH.leftTab = b.dataset.lt; paint() } })
+  const load = async () => {
+    try {
+      SCH.cur.setHours(12, 0, 0, 0)
+      const [s, e] = schRange()
+      const [cal, ord, dq] = await Promise.all([
+        api(`/schedule?from=${ymd(s)}&to=${ymd(e)}`),
+        canW ? api(`/schedule/orders${SCH.q ? `?q=${encodeURIComponent(SCH.q)}` : ''}`) : { items: [] },
+        hasLeft ? api('/schedule/design-queue').catch(() => ({ items: [] })) : { items: [] },
+      ])
+      SCH.dq = dq.items
+      SCH.entries = cal.entries; SCH.dues = cal.dues; SCH.orders = ord.items
+      SCH.cap = cal.capacity || {}; SCH.cfg = cal.cfg || SCH.cfg
+      paint()
+    } catch (err) { $('#sch_cal').innerHTML = `<div class="sch-hint">${esc(err.message)}</div>` }
+  }
+  SCH.reload = load
+  load()
+}
+
+function paintDirty() {
+  const n = draftCount()
+  const save = $('#s_save'), cancel = $('#s_cancel'), msg = $('#s_msg')
+  if (!save) return
+  save.disabled = n === 0
+  cancel.disabled = n === 0
+  save.textContent = n ? `저장 (${n})` : '저장'
+  if (n) msg.textContent = '저장하면 배정된 주문이 "작업배정" 상태가 됩니다'
+}
+
+const dragData = (ev) => { try { return JSON.parse(ev.dataTransfer.getData('text/plain')) } catch (e) { return null } }
+
+// 좌측: 탭에 맞는 목록
+function paintLeft(canW, canAct) {
+  if (!$('#sch_orders')) return
+  if (!canW && SCH.leftTab !== 'design') SCH.leftTab = 'design'
+  document.querySelectorAll('[data-lt]').forEach((b) => b.classList.toggle('on', b.dataset.lt === SCH.leftTab))
+  const n = $('#dq_n')
+  if (n) n.textContent = SCH.dq.length ? `(${SCH.dq.length})` : ''
+  if (SCH.leftTab === 'design') paintDesignQueue(canAct)
+  else paintOrders(canW)
+}
+
+// 디자인 필요 — 작업관리자의 디자인 할 일 (배정은 됐는데 디자인이 확정되지 않은 주문, 작업일 빠른 순)
+function paintDesignQueue(canAct) {
+  const box = $('#sch_orders')
+  const q = SCH.q.trim().toLowerCase()
+  const list = SCH.dq.filter((o) => !q || o.title.toLowerCase().includes(q) || String(o.orderNo) === q || (o.partnerName || '').toLowerCase().includes(q))
+  const today = ymd(new Date())
+  const KIND = { new: ['신규', 'b-warn'], reorder: ['재주문 후보', 'b-info'], working: ['작업 중', 'b-mute'] }
+  box.innerHTML = list.length ? list.map((o) => {
+    const diff = o.nextDate ? Math.round((new Date(`${o.nextDate}T12:00`) - new Date(`${today}T12:00`)) / 864e5) : null
+    const when = o.nextDate ? `작업일 ${mdText(o.nextDate)} (${diff < 0 ? `D+${-diff}` : diff === 0 ? '오늘' : `D-${diff}`})` : ''
+    const hint = o.kind === 'reorder' ? `이전 디자인 ${o.candidates.length}건: ${o.candidates.map((c) => esc(c.code)).join(', ')}`
+      : o.kind === 'working' ? `연결된 디자인 ${o.designs.length}건 작업 중(확정 전)` : '이전 디자인 없음 — 로고 디자인 필요'
+    return `<div class="sch-order" data-dq="${o._id}">
+      <div class="so-top"><b>#${o.orderNo}</b>${badge(KIND[o.kind][0], KIND[o.kind][1])}<span class="so-q">${o.totalQty ? `${won(o.totalQty)}장` : ''}</span></div>
+      <div class="so-title">${esc(o.title)}</div>
+      <div class="so-sub ${diff !== null && diff < 0 ? 'late' : diff !== null && diff <= 1 ? 'soon' : ''}">${when}${o.partnerName ? ` · ${esc(o.partnerName)}` : ''}</div>
+      <div class="so-design working">${hint}</div></div>`
+  }).join('') : `<div class="sch-hint">${SCH.q ? '검색 결과가 없습니다.' : '디자인이 필요한 배정 주문이 없습니다.'}</div>`
+  box.querySelectorAll('[data-dq]').forEach((el) => { el.onclick = () => openDesignAssist(SCH.dq.find((x) => String(x._id) === el.dataset.dq), canAct) })
+}
+
+// 디자인 작업 화면: 주문 요구사항·원본 이미지를 보면서 이전 디자인을 연결하거나 새로 만든다.
+async function openDesignAssist(item, canAct) {
+  if (!item) return
+  let o
+  try { o = await api(`/orders/${item._id}`) } catch (e) { return alert(e.message) }
+  const cur = o.designsState || []
+  const imgs = o.attachments || []
+  const links = () => (o.designs || []).map((l) => ({ designId: String(l.designId), version: l.version, role: l.role || '', note: l.note || '' }))
+  const after = () => { dlg.close(); SCH.reload && SCH.reload() }
+  const body = `<div class="drawer-note" style="grid-column:1/-1"><b>#${o.orderNo}</b> ${esc(o.title)}${item.partnerName ? ` · ${esc(item.partnerName)}` : ''}${item.totalQty ? ` · ${won(item.totalQty)}장` : ''}${item.nextDate ? ` · 작업일 ${esc(item.nextDate)}` : ''}</div>
+    ${o.content || o.request ? `<div class="field full"><span class="field-label">주문 요구사항</span><div style="white-space:pre-wrap;font-size:13.5px;line-height:1.6">${esc([o.content, o.request].filter(Boolean).join('\n'))}</div></div>` : ''}
+    <div class="field full"><span class="field-label">원본 이미지 (주문 첨부)</span>${imgs.length
+      ? `<div style="display:flex;gap:10px;flex-wrap:wrap">${imgs.map((p) => `<a href="${esc(imgSrc(p))}" target="_blank" rel="noopener"><img class="cell-img" style="width:130px;height:130px" src="${esc(imgSrc(p))}" alt="" loading="lazy"></a>`).join('')}</div>`
+      : '<span class="field-hint">첨부된 이미지가 없습니다. 주문의 첨부 이미지를 확인하세요.</span>'}</div>
+    <div class="field full"><span class="field-label">연결된 디자인</span>${cur.length ? cur.map((d) => `<div class="dz-row"><span>${thumb(d.preview)}</span>
+      <div class="dz-main"><b>${esc(d.code)}</b> ${esc(d.name)} ${badge(`v${d.version} ${d.status || ''}`, DS_BADGE[d.status] || 'b-mute')}${d.role ? ` · ${esc(d.role)}` : ''}</div>
+      ${canAct ? `<button type="button" class="btn btn-ghost" data-open-design="${d.designId}">디자인 열기</button>` : ''}</div>`).join('') : '<span class="field-hint">연결된 디자인이 없습니다.</span>'}</div>
+    <div class="field full"><span class="field-label">${esc(item.partnerName || '거래처')}의 이전 디자인 (재주문)</span>${item.candidates.length ? item.candidates.map((c) => `<div class="dz-row"><span>${thumb(c.preview)}</span>
+      <div class="dz-main"><b>${esc(c.code)}</b> ${esc(c.name)} · 확정 v${c.version}</div>
+      ${canAct ? `<button type="button" class="btn btn-primary" data-link="${c._id}" data-ver="${c.version}">이 디자인 사용</button>` : ''}</div>`).join('')
+      : '<span class="field-hint">확정된 이전 디자인이 없습니다. 신규로 만드세요.</span>'}</div>`
+  const dlg = shell(`디자인 작업 · #${o.orderNo}`, body,
+    `${canAct ? '<button type="button" class="btn btn-ghost" id="da_na">디자인 불필요로 표시</button><button type="button" class="btn btn-primary" id="da_new">새 디자인 만들기</button>' : ''}${closeFoot()}`)
+  dlg.querySelectorAll('[data-open-design]').forEach((b) => b.addEventListener('click', () => { dlg.close(); openDesign(b.dataset.openDesign, () => SCH.reload && SCH.reload()) }))
+  dlg.querySelectorAll('[data-link]').forEach((b) => b.addEventListener('click', async () => {
+    try {
+      await api(`/orders/${o._id}/designs`, { method: 'POST', body: { designs: [...links(), { designId: b.dataset.link, version: Number(b.dataset.ver), role: '' }] } })
+      after()
+    } catch (e) { setErr(e.message) }
+  }))
+  $('#da_na')?.addEventListener('click', async () => {
+    if (!confirm('이 주문은 디자인이 필요 없는 주문으로 표시할까요? (디자인 필요 목록에서 빠집니다)')) return
+    try { await api(`/orders/${o._id}/designs`, { method: 'POST', body: { notNeeded: true } }); after() } catch (e) { setErr(e.message) }
+  })
+  $('#da_new')?.addEventListener('click', () => {
+    const name = String(o.title || '').replace(/#\S+/g, '').replace(/\s+/g, ' ').trim()
+    dlg.close()
+    openDesign(null, null, { name, partnerId: o.partnerId ? String(o.partnerId) : '' }, async (d) => {
+      try {
+        await api(`/orders/${o._id}/designs`, { method: 'POST', body: { designs: [...links(), { designId: String(d._id), version: 1, role: '' }] } })
+        SCH.reload && SCH.reload()
+        openDesign(String(d._id), () => SCH.reload && SCH.reload())
+      } catch (e) { alert(e.message) }
+    })
+  })
+}
+
+function paintOrders(canW) {
+  const box = $('#sch_orders')
+  if (!box) return
+  const today = ymd(new Date())
+  const list = leftOrders()
+  // 기간 배정은 하루 처리 한도 이상(하루에 다 못 하는) 주문에만 보인다 — 한도 = 가동 대수 × 대당 처리량 (설정)
+  const dayLimit = Math.max(1, (SCH.cfg.machines || 0) * (SCH.cfg.perMachine || 0))
+  box.innerHTML = list.length ? list.map((o) => {
+    const due = o.dueAt ? new Date(o.dueAt).toISOString().slice(0, 10) : ''
+    const diff = due ? Math.round((new Date(`${due}T12:00`) - new Date(`${today}T12:00`)) / 864e5) : null
+    const dueTxt = due ? `납기 ${due.slice(5).replace('-', '/')} (${diff < 0 ? `D+${-diff}` : diff === 0 ? '오늘' : `D-${diff}`})` : '납기 미정'
+    const overdue = diff !== null && diff < 0
+    return `<div class="sch-order ${overdue ? 'overdue' : ''}" ${canW ? 'draggable="true"' : ''} data-oid="${o._id}">
+      <div class="so-top"><b>#${o.orderNo}</b>${badge(o.status, ORDER_BADGE[o.status] || 'b-warn')}${overdue ? '<span class="so-late">납기 초과</span>' : ''}<span class="so-q">${o.totalQty ? `${won(o.totalQty)}장` : '수량 ?'}</span></div>
+      <div class="so-title">${esc(o.title)}</div>
+      <div class="so-design ${o.designState || 'none'}">${{ none: '디자인 연결 없음', working: `디자인 작업 중 (${o.designCount}건)`, ready: `✓ 디자인 확정 (${o.designCount}건)` }[o.designState || 'none']}</div>
+      <div class="so-sub ${diff !== null && diff < 0 ? 'late' : diff !== null && diff <= 3 ? 'soon' : ''}">${dueTxt}${o.partnerName ? ` · ${esc(o.partnerName)}` : ''}</div>${canW && o.totalQty >= dayLimit ? `<div class="so-actions"><button type="button" class="btn btn-ghost" data-plan="${o._id}" title="하루 수량을 정해 여러 날에 한 번에 배정">기간 배정</button></div>` : ''}</div>`
+  }).join('') : `<div class="sch-hint">${SCH.q ? '검색 결과가 없습니다.' : '작업배정을 기다리는 접수 주문이 없습니다.'}</div>`
+  box.querySelectorAll('.sch-order').forEach((el) => {
+    el.addEventListener('dragstart', (ev) => {
+      ev.dataTransfer.setData('text/plain', JSON.stringify({ k: 'order', id: el.dataset.oid }))
+      ev.dataTransfer.effectAllowed = 'copy'
+      el.classList.add('dragging')
+    })
+    el.addEventListener('dragend', () => el.classList.remove('dragging'))
+    el.addEventListener('click', () => openForm(ENT.orders, { _id: el.dataset.oid }, SCH.reload))
+  })
+  box.querySelectorAll('[data-plan]').forEach((b) => b.addEventListener('click', (ev) => { ev.stopPropagation(); openPlan(b.dataset.plan) }))
+}
+
+// 납기 초과 작업: 완료되지 않았고 ① 작업일이 납기보다 늦거나 ② 납기가 이미 지난 경우. 이유 문구를 돌려준다(아니면 null).
+function lateInfo(en) {
+  if (!en || en.status === '완료' || !en.order?.dueAt) return null
+  const due = new Date(en.order.dueAt).toISOString().slice(0, 10)
+  const md = (d) => d.slice(5).replace('-', '/')
+  if (en.date > due) return `작업일(${md(en.date)})이 납기(${md(due)})보다 늦습니다`
+  if (due < ymd(new Date())) return `납기(${md(due)})가 지났는데 아직 완료되지 않았습니다`
+  return null
+}
+
+function paintCal(canW, repaint, canWork) {
+  const cal = $('#sch_cal')
+  $('#s_label').textContent = schLabel()
+  document.querySelectorAll('.sch-seg button').forEach((b) => b.classList.toggle('on', b.dataset.v === SCH.view))
+  const [s, e] = schRange()
+  const today = ymd(new Date())
+  const entries = currentEntries()
+  const by = new Map()
+  entries.forEach((en) => { if (!by.has(en.date)) by.set(en.date, []); by.get(en.date).push(en) })
+
+  const chip = (en, big) => `<div class="sch-chip ${en._draft ? 'draft' : ''} ${lateInfo(en) ? 'late' : ''}" data-st="${esc(en.status)}" data-task="${esc(en.task || '')}" data-eid="${en._id}" ${canW ? 'draggable="true"' : ''}
+      title="${esc(`#${en.orderNo} ${en.order?.title || ''} — ${en.qty}장${en.task ? ' ' + en.task : ''} (${en.status})${en._draft ? ' · 저장 전' : ''}${lateInfo(en) ? '\n⚠ ' + lateInfo(en) : ''}${en.note ? '\n' + en.note : ''}`)}">
+      <b>${lateInfo(en) ? '⚠ ' : ''}#${en.orderNo}</b> ${won(en.qty)}장${en.status !== '완료' && ['none', 'working'].includes(en.order?.designState) ? '<span class="dzflag" title="디자인 미확정">D</span>' : ''}${en.task ? `<span class="task">${esc(en.task)}</span>` : ''}${big ? `<span class="sub">${esc(en.order?.title || '')}</span>` : ''}</div>`
+  // 날짜 머리글: 합계/한도. 한도를 넘으면 붉게(관리자가 보고 재배정), 주말 작업은 '휴무' 표시
+  const loadOf = (list) => (list || []).reduce((t, x) => t + x.qty, 0)
+  const dayHead = (k, list) => {
+    const n = loadOf(list), cap = SCH.cap[k]
+    if (cap == null) return n ? `<span class="sch-sum off" title="작업일이 아닌 날(주말)에 배정되어 있습니다">휴무 ${won(n)}장</span>` : ''
+    if (!n) return `<span class="sch-sum faint" title="하루 한도">한도 ${won(cap)}</span>`
+    const over = n > cap
+    return `<span class="sch-sum ${over ? 'over' : ''}" title="하루 한도 ${cap}장${over ? ` — ${n - cap}장 초과` : ''}">${over ? '⚠ ' : ''}${won(n)}/${won(cap)}</span>`
+  }
+  {
+    const [rs, re] = schRange()
+    let overDays = 0
+    for (let d = new Date(rs); d <= re; d = addDays(d, 1)) {
+      const k = ymd(d)
+      if (SCH.cap[k] != null && loadOf(by.get(k)) > SCH.cap[k]) overDays++
+    }
+    $('#s_over').textContent = overDays ? `⚠ 한도 초과 ${overDays}일` : ''
+  }
+
+  if (SCH.view === 'day') {
+    const key = ymd(SCH.cur)
+    const list = by.get(key) || []
+    const dn = loadOf(list), dcap = SCH.cap[key]
+    const head = dcap == null ? (dn ? `<div class="sch-dayhead over" style="color:var(--orange-deep);border-color:var(--orange)">휴무일 작업 ${won(dn)}장</div>` : '<div class="sch-dayhead">휴무일(주말)입니다. 필요하면 일정 계획에서 직접 배정하세요.</div>')
+      : `<div class="sch-dayhead ${dn > dcap ? 'over' : ''}">합계 ${won(dn)} / 하루 한도 ${won(dcap)}장${dn > dcap ? ` — ⚠ ${won(dn - dcap)}장 초과, 재배정이 필요합니다` : ''}</div>`
+    cal.innerHTML = `<div class="sch-dayview" data-date="${key}">
+      ${head}
+      ${list.length ? list.map((en) => `<div class="sch-entry ${en._draft ? 'draft' : ''} ${lateInfo(en) ? 'late' : ''}" data-task="${esc(en.task || '')}" data-eid="${en._id}" ${canW ? 'draggable="true"' : ''}>
+        <div class="qty">${won(en.qty)}장${en.task ? `<div style="font-size:12px;font-weight:700">${esc(en.task)}</div>` : ''}</div>
+        <div class="meta"><div class="t">#${en.orderNo} ${esc(en.order?.title || '')}</div>
+          <div class="s">${esc(en.order?.partnerName || '')}${en.status !== '완료' && ['none', 'working'].includes(en.order?.designState) ? ` · <span class="late-txt" style="color:var(--orange-deep)">디자인 ${en.order.designState === 'none' ? '필요' : '작업 중'}</span>` : ''}${lateInfo(en) ? ` · <span class="late-txt">⚠ ${esc(lateInfo(en))}</span>` : ''}${en.note ? ` · ${esc(en.note)}` : ''}${en._draft ? ' · 저장 전' : ''}</div>
+          ${(en.order?.designs || []).filter((d) => !en.task || !d.role || d.role === en.task).map((d) => `<div class="sch-dz">${thumb(d.preview)}
+            <span><b>${esc(d.role || '디자인')}</b> ${esc(d.code)} v${d.version} ${esc(d.status)}${d.colors.length ? ` · 컬러 ${d.colors.map((c) => esc(c.label || c.code)).join(', ')}` : ''}</span>
+            ${d.files.map((f) => `<a href="${esc(fileUrl(f.path))}" download>${esc(f.ext)} 파일</a>`).join(' ')}</div>`).join('')}
+          ${en.order?.totalQty ? `<div class="prog">${esc(en.task || '전체')} 공정 완료 ${won(en.order.taskDone?.[en.task || ''] || 0)} / ${won(en.order.totalQty)}장</div>` : ''}</div>
+        ${badge(en.status, en.status === '완료' ? 'b-good' : en.status === '진행' ? 'b-info' : 'b-warn')}
+        ${canWork && !en._draft ? `<div class="sch-actions">${statusButtons(en)}</div>` : (canWork ? '<div class="sch-actions"><span class="field-hint">저장 후 처리 가능</span></div>' : '')}</div>`).join('')
+        : '<div class="sch-hint">이 날짜에 배정된 작업이 없습니다.<br>왼쪽 주문을 이곳으로 끌어다 놓으세요.</div>'}</div>`
+  } else {
+    const days = []
+    for (let d = new Date(s); d <= e; d = addDays(d, 1)) days.push(new Date(d))
+    cal.innerHTML = `<div class="sch-grid ${SCH.view}">${DOW.map((n, i) => `<div class="sch-dow ${i === 0 ? 'sun' : ''}">${n}</div>`).join('')}${
+      days.map((d) => {
+        const k = ymd(d)
+        const out = SCH.view === 'month' && d.getMonth() !== SCH.cur.getMonth()
+        const list = by.get(k) || []
+        return `<div class="sch-cell ${out ? 'out' : ''} ${k === today ? 'today' : ''}" data-date="${k}">
+          <div class="sch-day"><span class="sch-daynum ${d.getDay() === 0 ? 'sun' : ''}">${d.getDate()}</span>${dayHead(k, list)}</div>
+          ${list.map((en) => chip(en, SCH.view === 'week')).join('')}</div>`
+      }).join('')}</div>`
+  }
+
+  // 놓기(drop) — 주문 카드는 임시 배정 추가, 일정 칸은 날짜 이동. 저장은 [저장] 버튼에서.
+  cal.querySelectorAll('[data-date]').forEach((cell) => {
+    if (!canW) return
+    cell.addEventListener('dragover', (ev) => { ev.preventDefault(); cell.classList.add('over') })
+    cell.addEventListener('dragleave', (ev) => { if (!cell.contains(ev.relatedTarget)) cell.classList.remove('over') })
+    cell.addEventListener('drop', (ev) => {
+      ev.preventDefault()
+      cell.classList.remove('over')
+      const d = dragData(ev)
+      if (!d) return
+      if (d.k === 'order') {
+        const o = SCH.orders.find((x) => String(x._id) === d.id)
+        if (o) stageAdd(o, cell.dataset.date)
+      } else if (d.k === 'entry') {
+        const r = dropEntry(d.id, cell.dataset.date, ev.target.closest?.('[data-eid]')?.dataset.eid)
+        if (r?.merged) workMsg(`#${r.orderNo} ${r.task ? r.task + ' ' : ''}${won(r.qty)}장을 ${mdText(r.date)} 배정에 합쳤습니다 (저장 전)`)
+      }
+      repaint()
+    })
+  })
+  cal.querySelectorAll('[data-wkst]').forEach((b) => {
+    b.addEventListener('click', (ev) => { ev.stopPropagation(); setWorkStatus(findEntry(b.dataset.eid), b.dataset.wkst) })
+    b.addEventListener('dragstart', (ev) => ev.preventDefault())
+  })
+  cal.querySelectorAll('[data-wk]').forEach((b) => {
+    b.addEventListener('click', (ev) => { ev.stopPropagation(); workAction(findEntry(b.dataset.eid), b.dataset.wk) })
+    b.addEventListener('dragstart', (ev) => ev.preventDefault())
+  })
+  cal.querySelectorAll('[data-eid]').forEach((el) => {
+    el.addEventListener('dragstart', (ev) => {
+      ev.dataTransfer.setData('text/plain', JSON.stringify({ k: 'entry', id: el.dataset.eid }))
+      ev.dataTransfer.effectAllowed = 'move'
+    })
+    el.addEventListener('click', (ev) => { ev.stopPropagation(); openEntry(findEntry(el.dataset.eid), canW, repaint, canWork) })
+  })
+}
+
+// ── 작업 처리 (시작 · 완료 · 완료 취소) — 계획과 달리 저장 버튼 없이 즉시 반영된다 ──
+function workMsg(text, bad) {
+  const el = $('#w_msg')
+  if (!el) return
+  el.textContent = text
+  el.style.color = bad ? 'var(--bad)' : ''
+  clearTimeout(workMsg.t)
+  workMsg.t = setTimeout(() => { el.textContent = '' }, 6000)
+}
+function workResultText(r, en, action) {
+  const parts = [`#${en.orderNo} ${en.task ? en.task + ' ' : ''}${{ start: '작업 시작', complete: '완료 처리', undo: '완료 취소', reset: '지시로 되돌림' }[action]}`]
+  for (const c of r.statusChanged || []) parts.push(`주문 ${c.from} → ${c.to}`)
+  if (r.stock?.moves) parts.push(`수모 ${Math.abs(r.stock.delta)}장 ${r.stock.delta > 0 ? '재고 차감' : '재고 복원'}`)
+  if (r.stock?.unmatched) parts.push(`⚠ 수모 옵션을 찾지 못해 ${r.stock.unmatched}장은 재고에 반영되지 않았습니다`)
+  if (r.carried) parts.push(`남은 ${won(r.carried.qty)}장 → ${Number(r.carried.date.slice(5, 7))}/${Number(r.carried.date.slice(8, 10))} 배정에 합침`)
+  if (r.reduced?.length) parts.push(`초과분 ${won(r.reduced.reduce((t, x) => t + x.take, 0))}장을 이후 배정에서 차감`)
+  return parts.join(' · ')
+}
+// 작업 상태 버튼(지시 · 진행 · 완료) — 누르면 바로 처리된다 (저장 불필요)
+const statusButtons = (en) => WORK_ST.map((st) =>
+  `<button type="button" class="${en.status === st ? 'on' : ''}" data-wkst="${st}" data-eid="${en._id}" ${en.status === st ? 'aria-pressed="true"' : ''}>${st}</button>`).join('')
+function setWorkStatus(en, to) {
+  if (!en || en.status === to) return
+  if (to === '완료') return workAction(en, 'complete')                    // 수량 입력창
+  if (en.status === '완료') return workAction(en, 'undo', undefined, undefined, to)   // 완료 → 진행/지시
+  if (to === '진행') return workAction(en, 'start')
+  return workAction(en, 'reset')                                           // 진행 → 지시
+}
+
+async function workAction(en, action, qty, carry, to) {
+  if (!en) return
+  if (draftCount()) { alert('저장하지 않은 배정 변경이 있습니다. 먼저 저장하거나 변경을 취소한 뒤 처리하세요.'); return }
+  if (action === 'complete' && qty === undefined) return openComplete(en)
+  if ((action === 'start' || action === 'complete') && ['none', 'working'].includes(en.order?.designState)) {
+    const why = en.order.designState === 'none' ? '디자인이 연결되지 않았습니다' : '연결된 디자인이 아직 확정되지 않았습니다'
+    if (!confirm(`#${en.orderNo} ${why}.\n그래도 ${action === 'start' ? '작업을 시작' : '완료 처리'}할까요?`)) return
+  }
+  if (action === 'undo' && !confirm(`#${en.orderNo} ${en.task || ''} ${won(en.qty)}장의 완료를 취소할까요? (사용한 수모 재고는 되돌려집니다)`)) return
+  try {
+    const r = await api(`/schedule/${en._id}/work`, { method: 'POST', body: { action, qty, carry, to } })
+    await SCH.reload()
+    workMsg(workResultText(r, en, action), !!r.stock?.unmatched)
+  } catch (e) { alert(e.message) }
+}
+const mdText = (d) => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`
+// 다음 작업일 추정: 같은 주문·공정의 다음 배정 날짜, 없으면 다음 평일 (서버도 같은 규칙으로 정한다)
+function nextWorkDate(en) {
+  const nxt = knownEntries().filter((e) => String(e.orderId) === String(en.orderId) && e._id !== en._id && e.status !== '완료'
+    && (e.task || '') === (en.task || '') && e.date > en.date).sort((a, b) => a.date.localeCompare(b.date))[0]
+  if (nxt) return nxt.date
+  let d = addDays(new Date(`${en.date}T12:00:00`), 1)
+  while (d.getDay() === 0 || d.getDay() === 6) d = addDays(d, 1)
+  return ymd(d)
+}
+
+// 완료 수량 입력
+//   · 계획보다 적게 → 남은 수량을 다음 작업일에 합칠지(기본) / 같은 날 지시로 남길지 / 날짜를 고를지 묻는다
+//   · 계획보다 많이 → 초과분은 이후 배정에서 자동 차감된다
+function openComplete(en) {
+  const nextD = nextWorkDate(en)
+  const body = `<div class="drawer-note" style="grid-column:1/-1"><b>#${en.orderNo}</b> ${esc(en.order?.title || '')}${en.task ? ` · <b>${esc(en.task)}</b>` : ''} · ${esc(en.date)} · 계획 ${won(en.qty)}장</div>`
+    + fieldHtml('완료 수량(장)', `<input class="field-input" id="c_qty" type="number" min="1" value="${en.qty}" inputmode="numeric" style="font-size:20px;padding:14px">`, true)
+    + '<div id="c_more" style="grid-column:1/-1"></div>'
+  const dlg = shell(`완료 처리 · #${en.orderNo}`, body, closeFoot('<button type="button" class="btn btn-primary" id="c_ok">완료 처리</button>'))
+  const more = () => {
+    const n = Math.round(Number($('#c_qty').value))
+    const box = $('#c_more')
+    if (n > 0 && n < en.qty) {
+      box.innerHTML = `<div class="field-label" style="margin-bottom:4px">남은 ${won(en.qty - n)}장은?</div>
+        <label class="c-opt"><input type="radio" name="c_carry" value="next" checked> 다음 작업일(${mdText(nextD)})에 합치기</label>
+        <label class="c-opt"><input type="radio" name="c_carry" value="same"> 같은 날(${mdText(en.date)}) 지시로 남기기</label>
+        <label class="c-opt"><input type="radio" name="c_carry" value="date"> 날짜 선택 <input class="field-input" id="c_date" type="date" value="${nextD}" style="width:auto"></label>`
+    } else if (n > en.qty) {
+      box.innerHTML = `<div class="drawer-note">계획(${won(en.qty)}장)보다 <b>${won(n - en.qty)}장</b> 더 했습니다. 초과분은 같은 주문·공정의 이후 배정에서 빠른 날짜부터 차감됩니다.</div>`
+    } else box.innerHTML = ''
+  }
+  $('#c_qty').addEventListener('input', more)
+  $('#c_qty').select()
+  $('#c_ok').onclick = () => {
+    const n = Math.round(Number($('#c_qty').value))
+    if (!(n > 0)) return setErr('완료 수량은 1 이상이어야 합니다.')
+    let carry
+    if (n < en.qty) {
+      const v = document.querySelector('input[name=c_carry]:checked')?.value
+      carry = v === 'next' ? 'next' : v === 'date' ? ($('#c_date').value || nextD) : undefined
+    }
+    dlg.close()
+    workAction(en, 'complete', n, carry)
+  }
+}
+
+// ── 디자인 라이브러리 ─────────────────────────────────────
+// 주문 이미지를 자수 파일로 변환·디자인한 결과를 버전별로 보관하고 재주문에서 다시 쓴다.
+// 버전은 덮어쓰지 않으며 확정(디자인 중 → 확정)된 버전은 수정할 수 없다. 컬러는 자수사 번호(재고관리의 자수사 물품 옵션).
+const DS_BADGE = { 확정: 'b-good', '디자인 중': 'b-warn', 삭제됨: 'b-bad' }
+const fileUrl = (p) => `/api/files/${String(p).split('/').map(encodeURIComponent).join('/')}`
+const fmtSize = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)}MB` : `${Math.max(1, Math.round(n / 1024))}KB`)
+
+async function viewDesigns() {
+  const canW = me.can.includes('design')
+  pageShell({
+    en: 'Designs', title: '디자인', addLabel: canW ? '디자인 등록' : '',
+    tools: `<input id="q" class="table-search" placeholder="이름·코드·거래처·태그 검색…" type="search">
+      <select id="f" class="table-select"><option value="">상태 전체</option><option>디자인 중</option><option>확정</option></select>`,
+  })
+  const load = async () => {
+    try {
+      const p = new URLSearchParams({ limit: '300' })
+      if ($('#q').value) p.set('q', $('#q').value)
+      if ($('#f').value) p.set('status', $('#f').value)
+      const { items } = await api(`/designs?${p}`)
+      paintTable(items, [
+        ['img', '', (d) => thumb(d.preview)], ['code', '코드', (d) => `<span class="mono">${esc(d.code)}</span>`],
+        ['name', '디자인', (d) => `<b>${esc(d.name)}</b>${d.active === false ? ` ${badge('중지', 'b-mute')}` : ''}`],
+        ['partner', '거래처', (d) => esc(d.partnerName)],
+        ['ver', '최신 버전', (d) => `v${d.latestVersion} ${badge(d.latestStatus, DS_BADGE[d.latestStatus] || 'b-mute')}`],
+        ['col', '컬러', (d) => `${d.colorCount}색`, 'r'], ['files', '자수 파일', (d) => `${d.fileCount}개`, 'r'],
+        ['upd', '수정', (d) => day(d.updatedAt)],
+      ], (d) => openDesign(d._id, load), '등록된 디자인이 없습니다. "디자인 등록"으로 시작하세요.')
+      $('#ft').textContent = `${items.length}건`
+    } catch (e) { $('#tbl').innerHTML = emptyTable(e.message) }
+  }
+  $('#q').addEventListener('input', debounce(load))
+  $('#f').onchange = load
+  $('#add')?.addEventListener('click', () => openDesign(null, load))
+  load()
+}
+
+// 디자인 드로어: id 가 없으면 새로 만든다. prefill: { name, partnerId } (주문 화면에서 만들 때)
+async function openDesign(id, done, prefill = {}, onCreated) {
+  const canW = me.can.includes('design'), canD = me.can.includes('delete')
+  if (!cache.partners) await refs().catch(() => {})
+  const partnerOpts = (cur) => `<option value="">(미지정)</option>${(cache.partners || []).map((p) => `<option value="${p._id}" ${p._id === cur ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}`
+
+  // 새 디자인 — 이름·거래처만 받고 만들면 버전 1(디자인 중)이 생긴다. 파일은 만든 뒤 올린다.
+  if (!id) {
+    const body = fieldHtml('디자인 이름', `<input class="field-input" id="n_name" value="${esc(prefill.name || '')}" placeholder="예: CRS 로고">`, true)
+      + fieldHtml('거래처', `<select class="field-input" id="n_partner">${partnerOpts(prefill.partnerId || '')}</select>`)
+      + fieldHtml('태그 (쉼표)', '<input class="field-input" id="n_tags" placeholder="로고, 이니셜 …">')
+      + '<div class="drawer-note" style="grid-column:1/-1">만든 뒤 시안 이미지·자수 파일·컬러를 올리고 확정합니다. 같은 이름의 디자인을 두 번 만들지 말고, 수정은 새 버전으로 하세요.</div>'
+    const dlg = shell('디자인 등록', body, closeFoot('<button type="button" class="btn btn-primary" id="save">만들기</button>'))
+    $('#save').onclick = async () => {
+      try {
+        const d = await api('/designs', { method: 'POST', body: { name: $('#n_name').value, partnerId: $('#n_partner').value || null, tags: textToTags($('#n_tags').value) } })
+        dlg.close()
+        if (onCreated) onCreated(d)
+        else { done && done(); openDesign(d._id, done) }
+      } catch (e) { setErr(e.message) }
+    }
+    return
+  }
+
+  let design = await api(`/designs/${id}`)
+  const threads = (await api('/designs/thread-options').catch(() => ({ items: [], keyword: '자수사' })))
+  let curNo = Math.max(...design.versions.map((v) => v.no))
+  let colors = []
+
+  const ver = () => design.versions.find((v) => v.no === curNo)
+  const editable = () => canW && ver().status === '디자인 중'
+  const readVersionFields = () => ({
+    note: $('#v_note')?.value ?? '', widthMm: $('#v_w')?.value ?? '', heightMm: $('#v_h')?.value ?? '', stitches: $('#v_s')?.value ?? '', colors,
+  })
+
+  const render = () => {
+    const v = ver()
+    const ed = editable()
+    colors = v.colors.map((c) => ({ ...c }))
+    const dis = ed ? '' : 'disabled'
+    const body = `
+      <div class="drawer-note" style="grid-column:1/-1"><b>${esc(design.code)}</b> · 버전 ${design.versions.length}개 · 사용 주문 ${design.usedBy.length ? design.usedBy.map((u) => `#${u.orderNo}(v${u.version})`).join(', ') : '없음'}</div>
+      ${fieldHtml('디자인 이름', `<input class="field-input" id="d_name" value="${esc(design.name)}" ${canW ? '' : 'disabled'}>`, true)}
+      ${fieldHtml('거래처', `<select class="field-input" id="d_partner" ${canW ? '' : 'disabled'}>${partnerOpts(design.partnerId ? String(design.partnerId) : '')}</select>`)}
+      ${fieldHtml('태그 (쉼표)', `<input class="field-input" id="d_tags" value="${esc((design.tags || []).join(', '))}" ${canW ? '' : 'disabled'}>`)}
+      ${fieldHtml('메모', `<textarea class="field-input" id="d_memo" ${canW ? '' : 'disabled'}>${esc(design.memo || '')}</textarea>`, true)}
+      <div class="field full" style="border-top:1px solid var(--line);padding-top:14px">
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <span class="field-label" style="margin:0">버전</span>
+          <select class="field-input" id="v_sel" style="width:auto">${design.versions.slice().sort((a, b) => b.no - a.no).map((x) => `<option value="${x.no}" ${x.no === curNo ? 'selected' : ''}>v${x.no} · ${esc(x.status)}</option>`).join('')}</select>
+          ${badge(v.status, DS_BADGE[v.status])}
+          <span class="field-hint">${v.status === '확정' ? `확정 ${day(v.confirmedAt)} — 확정된 버전은 수정할 수 없습니다. 고치려면 새 버전을 만드세요.` : '디자인 중 — 파일을 올리고 컬러를 정한 뒤 확정하세요.'}</span>
+        </div>
+      </div>
+      <div class="field full"><span class="field-label">시안 이미지</span>
+        <div class="img-field"><span>${thumb(v.previewImage)}</span><div class="img-side">
+          ${v.previewImage ? `<a href="${esc(fileUrl(v.previewImage))}" target="_blank" rel="noopener" class="field-hint">원본 열기</a>` : ''}
+          ${ed ? `<input type="file" id="up_img" accept="image/png,image/jpeg,image/webp,image/gif">${v.previewImage ? '<button type="button" class="btn btn-ghost" id="rm_img" style="align-self:flex-start">시안 제거</button>' : ''}` : ''}
+        </div></div></div>
+      <div class="field full"><span class="field-label">자수 파일 (.dst .pes .jef .exp .emb … · 50MB 이하)</span>
+        ${(v.files || []).length ? `<div>${v.files.map((f) => `<div class="cp-row"><a href="${esc(fileUrl(f.path))}" download>${esc(f.name)}</a>
+          <span class="field-hint">${esc(f.ext)} · ${fmtSize(f.size || 0)}</span><span class="sp"></span>${ed ? `<button type="button" class="tb-logout" data-rmf="${esc(f.path)}">삭제</button>` : ''}</div>`).join('')}</div>`
+          : '<div class="field-hint">올린 자수 파일이 없습니다.</div>'}
+        ${ed ? '<input type="file" id="up_file" style="margin-top:8px">' : ''}
+      </div>
+      <div class="field full"><span class="field-label">컬러 — 자수사 번호 (재고관리 &gt; ${esc(threads.keyword)} 물품의 옵션)</span>
+        <div id="d_colors"></div>
+        ${ed ? `<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><select class="field-input" id="th_sel" style="flex:1;min-width:200px"><option value="">자수사 선택…</option>${
+          threads.items.map((t) => `<option value="${esc(t.code)}">${esc(t.label)}</option>`).join('')}</select>
+          <input class="field-input" id="th_part" placeholder="사용 부위 (예: 외곽, 글자)" style="flex:1;min-width:140px"><button type="button" class="btn btn-ghost" id="th_add">컬러 추가</button></div>
+          ${threads.items.length ? '' : `<span class="field-hint" style="color:var(--bad)">"${esc(threads.keyword)}"이(가) 들어간 물품이 없습니다. 재고관리에서 자수사를 등록하거나 설정의 키워드를 확인하세요.</span>`}` : ''}
+      </div>
+      ${fieldHtml('가로(mm)', `<input class="field-input" id="v_w" type="number" min="0" step="any" value="${v.widthMm ?? ''}" ${dis}>`)}
+      ${fieldHtml('세로(mm)', `<input class="field-input" id="v_h" type="number" min="0" step="any" value="${v.heightMm ?? ''}" ${dis}>`)}
+      ${fieldHtml('스티치 수', `<input class="field-input" id="v_s" type="number" min="0" value="${v.stitches ?? ''}" ${dis}>`)}
+      ${fieldHtml('버전 메모 (변경 내용 등)', `<textarea class="field-input" id="v_note" ${dis}>${esc(v.note || '')}</textarea>`, true)}`
+    const latest = Math.max(...design.versions.map((x) => x.no))
+    const foot = `${canD ? '<button type="button" class="btn btn-danger" id="d_del">디자인 삭제</button>' : ''}${
+      canW && ver().status === '확정' && curNo === latest ? '<button type="button" class="btn btn-ghost" id="d_newver">새 버전 만들기</button>' : ''}${
+      closeFoot(canW ? `<button type="button" class="btn btn-ghost" id="save">저장</button>${ed ? '<button type="button" class="btn btn-primary" id="d_confirm">확정</button>' : ''}` : '')}`
+    const dlg = shell(`디자인 · ${esc(design.name)}`, body, foot)
+    wire(dlg)
+    paintColors()
+  }
+
+  const paintColors = () => {
+    const box = $('#d_colors')
+    if (!box) return
+    const ed = editable()
+    box.innerHTML = colors.length ? colors.map((c, i) => `<div class="cp-row"><b>${i + 1}</b><span>${esc(c.label || c.code)}</span>
+      <span class="field-hint">${esc(c.part || '')}</span><span class="sp"></span>${ed ? `<button type="button" class="tb-logout" data-rmc="${i}">삭제</button>` : ''}</div>`).join('')
+      : '<div class="field-hint">지정된 컬러가 없습니다.</div>'
+    box.querySelectorAll('[data-rmc]').forEach((b) => { b.onclick = () => { colors.splice(Number(b.dataset.rmc), 1); paintColors() } })
+  }
+
+  const reload = async (keepNo) => {
+    design = await api(`/designs/${id}`)
+    if (keepNo) curNo = keepNo
+    render()
+  }
+  const saveAll = async () => {
+    await api(`/designs/${id}`, { method: 'PATCH', body: { name: $('#d_name').value, partnerId: $('#d_partner').value || null, tags: textToTags($('#d_tags').value), memo: $('#d_memo').value } })
+    if (editable()) await api(`/designs/${id}/versions/${curNo}`, { method: 'PATCH', body: readVersionFields() })
+  }
+  const upload = async (inputEl) => {
+    const f = inputEl.files[0]
+    if (!f) return
+    setErr('')
+    try {
+      await saveAll()                                              // 입력 중이던 컬러·메모를 잃지 않게 먼저 저장
+      const fd = new FormData(); fd.append('file', f)
+      const r = await fetch(`/api/designs/${id}/versions/${curNo}/files`, { method: 'POST', body: fd, credentials: 'same-origin' })
+      const j = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(j.error || r.statusText)
+      await reload(curNo)
+    } catch (e) { setErr(e.message); inputEl.value = '' }
+  }
+
+  const wire = (dlg) => {
+    $('#v_sel').onchange = async () => { if (editable()) { try { await saveAll() } catch (e) { return setErr(e.message) } } await reload(Number($('#v_sel').value)) }
+    $('#up_img')?.addEventListener('change', (e) => upload(e.target))
+    $('#up_file')?.addEventListener('change', (e) => upload(e.target))
+    $('#rm_img')?.addEventListener('click', async () => {
+      try { await api(`/designs/${id}/versions/${curNo}/files?path=${encodeURIComponent(ver().previewImage)}`, { method: 'DELETE' }); await reload(curNo) } catch (e) { setErr(e.message) }
+    })
+    dlg.querySelectorAll('[data-rmf]').forEach((b) => b.addEventListener('click', async () => {
+      if (!confirm('이 파일을 지울까요?')) return
+      try { await api(`/designs/${id}/versions/${curNo}/files?path=${encodeURIComponent(b.dataset.rmf)}`, { method: 'DELETE' }); await reload(curNo) } catch (e) { setErr(e.message) }
+    }))
+    $('#th_add')?.addEventListener('click', () => {
+      const code = $('#th_sel').value
+      if (!code) return setErr('자수사를 선택하세요.')
+      const t = threads.items.find((x) => x.code === code)
+      colors.push({ code, label: t?.label || code, part: $('#th_part').value.trim() })
+      $('#th_sel').value = ''; $('#th_part').value = ''
+      setErr(''); paintColors()
+    })
+    $('#save')?.addEventListener('click', async () => {
+      try { await saveAll(); await reload(curNo); done && done() } catch (e) { setErr(e.message) }
+    })
+    $('#d_confirm')?.addEventListener('click', async () => {
+      if (!confirm(`v${curNo}을(를) 확정할까요? 확정하면 수정할 수 없고, 고치려면 새 버전을 만들어야 합니다.`)) return
+      try { await saveAll(); await api(`/designs/${id}/versions/${curNo}/confirm`, { method: 'POST' }); await reload(curNo); done && done() } catch (e) { setErr(e.message) }
+    })
+    $('#d_newver')?.addEventListener('click', async () => {
+      try { const v = await api(`/designs/${id}/versions`, { method: 'POST' }); await reload(v.no); done && done() } catch (e) { setErr(e.message) }
+    })
+    $('#d_del')?.addEventListener('click', async () => {
+      if (!confirm('이 디자인을 삭제할까요? 되돌릴 수 없습니다.')) return
+      try { await api(`/designs/${id}`, { method: 'DELETE' }); dlg.close(); done && done() } catch (e) { setErr(e.message) }
+    })
+  }
+  render()
+}
+
+// ── 주문 화면의 '디자인' 영역 ──────────────────────────────
+// 한 주문에 디자인을 여러 개 연결할 수 있다(로고 + 이니셜 등). 연결은 '쓰는 버전'에 고정된다.
+function wireDesigns(initial, canW, partnerOf) {
+  const box = $('#dz_box')
+  let list = initial.map((x) => ({ designId: String(x.designId), version: x.version, role: x.role || '', note: x.note || '', code: x.code, name: x.name, versions: null }))
+  const info = new Map(initial.map((x) => [String(x.designId), x]))
+
+  const ensure = async (l) => {
+    if (l.versions) return
+    try { l.versions = (await api(`/designs/${l.designId}`)).versions } catch (e) { l.versions = [] }
+  }
+  const verOf = (l) => (l.versions || []).find((v) => v.no === l.version)
+  const paint = async () => {
+    await Promise.all(list.map(ensure))
+    box.innerHTML = `${list.length ? list.map((l, i) => {
+      const v = verOf(l)
+      const latest = (l.versions || []).reduce((m, x) => (!m || x.no > m.no ? x : m), null)
+      const newer = latest && latest.no > l.version
+      return `<div class="dz-row">
+        <span>${thumb(v?.previewImage || info.get(l.designId)?.preview)}</span>
+        <div class="dz-main">
+          <div><b>${esc(l.code || '')}</b> ${esc(l.name || '')} ${v ? badge(`v${l.version} ${v.status}`, DS_BADGE[v.status]) : badge('삭제됨', 'b-bad')}
+            ${newer ? `<span class="field-hint">· 새 버전 v${latest.no}(${esc(latest.status)})이 있습니다</span>` : ''}</div>
+          <div class="field-hint">${(v?.colors || []).map((c) => esc(`${c.label || c.code}${c.part ? '(' + c.part + ')' : ''}`)).join(' · ') || '컬러 미지정'}
+            ${(v?.files || []).map((f) => ` · <a href="${esc(fileUrl(f.path))}" download>${esc(f.name)}</a>`).join('')}</div>
+        </div>
+        <div class="dz-ctl">
+          <select class="field-input" data-dz-role="${i}" ${canW ? '' : 'disabled'}>${[['', '용도 없음'], ['로고', '로고'], ['이니셜', '이니셜']].map(([k, t]) => `<option value="${k}" ${k === l.role ? 'selected' : ''}>${t}</option>`).join('')}</select>
+          <select class="field-input" data-dz-ver="${i}" ${canW ? '' : 'disabled'}>${(l.versions || []).slice().sort((a, b) => b.no - a.no).map((x) => `<option value="${x.no}" ${x.no === l.version ? 'selected' : ''}>v${x.no} ${esc(x.status)}</option>`).join('')}</select>
+          ${canW ? `<button type="button" class="tb-logout" data-dz-rm="${i}">제거</button>` : ''}
+        </div></div>`
+    }).join('') : '<div class="field-hint">연결된 디자인이 없습니다.</div>'}
+      ${canW ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+        <input class="field-input" id="dz_q" placeholder="디자인 검색 (이름·코드·거래처)" style="flex:1;min-width:180px">
+        <select class="field-input" id="dz_sel" style="flex:1;min-width:200px"><option value="">검색 결과…</option></select>
+        <button type="button" class="btn btn-ghost" id="dz_add">연결</button>
+        ${me.can.includes('design') ? '<button type="button" class="btn btn-ghost" id="dz_new">새 디자인</button>' : ''}</div>` : ''}`
+    box.querySelectorAll('[data-dz-role]').forEach((s) => { s.onchange = () => { list[s.dataset.dzRole].role = s.value } })
+    box.querySelectorAll('[data-dz-ver]').forEach((s) => { s.onchange = () => { list[s.dataset.dzVer].version = Number(s.value); paint() } })
+    box.querySelectorAll('[data-dz-rm]').forEach((b) => { b.onclick = () => { list.splice(Number(b.dataset.dzRm), 1); paint() } })
+    const search = debounce(async () => {
+      const q = $('#dz_q').value.trim()
+      const sel = $('#dz_sel')
+      try {
+        const r = await api(`/designs?active=1&limit=30${q ? `&q=${encodeURIComponent(q)}` : ''}${!q && partnerOf() ? `&partnerId=${partnerOf()}` : ''}`)
+        sel.innerHTML = '<option value="">검색 결과…</option>' + r.items.map((d) => `<option value="${d._id}" data-code="${esc(d.code)}" data-name="${esc(d.name)}">${esc(d.code)} ${esc(d.name)}${d.partnerName ? ` · ${esc(d.partnerName)}` : ''} (v${d.latestVersion} ${esc(d.latestStatus)})</option>`).join('')
+      } catch (e) { /* 무시 */ }
+    }, 250)
+    $('#dz_q')?.addEventListener('input', search)
+    search()
+    $('#dz_add')?.addEventListener('click', async () => {
+      const o = $('#dz_sel').selectedOptions[0]
+      if (!o || !o.value) return setErr('연결할 디자인을 고르세요.')
+      try {
+        const d = await api(`/designs/${o.value}`)
+        const best = d.versions.filter((v) => v.status === '확정').sort((a, b) => b.no - a.no)[0] || d.versions.slice().sort((a, b) => b.no - a.no)[0]
+        list.push({ designId: String(d._id), version: best.no, role: '', note: '', code: d.code, name: d.name, versions: d.versions })
+        info.set(String(d._id), { preview: best.previewImage })
+        setErr(''); paint()
+      } catch (e) { setErr(e.message) }
+    })
+    $('#dz_new')?.addEventListener('click', () => {
+      // 새 디자인은 별도 드로어에서 만든다 — 주문 입력 중인 내용이 사라지지 않도록 이름만 받아 바로 만든다
+      const name = prompt('새 디자인 이름 (예: CRS 로고)\n거래처는 이 주문의 거래처로 들어갑니다. 파일·컬러는 디자인 메뉴에서 올리세요.')
+      if (!name || !name.trim()) return
+      api('/designs', { method: 'POST', body: { name: name.trim(), partnerId: partnerOf() || null } }).then((d) => {
+        list.push({ designId: String(d._id), version: 1, role: '', note: '', code: d.code, name: d.name, versions: d.versions })
+        setErr(''); paint()
+      }).catch((e) => setErr(e.message))
+    })
+  }
+  paint()
+  return () => list.map((l) => ({ designId: l.designId, version: l.version, role: l.role, note: l.note }))
+}
+
+// ── 설정 ─────────────────────────────────────────────────
+// 항목별 카드로 나눠 둔다. 새 설정이 생기면 카드를 하나 더 추가하면 된다. 변경은 관리자·매니저만(조회는 모두).
+async function viewSettings() {
+  const canW = me.can.includes('settings')
+  const dis = canW ? '' : 'disabled'
+  $('#main').innerHTML = `<div class="page-head"><div class="ph-main"><div class="ph-en">Settings</div><h1>설정</h1>
+    <p class="ph-sub">${canW ? '항목별로 저장합니다.' : '조회만 가능합니다. 변경은 관리자·매니저에게 요청하세요.'}</p></div></div><div id="set_root"><div class="sch-hint">불러오는 중…</div></div>`
+  let cap, app
+  try { [cap, app] = await Promise.all([api('/schedule/capacity'), api('/settings')]) } catch (e) { $('#set_root').innerHTML = `<div class="sch-hint">${esc(e.message)}</div>`; return }
+
+  const card = (id, title, desc, body) => `<section class="set-card"><header><h2>${title}</h2><p>${desc}</p></header>
+    <div class="set-body">${body}</div><footer><span class="set-msg" id="${id}_msg"></span>${canW ? `<button type="button" class="btn btn-primary" id="${id}_save">저장</button>` : ''}</footer></section>`
+  const field = (label, input, hint) => `<label class="field"><span class="field-label">${label}</span>${input}${hint ? `<span class="field-hint">${hint}</span>` : ''}</label>`
+
+  $('#set_root').innerHTML =
+    card('cap', '작업 일정 · 하루 처리 한도', '한도 = 가동 중인 자수기 수 × 대당 하루 처리량. 장애로 대수가 줄면 한도도 줄어듭니다. 일정표의 날짜 칸에 합계/한도로 표시되며, 넘겨도 배정은 막지 않고 붉게 표시됩니다.',
+      field('가동 중인 자수기(대)', `<input class="field-input" id="cp_m" type="number" min="0" value="${cap.machines}" ${dis}>`)
+      + field('대당 하루 처리량(장)', `<input class="field-input" id="cp_p" type="number" min="1" value="${cap.perMachine}" ${dis}>`)
+      + '<div class="drawer-note full" id="cp_lim"></div>'
+      + `<div class="field full"><span class="field-label">날짜별 지정 — 장애·점검으로 대수가 줄거나, 주말에 작업하는 날</span><div id="cp_list"></div>
+        ${canW ? `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px">
+          <input class="field-input" id="cp_from" type="date" style="width:auto"><span>~</span><input class="field-input" id="cp_to" type="date" style="width:auto">
+          <input class="field-input" id="cp_n" type="number" min="0" placeholder="가동 대수" style="width:110px">
+          <label class="c-opt" style="padding:0"><input type="checkbox" id="cp_wk"> 주말 포함</label>
+          <button type="button" class="btn btn-ghost" id="cp_add">목록에 추가</button></div>
+          <span class="field-hint">기간으로 지정하면 평일에만 적용됩니다(주말 포함을 켜면 주말도 작업일로 지정). 한 날짜만이면 시작일과 종료일을 같게 하세요. 가동 대수 0 = 그날은 작업 없음(휴무).</span>` : ''}</div>`)
+    + card('plan', '작업 일정 · 기간 배정', '주문을 여러 날에 나눠 배정할 때 기본으로 채워지는 값입니다.',
+      field('기본 하루 배정 수량(장)', `<input class="field-input" id="st_plan" type="number" min="1" value="${app.planDaily}" ${dis}>`,
+        '기간 배정 화면에서 주문마다 바꿀 수 있습니다.'))
+    + card('stock', '재고 연동 · 작업 완료 시 차감', '공정이 끝나면 완료한 장수만큼 재고를 차감하는데, 어떤 물품에서 차감할지를 이름으로 찾습니다.',
+      field('차감 대상 물품 키워드', `<input class="field-input" id="st_kw" value="${esc(app.capKeyword)}" maxlength="20" ${dis}>`,
+        '이름에 이 글자가 들어간 물품(또는 분류가 같은 물품)의 색상·사이즈 옵션에서 차감합니다. 예: 수모')
+      + field('디자인 컬러 — 자수사 물품 키워드', `<input class="field-input" id="st_th" value="${esc(app.threadKeyword)}" maxlength="20" ${dis}>`,
+        '디자인의 컬러는 이 글자가 들어간 물품의 옵션(자수사 번호)에서 고릅니다. 예: 자수사'))
+
+  const flash = (id, text, bad) => {
+    const el = $(`#${id}_msg`)
+    el.textContent = text
+    el.classList.toggle('err', !!bad)
+    if (!bad) setTimeout(() => { if (el.textContent === text) el.textContent = '' }, 3000)
+  }
+
+  // 하루 처리 한도
+  const today = ymd(new Date())
+  const original = new Map(Object.entries(cap.overrides || {}).filter(([d]) => d >= today))
+  const state = new Map(original)                 // 날짜 → 가동 대수 (화면에서 편집 중인 지정 목록)
+  const lim = () => {
+    const m = Number($('#cp_m').value) || 0, p = Number($('#cp_p').value) || 0
+    $('#cp_lim').innerHTML = `하루 한도 = <b>${m}대 × ${p}장 = ${won(m * p)}장</b> (평일 기준)`
+  }
+  const list = () => {
+    const p = Number($('#cp_p').value) || cap.perMachine
+    const rows = [...state].sort()
+    $('#cp_list').innerHTML = rows.length ? rows.map(([d, n]) => `<div class="cp-row"><b>${mdText(d)} (${DOW[new Date(`${d}T12:00`).getDay()]})</b>
+      <span>${n}대 → 한도 ${won(n * p)}장${n === 0 ? ' (휴무)' : ''}</span><span class="sp"></span>${canW ? `<button type="button" class="tb-logout" data-cp-rm="${d}">삭제</button>` : ''}</div>`).join('')
+      : '<div class="field-hint" style="margin-top:6px">지정된 날짜가 없습니다. (기본 한도가 적용됩니다)</div>'
+    $('#cp_list').querySelectorAll('[data-cp-rm]').forEach((b) => { b.onclick = () => { state.delete(b.dataset.cpRm); list() } })
+  }
+  lim(); list()
+  $('#cp_m').addEventListener('input', lim)
+  $('#cp_p').addEventListener('input', () => { lim(); list() })
+  $('#cp_add')?.addEventListener('click', () => {
+    const from = $('#cp_from').value, to = $('#cp_to').value || from, n = $('#cp_n').value
+    if (!from || n === '') return flash('cap', '시작일과 가동 대수를 입력하세요.', true)
+    if (to < from) return flash('cap', '종료일이 시작일보다 빠릅니다.', true)
+    const wk = $('#cp_wk').checked
+    let count = 0
+    for (let d = new Date(`${from}T12:00:00`); ymd(d) <= to && count < 62; d = addDays(d, 1)) {
+      const weekend = d.getDay() === 0 || d.getDay() === 6
+      if (weekend && !wk && from !== to) continue            // 기간 지정이면 주말은 제외, 한 날짜만 지정하면 그날을 그대로 지정
+      state.set(ymd(d), Number(n)); count++
+    }
+    flash('cap', '', false); list()
+  })
+  $('#cap_save')?.addEventListener('click', async () => {
+    const overrides = {}
+    for (const d of original.keys()) if (!state.has(d)) overrides[d] = null
+    for (const [d, n] of state) overrides[d] = n
+    try {
+      const r = await api('/schedule/capacity', { method: 'PUT', body: { machines: Number($('#cp_m').value), perMachine: Number($('#cp_p').value), overrides } })
+      original.clear(); for (const [d, n] of Object.entries(r.overrides || {})) if (d >= today) original.set(d, n)
+      flash('cap', `저장했습니다. 하루 한도 ${won(r.limit)}장`)
+    } catch (e) { flash('cap', e.message, true) }
+  })
+
+  // 기본 하루 배정 수량 · 재고 차감 대상 키워드
+  $('#plan_save')?.addEventListener('click', async () => {
+    try { await api('/settings', { method: 'PUT', body: { planDaily: Number($('#st_plan').value) } }); flash('plan', '저장했습니다.') } catch (e) { flash('plan', e.message, true) }
+  })
+  $('#stock_save')?.addEventListener('click', async () => {
+    try { await api('/settings', { method: 'PUT', body: { capKeyword: $('#st_kw').value, threadKeyword: $('#st_th').value } }); flash('stock', '저장했습니다.') } catch (e) { flash('stock', e.message, true) }
+  })
+}
+
+// ── 기간 배정: 하루 수량을 정해 여러 날에 한 번에 (임시 배정으로 쌓이고 [저장]으로 확정) ──
+// 한도 반영: 이미 배정된 일정과 하루 한도를 고려해 날짜별로 채운다. 주말은 제외(주말 포함을 켜면 포함).
+function planDays({ start, total, target, weekend, useCap, load, cap }) {
+  const rows = []
+  let left = total
+  let d = new Date(`${start}T12:00:00`)
+  for (let i = 0; i < 120 && left > 0; i++, d = addDays(d, 1)) {
+    const k = ymd(d)
+    const wk = d.getDay() === 0 || d.getDay() === 6
+    const c = cap[k]
+    if (wk && !weekend && c == null) continue
+    if (c === 0) continue
+    const avail = useCap && c != null ? Math.max(0, c - (load[k] || 0)) : Infinity
+    const take = Math.min(left, target, avail)
+    if (take <= 0) continue
+    rows.push({ date: k, qty: take, load: (load[k] || 0) + take, cap: c })
+    left -= take
+  }
+  return { rows, left }
+}
+
+// entry 를 주면(작업관리 드로어에서) 그 배정 하나의 수량을 여러 날로 나눈다 — 공정(로고·이니셜)은 그대로 두고
+// 원래 배정은 대신 빠지고(임시), 나눈 배정들이 새로 생긴다. 로고·이니셜을 나눈 뒤에도 공정별로 기간 배정을 할 수 있다.
+async function openPlan(orderId, entry) {
+  const o = entry
+    ? { _id: entry.orderId, orderNo: entry.orderNo, title: entry.order?.title || '', partnerName: entry.order?.partnerName, dueAt: entry.order?.dueAt, totalQty: entry.qty, status: entry.order?.status }
+    : SCH.orders.find((x) => String(x._id) === String(orderId))
+  if (!o) return
+  let start = new Date(entry ? `${entry.date}T12:00:00` : Date.now())
+  while (start.getDay() === 0 || start.getDay() === 6) start = addDays(start, 1)
+  let daily = 60
+  try { daily = (await api('/settings')).planDaily || 60 } catch (e) { /* 기본값 사용 */ }
+  const body = `<div class="drawer-note" style="grid-column:1/-1"><b>#${o.orderNo}</b> ${esc(o.title)}${entry
+    ? ` · <b>${esc(entry.task || '전체')}</b> 배정 ${won(entry.qty)}장(${esc(entry.date)})을 여러 날로 나눕니다. 이 배정은 아래 결과로 대체됩니다.`
+    : (o.totalQty ? ` · 주문 수량 ${won(o.totalQty)}장` : ' · 수량을 직접 입력하세요')}</div>`
+    + fieldHtml('시작일', `<input class="field-input" id="pl_start" type="date" value="${ymd(start)}">`)
+    + fieldHtml('하루 배정 수량(장)', `<input class="field-input" id="pl_daily" type="number" min="1" value="${daily}">`)
+    + fieldHtml('총 수량(장)', `<input class="field-input" id="pl_total" type="number" min="1" value="${o.totalQty || ''}" ${entry ? 'disabled' : ''}>`)
+    + (entry
+      ? fieldHtml('공정', `<select class="field-input" id="pl_task" disabled><option value="${esc(entry.task || '')}">${esc(entry.task || '전체(구분 없음)')}</option></select>`)
+      : fieldHtml('공정', '<select class="field-input" id="pl_task"><option value="">전체(구분 없음)</option><option value="로고">로고</option><option value="이니셜">이니셜</option><option value="both">로고 + 이니셜 (각각 전체 수량)</option></select>'))
+    + '<div class="field full"><label class="c-opt"><input type="checkbox" id="pl_cap" checked> 하루 한도를 넘지 않게(이미 배정된 일정 고려)</label>'
+    + '<label class="c-opt"><input type="checkbox" id="pl_wk"> 주말 포함</label></div>'
+    + '<div class="field full"><span class="field-label">미리보기</span><div id="pl_prev"></div></div>'
+  const dlg = shell(`기간 배정 · #${o.orderNo}`, body, closeFoot(`<button type="button" class="btn btn-primary" id="pl_ok">${entry ? '나눠서 배정' : '배정 추가'}</button>`))
+  let rows = [], left = 0, token = 0
+  const calc = async () => {
+    const my = ++token
+    const st = $('#pl_start').value
+    const total = Math.round(Number($('#pl_total').value)), target = Math.round(Number($('#pl_daily').value))
+    const prev = $('#pl_prev')
+    if (!st || !(total > 0) || !(target > 0)) { rows = []; prev.innerHTML = '<div class="field-hint">시작일, 하루 수량, 총 수량을 입력하세요.</div>'; return }
+    const to = ymd(addDays(new Date(`${st}T12:00:00`), 95))
+    let r
+    try { r = await api(`/schedule?from=${st}&to=${to}`) } catch (e) { return setErr(e.message) }
+    if (my !== token) return
+    // 날짜별 이미 배정된 수량: 서버 배정(임시 삭제·수정 반영) + 임시 변경
+    const loadMap = {}
+    const bump = (e) => { if (e.date >= st && e.date <= to) loadMap[e.date] = (loadMap[e.date] || 0) + e.qty }
+    const self = entry?._id
+    r.entries.forEach((e) => { if (e._id !== self && !DRAFT.removes.has(e._id) && !DRAFT.edits.has(e._id) && !DRAFT.cancelAll.has(String(e.orderId))) bump(e) })
+    DRAFT.edits.forEach((e) => { if (e._id !== self && !DRAFT.cancelAll.has(String(e.orderId))) bump(e) })
+    DRAFT.adds.forEach((e) => { if (e._id !== self) bump(e) })
+    const tasks = $('#pl_task').value === 'both' ? ['로고', '이니셜'] : [$('#pl_task').value]
+    rows = []; left = 0
+    for (const t of tasks) {
+      const res = planDays({ start: st, total, target, weekend: $('#pl_wk').checked, useCap: $('#pl_cap').checked, load: loadMap, cap: r.capacity })
+      res.rows.forEach((x) => { rows.push({ ...x, task: t }); loadMap[x.date] = x.load })
+      left += res.left
+    }
+    prev.innerHTML = rows.length
+      ? `<div class="table-scroll"><table class="data pl-table"><thead><tr><th>날짜</th><th>공정</th><th class="num">수량</th><th class="num">당일 합계 / 한도</th></tr></thead><tbody>${
+        rows.map((x) => `<tr><td>${mdText(x.date)} (${DOW[new Date(`${x.date}T12:00`).getDay()]})</td><td>${esc(x.task || '전체')}</td><td class="num">${won(x.qty)}장</td>
+          <td class="num ${x.cap != null && x.load > x.cap ? 'over' : ''}">${won(x.load)} / ${x.cap == null ? '–' : won(x.cap)}</td></tr>`).join('')}</tbody></table></div>
+        <div class="field-hint" style="margin-top:6px">${rows.length}건 · 합계 ${won(rows.reduce((t, x) => t + x.qty, 0))}장${rows.length ? ` · ${mdText(rows[0].date)} ~ ${mdText(rows[rows.length - 1].date)}` : ''}</div>`
+        + (left > 0 ? `<div class="drawer-note" style="color:var(--bad);margin-top:6px">⚠ ${won(left)}장을 배정하지 못했습니다(약 95일 안에 한도가 부족). 하루 수량이나 한도를 조정하세요.</div>` : '')
+      : '<div class="drawer-note" style="color:var(--bad)">배정할 수 있는 날이 없습니다. 한도·시작일을 확인하세요.</div>'
+  }
+  ;['#pl_start', '#pl_daily', '#pl_total', '#pl_task', '#pl_cap', '#pl_wk'].forEach((id) => $(id).addEventListener('input', debounce(calc, 200)))
+  $('#pl_task').addEventListener('change', calc)
+  $('#pl_cap').addEventListener('change', calc)
+  $('#pl_wk').addEventListener('change', calc)
+  calc()
+  $('#pl_ok').onclick = () => {
+    if (!rows.length) return setErr('배정할 내용이 없습니다.')
+    if (entry) {
+      if (left > 0 && !confirm(`${won(left)}장을 배정하지 못했습니다. 그래도 이 배정을 나눠서 대체할까요? (배정하지 못한 수량은 사라집니다)`)) return
+      if (!String(entry._id).startsWith('new-')) DRAFT.noMerge.add(entry._id)      // 대체하는 것이므로 서버가 다른 배정에 합치지 않게
+      stageRemove(entry._id)
+    }
+    for (const x of rows) {
+      DRAFT.adds.push({
+        _id: `new-${++DRAFT.seq}`, orderId: o._id, orderNo: o.orderNo, date: x.date, qty: x.qty, task: x.task, status: '지시', note: '',
+        order: { orderNo: o.orderNo, title: o.title, partnerName: o.partnerName, dueAt: o.dueAt, totalQty: o.totalQty, status: o.status },
+      })
+    }
+    SCH.cur = new Date(`${rows[0].date}T12:00:00`)
+    dlg.close()
+    SCH.reload()
+  }
+}
+
+// 배정 현황: "로고 32/32장 · 이니셜 24/32장\" — 공정별 배정 합계와 주문 수량
+function taskNote(en) {
+  const tt = taskTotals(en.orderId)
+  const total = en.order?.totalQty || 0
+  const parts = Object.keys(tt).filter((k) => tt[k] > 0).map((k) => {
+    const warn = total && tt[k] !== total ? ' style="color:var(--orange-deep);font-weight:700"' : ''
+    return `<span${warn}>${k || '전체'} ${won(tt[k])}${total ? `/${won(total)}` : ''}장</span>`
+  })
+  return parts.length ? `<div class="drawer-note" style="grid-column:1/-1">배정 현황(저장 전 변경 포함): ${parts.join(' · ')}</div>` : ''
+}
+
+// 작업지시 편집 — 여기서의 변경도 임시 변경이며 [저장]을 눌러야 반영된다.
+function openEntry(en, canW, repaint, canWork) {
+  if (!en) return
+  const dis = canW ? '' : 'disabled'
+  const body = taskNote(en)
+    + fieldHtml('작업 일자', `<input class="field-input" id="e_date" type="date" value="${esc(en.date)}" ${dis}>`)
+    + fieldHtml('수량(장)', `<input class="field-input" id="e_qty" type="number" min="1" value="${en.qty}" ${dis}><span class="field-hint">줄이면 남은 수량은 같은 날짜의 별도 배정(지시)으로 분리됩니다.</span>`)
+    + fieldHtml('공정', `<select class="field-input" id="e_task" ${dis}>${[['', '전체(구분 없음)'], ['로고', '로고'], ['이니셜', '이니셜']].map(([v, l]) => `<option value="${v}" ${v === (en.task || '') ? 'selected' : ''}>${l}</option>`).join('')}</select>`)
+    + `<div class="field"><span class="field-label">작업 상태${canWork && !en._draft && !String(en._id).startsWith('new-') ? ' <span style="font-weight:400;color:var(--ink-light)">· 누르면 바로 처리</span>' : ''}</span>${
+      canWork && !en._draft && !String(en._id).startsWith('new-')
+        ? `<div class="sch-statusbtn" id="wk_st">${statusButtons(en)}</div>`
+        : `<div>${badge(en.status, en.status === '완료' ? 'b-good' : en.status === '진행' ? 'b-info' : 'b-warn')}</div>${
+          canWork && (en._draft || String(en._id).startsWith('new-') || DRAFT.edits.has(en._id)) ? '<span class="field-hint">저장 전의 임시 배정입니다. 오른쪽 위 <b>저장</b>을 누르면 지시·진행·완료를 처리할 수 있습니다.</span>' : ''}`}</div>`
+    + fieldHtml('작업 메모', `<textarea class="field-input" id="e_note" ${dis}>${esc(en.note || '')}</textarea>`, true)
+    + (canW && en.status === '지시' && en.qty >= Math.max(1, (SCH.cfg.machines || 0) * (SCH.cfg.perMachine || 0)) ? `<div class="field full"><span class="field-label">기간 배정 — ${esc(en.task || '전체')} 공정 ${won(en.qty)}장을 하루 수량씩 여러 날에</span>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button type="button" class="btn btn-ghost" id="pl_open">기간 배정</button>
+        <span class="field-hint">이 배정이 날짜별 배정으로 대체됩니다(저장 전까지 임시). 로고·이니셜도 공정별로 각각 할 수 있습니다.</span></div></div>` : '')
+    + (canW && en.qty > 1 ? `<div class="field full"><span class="field-label">수량 나누기 — 일부를 다른 날짜에 작업</span>
+        <div style="display:flex;gap:8px;flex-wrap:wrap"><input class="field-input" id="sp_qty" type="number" min="1" max="${en.qty - 1}" placeholder="나눌 수량" style="flex:1;min-width:110px">
+        <input class="field-input" id="sp_date" type="date" style="flex:1;min-width:150px"><button type="button" class="btn btn-ghost" id="sp_btn">나누기</button></div>
+        <span class="field-hint">날짜를 비워 두면 같은 날짜(${esc(en.date)})로 나눕니다.</span></div>` : '')
+    + (canW ? `<div class="field full"><span class="field-label">공정 나누기 — 로고와 이니셜을 따로 작업</span>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><input class="field-input" id="tk_date" type="date" value="${esc(en.date)}" style="flex:1;min-width:150px">
+        <button type="button" class="btn btn-ghost" id="tk_btn">${(en.task || '') ? `'${en.task === '로고' ? '이니셜' : '로고'}' 공정 추가` : '로고 · 이니셜로 나누기'}</button></div>
+        <span class="field-hint">같은 수량(${won(en.qty)}장)의 ${(en.task || '') ? (en.task === '로고' ? '이니셜' : '로고') : '이니셜'} 작업이 위 날짜에 추가됩니다. 공정별로 날짜를 따로 옮길 수 있습니다.</span></div>` : '')
+    + '<div class="drawer-note" style="grid-column:1/-1">적용한 변경은 일정표의 <b>저장</b>을 눌러야 반영됩니다.<br>"배정 취소"하면 이 수량이 같은 주문·같은 공정의 남은 배정(가장 빠른 날짜)에 합쳐지고, 남은 배정이 없으면 주문이 접수로 돌아갑니다.<br>로고·이니셜로 나뉜 주문은 "주문 전체 배정 취소"로 모든 공정을 한 번에 접수로 되돌릴 수 있습니다.</div>'
+  const dlg = shell(`작업지시 · #${en.orderNo} ${esc(en.order?.title || '')}`, body,
+    `${canW ? `<button type="button" class="btn btn-danger" id="e_del">${multiTask(en.orderId) ? '이 배정만 취소' : '배정 취소'}</button>` : ''}${
+      canW && multiTask(en.orderId) ? '<button type="button" class="btn btn-danger" id="e_delall">주문 전체 배정 취소</button>' : ''}<button type="button" class="btn btn-ghost" id="e_open">주문 열기</button>${
+      ''}${
+      closeFoot(canW ? '<button type="button" class="btn btn-primary" id="e_apply">적용</button>' : '')}`)
+  $('#e_open').onclick = () => { dlg.close(); openForm(ENT.orders, { _id: String(en.orderId) }, SCH.reload) }
+  $('#wk_st')?.querySelectorAll('[data-wkst]').forEach((b) => b.addEventListener('click', () => { dlg.close(); setWorkStatus(en, b.dataset.wkst) }))
+  $('#e_del')?.addEventListener('click', () => { cancelEntry(en._id); dlg.close(); repaint() })
+  $('#e_delall')?.addEventListener('click', () => {
+    if (!confirm(`#${en.orderNo} 의 로고·이니셜 배정을 모두 취소하고 접수 상태로 되돌릴까요?`)) return
+    if (cancelOrderAll(en.orderId)) { dlg.close(); repaint() }
+  })
+  $('#sp_btn')?.addEventListener('click', () => {
+    const n = Math.round(Number($('#sp_qty').value)), d = $('#sp_date').value || en.date      // 날짜를 비우면 같은 날짜로 나눈다
+    if (!(n > 0 && n < en.qty)) return setErr(`나눌 수량은 1 ~ ${en.qty - 1} 사이여야 합니다.`)
+    stageChange(en._id, { qty: en.qty - n })
+    DRAFT.adds.push({ _id: `new-${++DRAFT.seq}`, orderId: en.orderId, orderNo: en.orderNo, date: d, qty: n, task: en.task || '', status: '지시', note: '', order: en.order })
+    dlg.close(); repaint()
+  })
+  $('#pl_open')?.addEventListener('click', () => { dlg.close(); openPlan(en.orderId, en) })
+  $('#tk_btn')?.addEventListener('click', () => {
+    const d = $('#tk_date').value || en.date
+    const cur = en.task || ''
+    const other = cur === '로고' ? '이니셜' : cur === '이니셜' ? '로고' : '이니셜'
+    if (!cur) stageChange(en._id, { task: '로고' })                    // 구분 없던 배정은 로고로 바꾸고 이니셜을 추가
+    DRAFT.adds.push({ _id: `new-${++DRAFT.seq}`, orderId: en.orderId, orderNo: en.orderNo, date: d, qty: en.qty, task: other, status: '지시', note: '', order: en.order })
+    dlg.close(); repaint()
+  })
+  $('#e_apply')?.addEventListener('click', () => {
+    const qty = Math.round(Number($('#e_qty').value))
+    if (!(qty > 0)) return setErr('수량은 1 이상이어야 합니다.')
+    if (!$('#e_date').value) return setErr('작업 일자를 선택하세요.')
+    const task = $('#e_task').value
+    stageChange(en._id, { date: $('#e_date').value, qty, task, note: $('#e_note').value })
+    // 수량을 줄이면 줄어든 수량이 사라지지 않도록, 원래 날짜에 별도 배정으로 남긴다 (일부만 완료한 경우의 나머지 등).
+    // 필요 없는 수량이면 그 칸을 '배정 취소' 하면 된다.
+    if (qty < en.qty) {
+      DRAFT.adds.push({
+        _id: `new-${++DRAFT.seq}`, orderId: en.orderId, orderNo: en.orderNo, date: en.date, qty: en.qty - qty, task,
+        status: en.status === '진행' ? '진행' : '지시', note: '', order: en.order,
+      })
+    }
+    dlg.close(); repaint()
+  })
+}
+
+// ── 재고현황 (+ 입출고 · 이력) ────────────────────────────
+async function viewStock() {
+  const canW = me.can.includes('stock')
+  pageShell({
+    en: 'Stock', title: '재고현황', addLabel: canW ? '입출고 등록' : '',
+    tools: `<select id="k" class="table-select"><option value="material">물품</option><option value="goods">상품</option></select>
+      <select id="v" class="table-select"><option value="list">목록 보기</option><option value="matrix">색상×사이즈 보기</option></select>
+      <input id="q" class="table-search" placeholder="이름·코드·색상 검색…" type="search">
+      <label class="table-check"><input type="checkbox" id="low"> 안전재고 이하만</label>`,
+  })
+  let list = []
+  const load = async () => {
+    try {
+      const p = new URLSearchParams({ kind: $('#k').value })
+      if ($('#q').value) p.set('q', $('#q').value)
+      if ($('#low').checked) p.set('low', '1')
+      list = (await api(`/stock?${p}`)).items
+      if ($('#v').value === 'matrix') paintMatrix(list, canW ? (r) => openMove(r, load) : null)
+      else paintTable(list, [
+        ['img', '', (r) => thumb(r.image)], ['code', '코드', (r) => `<span class="mono">${esc(r.code)}</span>`], ['name', '이름', (r) => `<b>${esc(r.name)}</b>`],
+        ['cat', '분류', (r) => badge(r.category || '-', 'b-mute')], ['color', '색상', (r) => esc(r.color)], ['size', '사이즈', (r) => esc(r.size)],
+        ['sup', '발주처', (r) => esc(r.supplier)],
+        ['on', '현재고', (r) => `<span class="${r.low ? 'low' : ''}">${won(r.onHand)} ${esc(r.unit)}</span>`, 'r'],
+        ['ss', '안전재고', (r) => won(r.safetyStock), 'r'], ['last', '최근 변동', (r) => day(r.lastMoveAt)],
+      ], canW ? (r) => openMove(r, load) : null, '등록된 항목이 없습니다. 먼저 물품·상품을 등록하세요.')
+      $('#ft').textContent = `${list.length}건`
+    } catch (e) { $('#tbl').innerHTML = emptyTable(e.message) }
+  }
+  $('#k').onchange = load
+  $('#v').onchange = load
+  $('#q').addEventListener('input', debounce(load))
+  $('#low').onchange = load
+  $('#add')?.addEventListener('click', () => (list.length ? openMove(list[0], load, list) : alert('먼저 물품·상품을 등록하세요.')))
+  load()
+}
+
+// 이름별로 묶어 색상(행) × 사이즈(열) 표로 보여 준다 — 예: 수모 블랙 L 의 재고가 한눈에
+function paintMatrix(list, onCell) {
+  const t = $('#tbl')
+  if (!list.length) { t.innerHTML = emptyTable('등록된 항목이 없습니다.'); return }
+  const groups = new Map()
+  for (const r of list) { if (!groups.has(r.name)) groups.set(r.name, []); groups.get(r.name).push(r) }
+  const sizeRank = ['XS', 'S', 'M', 'L', 'XL', 'XXL']
+  const bySize = (a, b) => (sizeRank.indexOf(a) + 1 || 99) - (sizeRank.indexOf(b) + 1 || 99) || a.localeCompare(b, 'ko')
+  const cells = []
+  t.innerHTML = [...groups].map(([name, items]) => {
+    const sizes = [...new Set(items.map((r) => r.size))].sort(bySize)
+    const colors = [...new Set(items.map((r) => r.color))].sort((a, b) => a.localeCompare(b, 'ko'))
+    const find = (c, s) => items.find((r) => r.color === c && r.size === s)
+    const total = items.reduce((s, r) => s + r.onHand, 0)
+    return `<div style="padding:14px 18px 6px;font-weight:700">${esc(name)} <span class="hint" style="font-weight:400;color:var(--ink-light)">합계 ${won(total)} ${esc(items[0].unit)}</span></div>
+      <table class="data"><thead><tr><th>색상 \\ 사이즈</th>${sizes.map((s) => `<th class="num">${esc(s || '-')}</th>`).join('')}</tr></thead><tbody>${
+        colors.map((c) => `<tr><td class="strong">${esc(c || '-')}</td>${sizes.map((s) => {
+          const r = find(c, s)
+          if (!r) return '<td class="num muted">·</td>'
+          cells.push(r)
+          return `<td class="num ${onCell ? 'clickable' : ''} ${r.low ? 'low' : ''}" data-ci="${cells.length - 1}" style="${onCell ? 'cursor:pointer' : ''}">${won(r.onHand)}</td>`
+        }).join('')}</tr>`).join('')}</tbody></table>`
+  }).join('')
+  if (onCell) t.querySelectorAll('[data-ci]').forEach((td) => { td.onclick = () => onCell(cells[td.dataset.ci]) })
+}
+
+async function openMove(row, done, all) {
+  const choices = all || [row]
+  const hist = (await api(`/stock/moves?kind=${row.kind}&code=${encodeURIComponent(row.code)}&limit=10`).catch(() => ({ items: [] }))).items
+  const body = fieldHtml('품목', `<select class="field-input" id="m_code">${choices.map((r) => `<option value="${esc(r.code)}" ${r.code === row.code ? 'selected' : ''}>${esc(optName(r))} — 현재 ${won(r.onHand)}</option>`).join('')}</select>`, true)
+    + fieldHtml('구분', '<select class="field-input" id="m_type"><option value="in">입고</option><option value="out">출고(사용)</option><option value="adjust">실사 보정</option></select>')
+    + fieldHtml('수량', '<input class="field-input" id="m_qty" type="number" min="0" step="any">')
+    + fieldHtml('사유', '<input class="field-input" id="m_reason" placeholder="예: 기타 입고, 자수 사용, 폐기">', true)
+    + '<div class="drawer-note" id="m_h"></div>'
+    + (hist.length ? `<div class="drawer-logs">${hist.map((m) => `${day(m.at)} · ${({ in: '입고', out: '출고', adjust: '보정' })[m.type]} ${m.delta > 0 ? '+' : ''}${won(m.delta)} → ${won(m.balance)} · ${esc(m.reason)} ${esc(m.note)}`).join('<br>')}</div>` : '')
+  const dlg = shell('입출고 등록', body, closeFoot('<button type="button" class="btn btn-primary" id="save">등록</button>'))
+  const hint = () => { $('#m_h').textContent = $('#m_type').value === 'adjust' ? '실사 보정은 "실제로 센 수량"을 입력하세요. 현재고와의 차이가 이력으로 남습니다. (여러 품목은 재고검수 메뉴 이용)' : '' }
+  $('#m_type').onchange = hint; hint()
+  $('#save').onclick = async () => {
+    try {
+      await api('/stock/moves', { method: 'POST', body: { kind: row.kind, code: $('#m_code').value, type: $('#m_type').value, qty: Number($('#m_qty').value), reason: $('#m_reason').value } })
+      dlg.close(); done()
+    } catch (e) { setErr(e.message) }
+  }
+}
+
+// ── 발주 · 입고 ──────────────────────────────────────────
+async function viewPO() {
+  pageShell({
+    en: 'Purchase Orders', title: '발주·입고', addLabel: me.can.includes('stock') ? '물품 발주' : '',
+    tools: `<input id="q" class="table-search" placeholder="발주처·품목 검색…" type="search">
+      <select id="f" class="table-select"><option value="">상태 전체</option>${['발주', '부분입고', '입고완료', '취소'].map((s) => `<option>${s}</option>`).join('')}</select>`,
+  })
+  const load = async () => {
+    try {
+      const p = new URLSearchParams({ limit: '200' })
+      if ($('#q').value) p.set('q', $('#q').value)
+      if ($('#f').value) p.set('status', $('#f').value)
+      const { items, total } = await api(`/purchase-orders?${p}`)
+      paintTable(items, [
+        ['no', '#', (o) => o.poNo, 'r'], ['sup', '발주처', (o) => esc(o.supplier)],
+        ['lines', '품목', (o) => esc(`${o.lines[0]?.name || ''}${o.lines.length > 1 ? ` 외 ${o.lines.length - 1}건` : ''}`)],
+        ['ordered', '발주일', (o) => day(o.orderedAt)], ['exp', '입고예정', (o) => day(o.expectedAt)],
+        ['prog', '입고', (o) => `${won(o.lines.reduce((s, l) => s + l.receivedQty, 0))} / ${won(o.lines.reduce((s, l) => s + l.qty, 0))}`, 'r'],
+        ['total', '금액', (o) => won(o.total), 'r'], ['st', '상태', (o) => badge(o.status, PO_BADGE[o.status] || 'b-mute')],
+      ], (o) => openPO(o, load), '발주 내역이 없습니다.')
+      $('#ft').textContent = `${items.length} / ${total}`
+    } catch (e) { $('#tbl').innerHTML = emptyTable(e.message) }
+  }
+  $('#q').addEventListener('input', debounce(load))
+  $('#f').onchange = load
+  $('#add')?.addEventListener('click', () => openPO(null, load))
+  load()
+}
+
+async function openPO(rec, done) {
+  const canW = me.can.includes('stock'), canD = me.can.includes('delete')
+  const po = rec ? await api(`/purchase-orders/${rec._id}`) : null
+  const mats = (await api('/materials/options?active=1')).items
+  const received = po?.lines.some((l) => l.receivedQty > 0)
+  const editable = canW && (!po || (!received && po.status !== '취소'))
+  const canReceive = canW && po && po.status !== '취소' && po.status !== '입고완료'
+  const linesText = (po?.lines || []).map((l) => [l.code, l.qty, l.unitPrice].join(', ')).join('\n')
+  const dis = canW && po?.status !== '취소' ? '' : 'disabled'
+
+  let body = fieldHtml('발주처', `<input class="field-input" id="p_sup" value="${esc(po?.supplier || '')}" list="p_sups" ${dis}><datalist id="p_sups">${[...new Set(mats.map((m) => m.supplier).filter(Boolean))].map((s) => `<option value="${esc(s)}">`).join('')}</datalist>`, true)
+    + fieldHtml('발주일', `<input class="field-input" id="p_ord" type="date" value="${day(po?.orderedAt)}" ${dis}>`)
+    + fieldHtml('입고 예정일', `<input class="field-input" id="p_exp" type="date" value="${day(po?.expectedAt)}" ${dis}>`)
+  if (editable) {
+    body += pickerHtml('pk_po', mats)
+      + fieldHtml('발주 품목 (한 줄에 하나)', `<textarea class="field-input" id="p_lines">${esc(linesText)}</textarea><span class="field-hint">물품코드, 수량, 단가(비우면 구입가격)</span>`, true)
+  }
+  body += fieldHtml('메모', `<textarea class="field-input" id="p_memo" ${dis}>${esc(po?.memo || '')}</textarea>`, true)
+  if (po) {
+    body += `<div class="field full"><span class="field-label">품목 · 입고 (합계 ${won(po.total)}원)</span><table class="data"><thead><tr><th>물품</th><th class="num">발주</th><th class="num">기입고</th><th class="num">단가</th>${canReceive ? '<th class="num">이번 입고</th>' : ''}</tr></thead><tbody>${
+      po.lines.map((l) => `<tr><td>${esc(optName(l))}</td><td class="num">${won(l.qty)}</td><td class="num">${won(l.receivedQty)}</td><td class="num">${won(l.unitPrice)}</td>${
+        canReceive ? `<td class="num"><input class="field-input" style="width:90px;text-align:right" type="number" min="0" data-rc="${esc(l.code)}" value="${Math.max(0, l.qty - l.receivedQty)}"></td>` : ''}</tr>`).join('')}</tbody></table></div>`
+  }
+  const dlg = shell(po ? `발주 #${po.poNo} · ${esc(po.status)}` : '물품 발주', body,
+    `${po && canD && !received ? '<button type="button" class="btn btn-danger" id="px">삭제</button>' : ''}${po && canW && !received && po.status === '발주' ? '<button type="button" class="btn btn-ghost" id="pc">발주 취소</button>' : ''}${
+      closeFoot(canReceive ? '<button type="button" class="btn btn-ghost" id="prc">입고 처리</button>' : '', canW && po?.status !== '취소' ? '<button type="button" class="btn btn-primary" id="save">저장</button>' : '')}`)
+  wirePicker('pk_po', '#p_lines')
+
+  const run = async (fn) => { try { await fn(); dlg.close(); done() } catch (e) { setErr(e.message) } }
+  $('#save')?.addEventListener('click', () => run(async () => {
+    const body = { supplier: $('#p_sup').value, orderedAt: $('#p_ord').value || null, expectedAt: $('#p_exp').value || null, memo: $('#p_memo').value }
+    if ($('#p_lines')) body.lines = rows($('#p_lines').value).map(([code, qty, unitPrice]) => ({ code, qty: Number(qty) || 0, unitPrice: unitPrice === '' || unitPrice == null ? null : Number(unitPrice) }))
+    if (po) await api(`/purchase-orders/${po._id}`, { method: 'PATCH', body })
+    else await api('/purchase-orders', { method: 'POST', body })
+  }))
+  $('#prc')?.addEventListener('click', () => run(async () => {
+    const lines = [...document.querySelectorAll('[data-rc]')].map((i) => ({ code: i.dataset.rc, qty: Number(i.value) || 0 })).filter((l) => l.qty > 0)
+    await api(`/purchase-orders/${po._id}/receive`, { method: 'POST', body: { lines } })
+  }))
+  $('#pc')?.addEventListener('click', () => { if (confirm('발주를 취소할까요?')) run(() => api(`/purchase-orders/${po._id}/cancel`, { method: 'POST' })) })
+  $('#px')?.addEventListener('click', () => { if (confirm('삭제할까요?')) run(() => api(`/purchase-orders/${po._id}`, { method: 'DELETE' })) })
+}
+
+// ── 출고 (상품) ──────────────────────────────────────────
+async function viewShip() {
+  pageShell({ en: 'Shipments', title: '출고', addLabel: me.can.includes('stock') ? '출고 등록' : '', tools: '<span class="table-count" style="margin-left:0">상품 출고 이력 (최근 200건)</span>' })
+  const load = async () => {
+    try {
+      const { items } = await api('/stock/moves?kind=goods&type=out&limit=200')
+      paintTable(items, [
+        ['at', '출고일', (m) => day(m.at)], ['code', '코드', (m) => `<span class="mono">${esc(m.code)}</span>`], ['name', '상품', (m) => `<b>${esc(m.name)}</b>`],
+        ['color', '색상', (m) => esc(m.color)], ['size', '사이즈', (m) => esc(m.size)], ['qty', '수량', (m) => won(-m.delta), 'r'],
+        ['reason', '사유', (m) => esc(m.reason)], ['note', '비고', (m) => esc(m.note)], ['by', '등록', (m) => esc(m.by)],
+      ], null, '출고 이력이 없습니다.')
+      $('#ft').textContent = `${items.length}건`
+    } catch (e) { $('#tbl').innerHTML = emptyTable(e.message) }
+  }
+  $('#add')?.addEventListener('click', () => openShip(load))
+  load()
+}
+
+async function openShip(done) {
+  const [g, o, st] = await Promise.all([api('/goods/options?active=1'), api('/orders?limit=100&sort=-orderNo'), api('/stock?kind=goods')])
+  const on = new Map(st.items.map((r) => [r.code, r.onHand]))
+  const list = g.items.map((x) => ({ ...x, name: `${x.name}`, code: x.code, _on: on.get(x.code) || 0 }))
+  const body = pickerHtml('pk_sh', list)
+    + fieldHtml('출고 상품 (한 줄에 하나)', '<textarea class="field-input" id="s_lines"></textarea><span class="field-hint">상품코드, 수량</span>', true)
+    + fieldHtml('사유', `<select class="field-input" id="s_reason">${['판매출고', '샘플', '폐기', '기타'].map((r) => `<option>${r}</option>`).join('')}</select>`)
+    + fieldHtml('연결 주문', `<select class="field-input" id="s_order"><option value="">(없음)</option>${o.items.map((x) => `<option value="${x._id}">#${x.orderNo} ${esc(x.title)}</option>`).join('')}</select>`)
+    + fieldHtml('비고', '<input class="field-input" id="s_note" placeholder="운송장번호, 수령처 등">', true)
+    + `<div class="drawer-note">현재고: ${list.slice(0, 12).map((x) => `${esc(x.code)} ${won(x._on)}`).join(' · ') || '등록된 상품 없음'}</div>`
+  const dlg = shell('출고 등록', body, closeFoot('<button type="button" class="btn btn-primary" id="save">출고</button>'))
+  wirePicker('pk_sh', '#s_lines')
+  $('#save').onclick = async () => {
+    const moves = rows($('#s_lines').value).map(([code, qty]) => ({
+      kind: 'goods', code, type: 'out', qty: Number(qty) || 0, reason: $('#s_reason').value, note: $('#s_note').value, orderId: $('#s_order').value || null,
+    }))
+    if (!moves.length) return setErr('출고할 상품을 입력하세요.')
+    try { await api('/stock/moves', { method: 'POST', body: { moves } }); dlg.close(); done() } catch (e) { setErr(e.message) }
+  }
+}
+
+// ── 재고검수 ─────────────────────────────────────────────
+async function viewStocktake() {
+  pageShell({ en: 'Stocktake', title: '재고검수', addLabel: me.can.includes('stock') ? '검수 시작' : '' })
+  const load = async () => {
+    try {
+      const { items } = await api('/stocktakes')
+      paintTable(items, [
+        ['no', '#', (s) => s.no, 'r'], ['kind', '대상', (s) => (s.kind === 'goods' ? '상품' : '물품')],
+        ['st', '상태', (s) => badge(s.status, s.status === '완료' ? 'b-good' : 'b-warn')], ['note', '메모', (s) => esc(s.note)],
+        ['cr', '시작', (s) => day(s.createdAt)], ['done', '완료', (s) => day(s.completedAt)],
+        ['adj', '보정 건수', (s) => (s.status === '완료' ? won(s.adjusted) : ''), 'r'],
+      ], (s) => openStocktake(s, load), '검수 내역이 없습니다. "검수 시작"으로 현재고를 스냅샷해 실사를 시작하세요.')
+      $('#ft').textContent = `${items.length}건`
+    } catch (e) { $('#tbl').innerHTML = emptyTable(e.message) }
+  }
+  $('#add')?.addEventListener('click', () => openStocktakeNew(load))
+  load()
+}
+
+function openStocktakeNew(done) {
+  const body = fieldHtml('대상', '<select class="field-input" id="t_kind"><option value="material">물품</option><option value="goods">상품</option></select>')
+    + fieldHtml('분류 (비우면 전체)', '<input class="field-input" id="t_cat" placeholder="예: 수모">')
+    + fieldHtml('메모', '<input class="field-input" id="t_note" placeholder="예: 10월 정기 실사">', true)
+    + '<div class="drawer-note">시작하면 지금의 전산 수량이 기록됩니다. 실제로 센 수량을 입력하고 완료하면 차이만큼 재고가 보정됩니다.</div>'
+  const dlg = shell('재고검수 시작', body, closeFoot('<button type="button" class="btn btn-primary" id="save">시작</button>'))
+  $('#save').onclick = async () => {
+    try {
+      const st = await api('/stocktakes', { method: 'POST', body: { kind: $('#t_kind').value, category: $('#t_cat').value, note: $('#t_note').value } })
+      dlg.close(); done(); openStocktake(st, done)
+    } catch (e) { setErr(e.message) }
+  }
+}
+
+async function openStocktake(rec, done) {
+  const st = await api(`/stocktakes/${rec._id}`)
+  const open = st.status === '진행중'
+  const canW = me.can.includes('stock')
+  const diffCls = (d) => (d == null || d === 0 ? '' : d < 0 ? 'low' : '')
+  const body = `<div class="drawer-note">${st.kind === 'goods' ? '상품' : '물품'} 검수 #${st.no} · ${esc(st.status)}${st.note ? ' · ' + esc(st.note) : ''}${
+    open ? ' — 실제로 센 수량을 입력하세요. 비워 둔 줄은 보정하지 않습니다.' : ` · 보정 ${won(st.adjusted)}건, 미입력 ${won(st.skipped)}건`}</div>
+    <div class="field full"><table class="data"><thead><tr><th>코드</th><th>이름</th><th>색상</th><th>사이즈</th><th class="num">전산</th><th class="num">실사</th><th class="num">차이</th></tr></thead><tbody>${
+      st.lines.map((l) => `<tr><td class="mono">${esc(l.code)}</td><td>${esc(l.name)}</td><td>${esc(l.color)}</td><td>${esc(l.size)}</td><td class="num">${won(l.systemQty)}</td>
+        <td class="num">${open && canW ? `<input class="field-input" style="width:90px;text-align:right" type="number" min="0" step="any" data-ct="${esc(l.code)}" data-sys="${l.systemQty}" value="${l.countedQty ?? ''}">` : won(l.countedQty)}</td>
+        <td class="num ${diffCls(l.diff)}" data-df="${esc(l.code)}">${l.diff == null ? '' : (l.diff > 0 ? '+' : '') + won(l.diff)}</td></tr>`).join('')}</tbody></table></div>`
+  const dlg = shell(`재고검수 #${st.no}`, body,
+    `${open && canW ? '<button type="button" class="btn btn-danger" id="tx">삭제</button>' : ''}${closeFoot(open && canW ? '<button type="button" class="btn btn-ghost" id="tsv">저장</button><button type="button" class="btn btn-primary" id="tcp">검수 완료(재고 보정)</button>' : '')}`)
+  document.querySelectorAll('[data-ct]').forEach((inp) => {
+    inp.oninput = () => {
+      const cell = document.querySelector(`[data-df="${CSS.escape(inp.dataset.ct)}"]`)
+      if (inp.value === '') { cell.textContent = ''; return }
+      const d = Number(inp.value) - Number(inp.dataset.sys)
+      cell.textContent = (d > 0 ? '+' : '') + won(d); cell.className = `num ${d < 0 ? 'low' : ''}`
+    }
+  })
+  const collect = () => [...document.querySelectorAll('[data-ct]')].map((i) => ({ code: i.dataset.ct, countedQty: i.value }))
+  const run = async (fn) => { try { await fn(); dlg.close(); done() } catch (e) { setErr(e.message) } }
+  $('#tsv')?.addEventListener('click', () => run(() => api(`/stocktakes/${st._id}`, { method: 'PATCH', body: { lines: collect() } })))
+  $('#tcp')?.addEventListener('click', () => {
+    if (!confirm('입력한 실사 수량으로 재고를 보정합니다. 완료 후에는 되돌릴 수 없습니다.')) return
+    run(async () => { await api(`/stocktakes/${st._id}`, { method: 'PATCH', body: { lines: collect() } }); await api(`/stocktakes/${st._id}/complete`, { method: 'POST' }) })
+  })
+  $('#tx')?.addEventListener('click', () => { if (confirm('이 검수를 삭제할까요?')) run(() => api(`/stocktakes/${st._id}`, { method: 'DELETE' })) })
+}
+
+api('/auth/me').then((r) => { me = r.user }).catch(() => {}).finally(render)
+</script>
+</body>
+</html>

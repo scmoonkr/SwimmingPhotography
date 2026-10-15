@@ -3,13 +3,34 @@
 import crypto from 'node:crypto'
 import { col } from './db.js'
 
-export const ROLES = ['admin', 'manager', 'viewer']
-const CAPS = {
-  admin: ['read', 'write', 'delete', 'users'],
-  manager: ['read', 'write'],
+export const ROLES = ['admin', 'manager', 'worker', 'viewer']
+// 업무(job) — manager 가 맡는 일. 계정에 여러 개를 줄 수 있다 (예: manager/order,work).
+//   order : 주문관리 — 주문·거래처·고객 입력, 작업 배정(일정 계획)
+//   work  : 작업관리 — 디자인, 작업 시작·완료, 재고(자수사·수모), 하루 처리 한도
+// 업무를 지정하지 않은 manager 는 모든 업무를 한다(예전 계정과 같은 동작).
+export const JOBS = ['order', 'work']
+//   orders  : 주문·거래처·고객 쓰기 + 작업 배정      design : 디자인 쓰기      stock : 재고(물품·상품·발주·출고·검수) 쓰기
+//   work    : 작업 시작·완료                          settings: 설정 변경       delete/users : 관리자
+const JOB_CAPS = {
+  order: ['orders', 'settings'],
+  work: ['work', 'design', 'stock', 'settings'],
+}
+// 관리자는 모든 능력을 가진다 — 업무가 늘어 새 능력이 생겨도 자동으로 포함된다(아래 requireCap 에서도 관리자는 항상 통과).
+const ALL_CAPS = [...new Set(['read', 'write', 'delete', 'users', ...Object.values(JOB_CAPS).flat()])]
+const ROLE_CAPS = {
+  admin: ALL_CAPS,
+  manager: ['read'],
+  worker: ['read', 'work'],          // 작업자 — 조회와 작업 시작·완료만
   viewer: ['read'],
 }
-export const capsOf = (role) => CAPS[role] || CAPS.viewer
+export const capsOf = (role, jobs) => {
+  const base = ROLE_CAPS[role] || ROLE_CAPS.viewer
+  if (role !== 'manager') return base
+  const picked = (Array.isArray(jobs) ? jobs : []).filter((j) => JOB_CAPS[j])
+  const use = picked.length ? picked : JOBS
+  return [...new Set([...base, ...use.flatMap((j) => JOB_CAPS[j])])]
+}
+export const jobsOf = (jobs) => (Array.isArray(jobs) ? jobs : []).filter((j) => JOBS.includes(j))
 export const roleOf = (role) => (ROLES.includes(role) ? role : 'viewer')
 
 export const users = () => col('users')
@@ -93,7 +114,8 @@ export async function userFromRequest(req) {
   const u = await (await users()).findOne({ username: s.username })
   if (!u || u.disabled) return null
   const role = roleOf(u.role)
-  return { username: u.username, name: u.name || u.username, role, can: capsOf(role) }
+  const jobs = jobsOf(u.jobs)
+  return { username: u.username, name: u.name || u.username, role, jobs, can: capsOf(role, jobs) }
 }
 
 // 모든 업무 API 는 로그인 필수 (조회도 포함 — 공개 데이터가 아니다)
@@ -106,5 +128,7 @@ export async function requireAuth(req, res, next) {
   } catch (e) { res.status(500).json({ error: e.message }) }
 }
 
-export const requireCap = (cap) => (req, res, next) =>
-  req.user?.can.includes(cap) ? next() : res.status(403).json({ error: '이 작업을 할 권한이 없습니다.' })
+// 여러 능력을 주면 하나라도 있으면 통과한다
+// 관리자(admin)는 어떤 능력이든 통과한다.
+export const requireCap = (...caps) => (req, res, next) =>
+  req.user?.role === 'admin' || caps.some((c) => req.user?.can.includes(c)) ? next() : res.status(403).json({ error: '이 작업을 할 권한이 없습니다.' })

@@ -37,7 +37,7 @@ export function crudRouter(name, fields, { searchIn = ['name'] } = {}) {
     } catch (e) { res.status(500).json({ error: e.message }) }
   })
 
-  router.post('/', requireCap('write'), async (req, res) => {
+  router.post('/', requireCap('orders'), async (req, res) => {
     try {
       const data = pick(req.body)
       if (!String(data.name || '').trim()) return res.status(400).json({ error: '이름은 필수입니다.' })
@@ -49,7 +49,7 @@ export function crudRouter(name, fields, { searchIn = ['name'] } = {}) {
     } catch (e) { res.status(500).json({ error: e.message }) }
   })
 
-  router.patch('/:id', requireCap('write'), async (req, res) => {
+  router.patch('/:id', requireCap('orders'), async (req, res) => {
     try {
       const _id = oid(req.params.id)
       if (!_id) return res.status(404).json({ error: '없는 항목입니다.' })

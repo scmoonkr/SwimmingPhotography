@@ -50,6 +50,13 @@ else
     --name photography-dashboard
 fi
 
+# 업무관리 erp (port 6643) — API + 관리 화면. 이미지는 UPLOAD_DIR/erp 에 저장된다.
+if pm2 list | grep -q "photography-erp"; then
+  pm2 restart photography-erp --update-env
+else
+  ERP_PORT=6643 pm2 start "$PROJECT_DIR/erp/src/index.js"     --name photography-erp     --cwd "$PROJECT_DIR/erp"
+fi
+
 echo "=== [6/6] PM2 저장 ==="
 pm2 save
 
@@ -58,4 +65,5 @@ echo "배포 완료!"
 echo "  - API       http://localhost:6640"
 echo "  - 공개사이트  http://localhost:6641"
 echo "  - 대시보드   http://localhost:6642"
+echo "  - 업무관리   http://localhost:6643"
 pm2 list

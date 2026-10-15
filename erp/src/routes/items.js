@@ -8,7 +8,7 @@ import { Router } from 'express'
 import { col, nextSeq } from '../db.js'
 import { requireCap } from '../auth.js'
 import { oid, escRe } from '../crud.js'
-import { isOurImage } from '../storage.js'
+import { validImage } from '../files.js'
 import { onHandMap, flatItems } from '../stockLib.js'
 
 const str = (v) => String(v ?? '').trim()
@@ -37,6 +37,7 @@ function itemRouter({ name, kind, prefix, priceKey, defaults, buildExtra, search
   async function normOptions(list) {
     const src = Array.isArray(list) && list.length ? list : [{}]
     const seen = new Set()
+    const codes = new Set()
     const out = []
     for (const o of src) {
       const color = str(o.color), size = str(o.size)
@@ -44,15 +45,33 @@ function itemRouter({ name, kind, prefix, priceKey, defaults, buildExtra, search
       if (seen.has(key)) throw bad(`같은 색상·사이즈가 중복되었습니다: ${label({ color, size })}`)
       seen.add(key)
       const image = str(o.image)
+      // 코드를 직접 줄 수 있다 (비우면 자동). 재고의 키라서 공백·슬래시 없이 40자 이하, 같은 물품 안에서 중복 불가.
+      const given = str(o.code)
+      if (given && (given.length > 40 || /[\s/\\]/.test(given))) throw bad(`코드는 공백·슬래시 없이 40자 이하로 입력하세요: ${given}`)
+      if (given && codes.has(given)) throw bad(`코드가 중복되었습니다: ${given}`)
+      const code = given || await newCode()
+      codes.add(code)
       out.push({
-        code: str(o.code) || await newCode(), color, size,
-        image: image && isOurImage(image) ? image : '',
+        code, color, size,
+        image: image && validImage(image) ? image : '',
         safetyStock: num(o.safetyStock),
         price: o.price === '' || o.price == null ? null : num(o.price),
         active: o.active !== false,
       })
     }
     return out
+  }
+
+  // 다른 물품이 이미 쓰는 코드는 쓸 수 없다 (재고의 키). 어느 물품이 쓰는지 알려 준다.
+  async function assertCodesFree(c, options, selfId) {
+    const codes = options.map((o) => o.code)
+    const q = { 'options.code': { $in: codes } }
+    if (selfId) q._id = { $ne: selfId }
+    const hit = await c.findOne(q, { projection: { name: 1, 'options.code': 1 } })
+    if (hit) {
+      const code = hit.options.find((o) => codes.includes(o.code))?.code
+      throw bad(`이미 쓰는 코드입니다: ${code} (${hit.name})`, 409)
+    }
   }
 
   // 목록: 부모 1줄 + 옵션 수 · 총재고 · 부족 옵션 수 · 대표 이미지
@@ -108,7 +127,7 @@ function itemRouter({ name, kind, prefix, priceKey, defaults, buildExtra, search
   })
 
   // 등록 — options 를 직접 주거나, colors[] × sizes[] 로 조합을 만든다. 이름은 하나뿐이어야 한다.
-  router.post('/', requireCap('write'), async (req, res) => {
+  router.post('/', requireCap('stock'), async (req, res) => {
     try {
       const b = req.body || {}
       const d = parentFields(b)
@@ -124,9 +143,11 @@ function itemRouter({ name, kind, prefix, priceKey, defaults, buildExtra, search
         for (const color of colors.length ? colors : ['']) for (const size of sizes.length ? sizes : ['']) options.push({ color, size })
       }
       const now = new Date()
+      const normed = await normOptions(options)
+      await assertCodesFree(c, normed, null)
       const doc = {
         category: '', unit: '개', memo: '', active: true, ...defaults, ...d,
-        options: await normOptions(options), createdAt: now, updatedAt: now, createdBy: req.user.username,
+        options: normed, createdAt: now, updatedAt: now, createdBy: req.user.username,
       }
       const r = await c.insertOne(doc)
       res.status(201).json({ ...doc, _id: r.insertedId })
@@ -134,7 +155,7 @@ function itemRouter({ name, kind, prefix, priceKey, defaults, buildExtra, search
   })
 
   // 수정 — options 를 보내면 전체 교체한다(기존 code 유지). 입출고 이력이 있는 옵션은 뺄 수 없다.
-  router.patch('/:id', requireCap('write'), async (req, res) => {
+  router.patch('/:id', requireCap('stock'), async (req, res) => {
     try {
       const _id = oid(req.params.id)
       const c = await col(name)
@@ -146,6 +167,7 @@ function itemRouter({ name, kind, prefix, priceKey, defaults, buildExtra, search
       }
       if (Array.isArray(req.body?.options)) {
         const next = await normOptions(req.body.options)
+        await assertCodesFree(c, next, _id)
         const keep = new Set(next.map((o) => o.code))
         const removed = (cur.options || []).filter((o) => !keep.has(o.code))
         if (removed.length) {

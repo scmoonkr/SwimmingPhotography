@@ -56,7 +56,7 @@ router.get('/moves', async (req, res) => {
 })
 
 // 입출고 등록 — { moves: [{ kind, code, type, qty, reason, note, orderId }] } (단건은 본문 자체)
-router.post('/moves', requireCap('write'), async (req, res) => {
+router.post('/moves', requireCap('stock'), async (req, res) => {
   try {
     const list = Array.isArray(req.body?.moves) ? req.body.moves : [req.body]
     if (!list.length || list.length > 200) return res.status(400).json({ error: '1~200건씩 등록할 수 있습니다.' })

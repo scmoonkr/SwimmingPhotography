@@ -78,5 +78,10 @@ export async function ensureIndexes() {
   await (await col('stockMoves')).createIndex({ orderId: 1 })
   await (await col('purchaseOrders')).createIndex({ poNo: 1 }, { unique: true })
   await (await col('stocktakes')).createIndex({ no: 1 }, { unique: true })
+  await (await col('workSchedules')).createIndex({ date: 1, orderNo: 1 })
+  await (await col('workSchedules')).createIndex({ orderId: 1 })
+  await (await col('designs')).createIndex({ code: 1 }, { unique: true })
+  await (await col('designs')).createIndex({ partnerId: 1, updatedAt: -1 })
+  await (await col('orders')).createIndex({ 'designs.designId': 1 })
   await (await col('activityLogs')).createIndex({ target: 1, targetId: 1, at: -1 })
 }

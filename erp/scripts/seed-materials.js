@@ -1,6 +1,6 @@
 // 기본 소모품(자수 부자재) 물품 등록 — 이미 같은 이름이 있으면 건너뛴다(여러 번 실행해도 안전).
 //
-//   node backend/scripts/seed-materials.js
+//   node erp/scripts/seed-materials.js
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import dotenv from 'dotenv'

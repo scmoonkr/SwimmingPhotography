@@ -28,7 +28,7 @@ router.get('/:id', async (req, res) => {
 })
 
 // 시작 — { kind, note, category? } : 해당 종류의 사용 중인 모든 항목(또는 한 분류)을 담는다
-router.post('/', requireCap('write'), async (req, res) => {
+router.post('/', requireCap('stock'), async (req, res) => {
   try {
     const kind = KINDS.includes(req.body?.kind) ? req.body.kind : 'material'
     const items = await flatItems(kind, { activeOnly: true, category: req.body?.category ? String(req.body.category) : undefined })
@@ -49,7 +49,7 @@ router.post('/', requireCap('write'), async (req, res) => {
 })
 
 // 실사 수량 저장 — { lines: [{ code, countedQty }] } (빈 값이면 미입력으로 되돌림), note
-router.patch('/:id', requireCap('write'), async (req, res) => {
+router.patch('/:id', requireCap('stock'), async (req, res) => {
   try {
     const _id = oid(req.params.id)
     const c = await col('stocktakes')
@@ -72,7 +72,7 @@ router.patch('/:id', requireCap('write'), async (req, res) => {
 })
 
 // 완료 — 입력된 줄만 보정한다(미입력은 건드리지 않는다)
-router.post('/:id/complete', requireCap('write'), async (req, res) => {
+router.post('/:id/complete', requireCap('stock'), async (req, res) => {
   try {
     const _id = oid(req.params.id)
     const c = await col('stocktakes')
@@ -96,7 +96,7 @@ router.post('/:id/complete', requireCap('write'), async (req, res) => {
   } catch (e) { fail(res, e) }
 })
 
-router.delete('/:id', requireCap('write'), async (req, res) => {
+router.delete('/:id', requireCap('stock'), async (req, res) => {
   try {
     const _id = oid(req.params.id)
     const c = await col('stocktakes')

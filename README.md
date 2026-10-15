@@ -46,7 +46,7 @@ npm install        # 루트에서 한 번 → client/server 의존성 모두 설
 | `npm run server` | 서버만 실행 (http://localhost:6640) |
 | `npm run client` | 클라이언트만 실행 (http://localhost:6641) |
 | `npm run dashboard` | 클라이언트만 실행 (http://localhost:6642) |
-| `npm run backend` | 업무관리(주문·거래처·물품·재고) API + 관리 화면 (http://localhost:6643) |
+| `npm run erp` | 업무관리(주문·거래처·물품·재고) API + 관리 화면 (http://localhost:6643) |
 
 접속 주소:
 
@@ -176,3 +176,37 @@ SwimmingPhotography/
 3. 생성된 기사 json import
 4. images upload(upload하고 매칭안된것 찾아서 매칭)
 
+
+---
+
+## 업무관리(erp) — 이미지 저장 · Notion 이관
+
+- 이미지는 서버 디스크 `UPLOAD_DIR/erp/` 아래에 저장한다 (`items/` 물품·상품 옵션, `orders/` 주문 첨부).
+  DB 에는 상대 경로만 저장하고, 화면은 로그인 후 `/api/files/<경로>` 로 본다.
+  UPLOAD_DIR 이 없는 개발 PC 에서는 `.env` 에 `ERP_UPLOAD_DIR=<폴더>` 를 지정한다.
+- Notion `작업열` export(Markdown & CSV) 이관:
+
+```bash
+# 1) 드라이런 — 아무것도 쓰지 않고 <export 폴더>/_import-report.json 만 만든다
+node erp/scripts/import-notion.js --dir <export 폴더> --dry-run
+# 2) 실제 이관 — 이미지를 서버에 저장하려면 export 폴더를 서버로 옮긴 뒤 서버에서 실행
+node erp/scripts/import-notion.js --dir <export 폴더>
+```
+
+  같은 Notion ID 는 건너뛰므로 다시 실행해도 안전하다 (`--update` 를 주면 덮어쓴다).
+
+### 계정 · 권한 (erp)
+
+계정은 `role` 또는 `role/업무` 로 만든다. 업무는 쉼표로 여러 개 줄 수 있다.
+
+```bash
+node erp/scripts/create-user.js <아이디> <비밀번호> admin
+node erp/scripts/create-user.js <아이디> <비밀번호> manager/order       # 주문관리자: 주문·거래처·고객, 작업 배정
+node erp/scripts/create-user.js <아이디> <비밀번호> manager/work        # 작업관리자: 디자인, 작업 시작·완료, 재고, 하루 한도
+node erp/scripts/create-user.js <아이디> <비밀번호> manager/order,work  # 두 업무 모두
+node erp/scripts/create-user.js <아이디> <비밀번호> worker              # 작업자: 조회 + 작업 시작·완료
+```
+
+- 업무를 지정하지 않은 `manager` 는 모든 업무를 한다. `admin` 은 항상 전부 가능하다.
+- 업무별 능력표는 `erp/src/auth.js` 의 `JOB_CAPS` 한 곳에 있다.
+- 화면의 `설정` 메뉴에서 하루 처리 한도(가동 자수기 수 × 대당 처리량), 기본 하루 배정 수량 등을 바꾼다.
