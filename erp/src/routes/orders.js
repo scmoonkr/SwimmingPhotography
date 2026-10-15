@@ -54,6 +54,7 @@ function build(b = {}) {
   if ('tags' in b) d.tags = (Array.isArray(b.tags) ? b.tags : []).map(str).filter(Boolean)
   if ('pieces' in b) { d.pieces = normPieces(b.pieces); d.pieceCount = d.pieces.length }   // 제작 명세(사람별 사양)
   if ('designNotNeeded' in b) d.designNotNeeded = !!b.designNotNeeded      // 디자인이 필요 없는 주문(후드티 등)
+  if ('productType' in b) d.productType = str(b.productType).slice(0, 30)      // 제품종류 (설정의 목록에서 고른다)
   if ('content' in b) d.content = String(b.content ?? '')      // 내용(Notion '내용')
   if ('request' in b) d.request = String(b.request ?? '')      // 요청사항
   if ('attachments' in b) d.attachments = (Array.isArray(b.attachments) ? b.attachments.map(str) : []).filter(validRel)
@@ -85,7 +86,7 @@ router.get('/', async (req, res) => {
     if (customerId && oid(customerId)) q.customerId = oid(customerId)
     if (search) {
       const re = { $regex: escRe(search), $options: 'i' }
-      q.$or = [{ title: re }, { content: re }, { request: re }, { 'notes.text': re }, { 'pieces.person': re }, { 'pieces.initials': re }, { tags: re }, { 'items.designCode': re }, { 'shipping.trackingNo': re }]
+      q.$or = [{ title: re }, { productType: re }, { content: re }, { request: re }, { 'notes.text': re }, { 'pieces.person': re }, { 'pieces.initials': re }, { tags: re }, { 'items.designCode': re }, { 'shipping.trackingNo': re }]
       if (/^\d+$/.test(String(search))) q.$or.push({ orderNo: Number(search) })
     }
     const due = {}

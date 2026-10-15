@@ -413,3 +413,53 @@ textarea.field-input { resize: vertical; line-height: 1.6; min-height: 96px; }
 .dzflag { margin-left: 4px; font-size: 10px; font-weight: 700; background: var(--orange); color: #fff; border-radius: 3px; padding: 0 4px; vertical-align: 1px; }
 .sch-order[data-dq] { border-left: 4px solid var(--orange); }
 .sch-seg button b { font-weight: 700; color: var(--orange-deep); }
+
+/* 작업지시서 — 화면 밖에 그려 두고 PDF(이미지)·인쇄에 쓴다. A4 한 장에 2개 */
+#ws_render { position: fixed; left: -12000px; top: 0; width: 794px; background: #fff; z-index: -1; }
+.ws-page { width: 794px; height: 1123px; background: #fff; position: relative; overflow: hidden; color: #111; font-family: var(--sans); box-sizing: border-box; page-break-after: always; break-after: page; }
+.ws-cut { position: absolute; left: 0; right: 0; top: 561px; border-top: 1.5px dashed #777; }
+.ws-sheet { position: absolute; left: 0; width: 794px; height: 561px; padding: 24px 28px 14px; display: flex; gap: 20px; box-sizing: border-box; }
+.ws-sheet.top { top: 0; } .ws-sheet.bottom { top: 562px; }
+.ws-left { width: 400px; flex: none; }
+.ws-right { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ws-t { width: 100%; border-collapse: collapse; margin-bottom: 10px; font-size: 12.5px; table-layout: fixed; }
+.ws-t th, .ws-t td { border: 1px solid #111; height: 23px; padding: 0 5px; text-align: center; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.ws-t th { font-weight: 700; }
+.ws-t th:first-child, .ws-t td.l { width: 24%; text-align: left; }
+.ws-t td.l { font-weight: 400; }
+.ws-t td.n { text-align: center; }
+.ws-head td { border: 0; height: 26px; text-align: left; padding-left: 2px; }
+.ws-head .no { width: 24%; font-size: 14px; }
+.ws-head .ti { font-size: 15px; font-weight: 700; white-space: normal; line-height: 1.25; }
+.ws-head .l2 { font-size: 13.5px; }
+.ws-head .sub { font-size: 11.5px; color: #333; }
+.ws-img { height: 318px; border: 1px solid #bbb; display: flex; align-items: center; justify-content: center; overflow: hidden; background: #fff; }
+.ws-img img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+.ws-img span { color: #999; font-size: 13px; }
+.ws-cap { font-size: 11px; color: #444; height: 18px; margin-top: 3px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.ws-memo-l { font-size: 13px; margin: 6px 0 3px; }
+.ws-memo { flex: 1; border: 1px solid #111; padding: 6px 8px; font-size: 11.5px; line-height: 1.45; white-space: pre-wrap; overflow: hidden; }
+.ws-detail { padding: 34px 32px; }
+.ws-dh { font-size: 15px; margin-bottom: 12px; }
+.ws-dh span { font-size: 12px; color: #444; }
+.ws-dt { font-size: 11.5px; }
+.ws-dt th, .ws-dt td { height: 24px; }
+.ws-dt th, .ws-dt td { white-space: normal; line-height: 1.25; padding: 2px 4px; }
+.ws-dt th:nth-child(1) { width: 5%; text-align: center; }
+.ws-dt th:nth-child(2) { width: 12%; } .ws-dt th:nth-child(3) { width: 8%; } .ws-dt th:nth-child(4) { width: 7%; }
+.ws-dt th:nth-child(5) { width: 10%; } .ws-dt th:nth-child(6) { width: 13%; } .ws-dt th:nth-child(7) { width: 13%; }
+.ws-dt th:nth-child(8) { width: 9%; } .ws-dt th:nth-child(9) { width: 16%; } .ws-dt th:nth-child(10) { width: 7%; }
+@media print {
+  @page { size: A4 portrait; margin: 0; }
+  body > *:not(#ws_render) { display: none !important; }
+  #ws_render { position: static !important; left: 0 !important; z-index: auto; }
+  html, body { background: #fff !important; }
+}
+
+/* PDF 로 캡처하는 동안만: html2canvas 가 표 셀 글자를 아래로 밀어 그려서, 아래쪽 여백으로 보정해 가운데에 오게 한다
+   (인쇄·화면 렌더링에는 적용하지 않는다) */
+#ws_render.pdfmode .ws-t th, #ws_render.pdfmode .ws-t td { overflow: visible; text-overflow: clip; line-height: 1.2; padding-top: 0; padding-bottom: 9px; vertical-align: middle; }
+#ws_render.pdfmode .ws-head td { padding-bottom: 6px; }
+#ws_render.pdfmode .ws-dt th, #ws_render.pdfmode .ws-dt td { padding-bottom: 8px; }
+#ws_render.pdfmode .ws-cap { height: 22px; line-height: 1.2; padding-bottom: 6px; overflow: visible; }
+#ws_render.pdfmode .ws-memo-l { padding-bottom: 4px; }

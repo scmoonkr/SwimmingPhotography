@@ -2,7 +2,7 @@
 import { Router } from 'express'
 import { col } from '../db.js'
 import { requireCap } from '../auth.js'
-import { loadAppSettings } from '../settings.js'
+import { loadAppSettings, parseTypes } from '../settings.js'
 
 const router = Router()
 
@@ -10,7 +10,7 @@ router.get('/', async (_req, res) => {
   try { res.json(await loadAppSettings()) } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
-// { planDaily?, capKeyword? } — 보낸 항목만 바꾼다
+// { planDaily?, capKeyword?, threadKeyword?, productTypes? } — 보낸 항목만 바꾼다
 router.put('/', requireCap('settings'), async (req, res) => {
   try {
     const b = req.body || {}
@@ -25,6 +25,7 @@ router.put('/', requireCap('settings'), async (req, res) => {
       if (!k || k.length > 20) return res.status(400).json({ error: '재고 차감 대상 물품 키워드는 1~20자입니다.' })
       set.capKeyword = k
     }
+    if ('productTypes' in b) set.productTypes = parseTypes(b.productTypes)      // 쉼표로 구분한 문자열 또는 배열
     if ('threadKeyword' in b) {
       const k = String(b.threadKeyword ?? '').trim()
       if (!k || k.length > 20) return res.status(400).json({ error: '자수사 물품 키워드는 1~20자입니다.' })
