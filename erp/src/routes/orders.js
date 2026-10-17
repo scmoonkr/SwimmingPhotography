@@ -183,6 +183,35 @@ router.post('/:id/designs', requireCap('design', 'orders'), async (req, res) => 
   } catch (e) { res.status(e.status || 500).json({ error: e.message }) }
 })
 
+// 제작 명세(장별 수모·이니셜 컬러·디자인) 저장 — 디자인 매핑 단계에서 디자인 담당이 쓴다. { pieces: [...] }
+router.post('/:id/pieces', requireCap('design', 'orders'), async (req, res) => {
+  try {
+    const _id = oid(req.params.id)
+    const c = await col('orders')
+    if (!_id || !await c.findOne({ _id }, { projection: { _id: 1 } })) return res.status(404).json({ error: '없는 주문입니다.' })
+    const pieces = normPieces(req.body?.pieces)
+    await c.updateOne({ _id }, { $set: { pieces, pieceCount: pieces.length, updatedAt: new Date() } })
+    await log(_id, req.user, 'update', { fields: ['pieces'] })
+    res.json({ pieces })
+  } catch (e) { res.status(e.status || 500).json({ error: e.message }) }
+})
+
+// 작업에 쓸 수모 선택 — 수모 번호(caps/01.png 의 01) + 사이즈. 재고의 수모 옵션과 맞으면 code 도 함께 저장한다.
+//   { caps: [{ no, size?, code?, label? }] }  — 작업(work)·주문(orders) 담당이 쓴다
+router.post('/:id/caps', requireCap('work', 'orders'), async (req, res) => {
+  try {
+    const _id = oid(req.params.id)
+    const c = await col('orders')
+    if (!_id || !await c.findOne({ _id }, { projection: { _id: 1 } })) return res.status(404).json({ error: '없는 주문입니다.' })
+    const caps = (Array.isArray(req.body?.caps) ? req.body.caps : []).slice(0, 20).map((x) => ({
+      no: str(x.no).slice(0, 20), size: str(x.size).slice(0, 20), code: str(x.code).slice(0, 40), label: str(x.label).slice(0, 80),
+    })).filter((x) => x.no || x.code)
+    await c.updateOne({ _id }, { $set: { caps, updatedAt: new Date() } })
+    await log(_id, req.user, 'update', { fields: ['caps'] })
+    res.json({ caps })
+  } catch (e) { res.status(e.status || 500).json({ error: e.message }) }
+})
+
 router.get('/:id', async (req, res) => {
   try {
     const _id = oid(req.params.id)

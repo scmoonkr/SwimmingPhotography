@@ -27,11 +27,24 @@ export async function designDetails(orders) {
         version: l.version, status: v?.status || (d ? '' : '삭제됨'),
         latestVersion: latest?.no ?? null, latestStatus: latest?.status || '',
         preview: v?.previewImage || '', files: (v?.files || []).map((f) => ({ name: f.name, path: f.path, ext: f.ext })),
-        colors: v?.colors || [], widthMm: v?.widthMm ?? null, heightMm: v?.heightMm ?? null, stitches: v?.stitches ?? null,
+        colors: v?.colors || [], variants: v?.variants || [], baseName: v?.baseName || '기본', widthMm: v?.widthMm ?? null, heightMm: v?.heightMm ?? null, stitches: v?.stitches ?? null,
       }
     }))
   }
   return out
+}
+
+// 컬러 세트 고르기 — 장의 수모 색이 어느 세트의 '적용 수모'에 있으면 그 세트, 없으면 기본 세트.
+//   수모 번호는 '08' 과 '8', 'caps08' 을 같은 것으로 본다. piece.variant 가 있으면 그것이 우선('기본' = 기본 세트).
+export const capKey = (v) => { const s = String(v ?? '').trim().toLowerCase().replace(/^caps/, ''); return /^\d+$/.test(s) ? String(Number(s)) : s }
+export function pickSetName(detail, piece) {
+  const base = detail?.baseName || '기본'
+  const vs = detail?.variants || []
+  if (!vs.length) return base
+  if (piece?.variant === '기본') return base
+  if (piece?.variant && vs.some((x) => x.name === piece.variant)) return piece.variant
+  const k = capKey(piece?.color)
+  return (k && vs.find((x) => (x.caps || []).some((c) => capKey(c) === k))?.name) || base
 }
 
 // 주문의 디자인 상태: none(연결 없음) · working(확정되지 않은 버전이 있음) · ready(모두 확정)

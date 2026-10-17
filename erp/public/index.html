@@ -22,8 +22,17 @@ const won = (n) => (n == null ? '' : Number(n).toLocaleString('ko-KR'))
 const badge = (txt, cls) => `<span class="badge ${cls}">${esc(txt)}</span>`
 const debounce = (fn, ms = 250) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms) } }
 // 이미지 주소: 예전 S3 주소(http…)는 그대로, 서버 저장 경로('items/…', 'orders/…')는 /api/files 로 본다
-const imgSrc = (u) => (/^https?:\/\//.test(u) ? u : `/api/files/${String(u).split('/').map(encodeURIComponent).join('/')}`)
+const imgSrc = (u) => (/^(https?:\/\/|\/images\/)/.test(u) ? u : `/api/files/${String(u).split('/').map(encodeURIComponent).join('/')}`)
 const thumb = (url) => (url ? `<img class="cell-img" src="${esc(imgSrc(url))}" alt="" loading="lazy">` : '<span class="cell-img empty">없음</span>')
+// 코드 → 이미지 경로 (caps01 → /images/caps/01.png). 서버(codeImage)와 같은 규칙이며, 파일이 없으면 '없음'으로 바꾼다.
+const codeImg = (code, name = '', ic = '', no = '') => {
+  if (ic && no) return `/images/${ic}/${no}.png`
+  const c = String(code || '').trim(), m = /^([A-Za-z]+)(\d+)$/.exec(c)
+  if (m) return `/images/${m[1].toLowerCase()}/${m[2]}.png`
+  const dir = /^\d+$/.test(c) ? (name.includes('수모') ? 'caps' : name.includes('자수사') ? 'sewing' : '') : ''
+  return dir ? `/images/${dir}/${c}.png` : ''
+}
+const codeThumb = (code, name = '', ic = '', no = '') => { const u = codeImg(code, name, ic, no); return u ? `<img class="cell-img" src="${esc(u)}" alt="" loading="lazy" onerror="this.outerHTML='<span class=&quot;cell-img empty&quot;>없음</span>'">` : '<span class="cell-img empty">없음</span>' }
 const optName = (m) => `${m.name}${m.color ? ' · ' + m.color : ''}${m.size ? ' ' + m.size : ''} (${m.code})`
 
 // 드로어 바깥(어두운 배경)을 누르면 닫는다. 안에서 글자를 드래그하다 바깥에서 놓은 경우는 닫지 않도록
@@ -141,10 +150,13 @@ const MENU = [
     ['partners', '거래처', '<path d="M3 21h18M5 21V8l7-4 7 4v13"/><path d="M9 21v-6h6v6"/>'],
     ['customers', '고객', '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>'],
   ]],
+  ['디자인', [
+    ['dmap', '디자인 매핑', '<path d="M4 4h7v7H4zM13 13h7v7h-7z"/><path d="M11 7.5h2.5a2 2 0 0 1 2 2V13M13 16.5h-2.5a2 2 0 0 1-2-2V11"/>'],
+    ['designs', '디자인 · 컬러', '<path d="M12 3l2.5 5.5L20 9l-4 4 1 6-5-3-5 3 1-6-4-4 5.5-.5z"/>'],
+  ]],
   ['작업', [
     ['schedule', '작업관리', '<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4M8 14h3M13 14h3M8 18h3"/>'],
     ['worksheets', '작업지시서', '<path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6M9 13h6M9 17h6"/>'],
-    ['designs', '디자인', '<path d="M12 3l2.5 5.5L20 9l-4 4 1 6-5-3-5 3 1-6-4-4 5.5-.5z"/>'],
   ]],
   ['설정', [
     ['settings', '설정', '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>'],
@@ -160,7 +172,7 @@ const MENU = [
 ]
 const VIEWS = {
   materials: () => viewItems('materials'), goods: () => viewItems('goods'),
-  settings: () => viewSettings(), worksheets: () => viewWorksheets(), designs: () => viewDesigns(), schedule: () => viewSchedule(), stock: () => viewStock(), po: () => viewPO(), ship: () => viewShip(), stocktake: () => viewStocktake(),
+  settings: () => viewSettings(), worksheets: () => viewWorksheets(), designs: () => viewDesigns(), dmap: () => viewDesignMap(), schedule: () => viewSchedule(), stock: () => viewStock(), po: () => viewPO(), ship: () => viewShip(), stocktake: () => viewStocktake(),
 }
 
 function render() {
@@ -232,6 +244,7 @@ function paintTable(items, cols, onRow, emptyMsg = '데이터가 없습니다.')
 // 드로어 틀 — 본문(body)·하단(foot) HTML 을 받아 연다
 function shell(title, body, foot) {
   const dlg = $('#dlg')
+  dlg.classList.remove('wide')
   dlg.innerHTML = `<div style="display:flex;flex-direction:column;height:100%">
     <header class="drawer-head"><h2>${title}</h2><button type="button" class="drawer-x" id="dxx" aria-label="닫기">×</button></header>
     <div class="drawer-body">${body}<div class="drawer-err" id="de"></div></div>
@@ -348,6 +361,7 @@ async function openForm(E, rec, done, prefill) {
 
   const dlg = shell(`${E.label} ${rec ? '수정' : '등록'}${detail?.orderNo ? ` · #${detail.orderNo}` : ''}`, body,
     `${rec && canD ? '<button type="button" class="btn btn-danger" id="dx">삭제</button>' : ''}${rec && canW && E.variants ? '<button type="button" class="btn btn-ghost" id="dv">옵션 추가</button>' : ''}${closeFoot(canW ? '<button type="button" class="btn btn-primary" id="save">저장</button>' : '')}`)
+  if ($('#pc_box')) dlg.classList.add('wide')          // 주문: 제작 명세 표가 넓어서 드로어도 넓게
   for (const f of fields) if (f.pick) wirePicker(`pk_${f.k}`, `#f_${f.k}`)
   if (E.api === '/orders') getPieces = wirePieces(detail?.pieces || [], canW)
   if (E.api === '/orders') getDesigns = wireDesigns(detail?.designsState || [], canW, () => $('#f_partnerId')?.value || '')
@@ -447,6 +461,7 @@ async function openItem(key, rec, done) {
 
   let body = fieldHtml(`${I.label}명`, inp('i_name', it.name), true)
     + fieldHtml('분류', inp('i_cat', it.category) + '<span class="field-hint">예: 수모, 실, 자수 부자재</span>')
+    + fieldHtml('물품코드', inp('i_ic', it.itemCode || '', 'text', 'placeholder="예: caps, sewing" style="text-transform:lowercase"') + '<span class="field-hint">영문. 이미지 폴더(/images/물품코드/번호.png)이자 옵션 코드의 앞부분입니다. 옵션 코드 = 물품코드+번호(-사이즈), 예: caps01-M</span>')
     + (key === 'materials' ? fieldHtml('발주처', inp('i_sup', it.supplier)) : fieldHtml('디자인코드', inp('i_dc', it.designCode)))
     + fieldHtml(`${I.priceLabel} (기본)`, inp('i_price', it[I.price] ?? 0, 'number', 'min="0"'))
     + fieldHtml('단위', inp('i_unit', it.unit || '개'))
@@ -460,23 +475,26 @@ async function openItem(key, rec, done) {
       ${canW ? `<div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
         <input class="field-input" id="g_colors" placeholder="색상 (쉼표)  예: 블랙, 화이트" style="flex:1;min-width:160px">
         <input class="field-input" id="g_sizes" placeholder="사이즈 (쉼표)  예: S, M, L" style="flex:1;min-width:160px">
-        <input class="field-input" id="g_code" placeholder="코드 (비우면 자동)" style="flex:1;min-width:130px" title="조합이 여러 개면 코드-1, 코드-2 … 로 붙습니다">
+        <input class="field-input" id="g_code" placeholder="번호 (비우면 자동)  예: 01" style="flex:1;min-width:130px" title="물품코드가 있으면 번호, 없으면 코드. 여러 조합이면 번호가 차례로 늘어납니다">
         <button type="button" class="btn btn-ghost" id="g_add">조합 추가</button></div>` : ''}
       <div class="table-scroll" id="opt_tbl"></div></div>`
 
+  const curIc = () => ($('#i_ic') ? $('#i_ic').value : (it.itemCode || '')).trim().toLowerCase()
+  const previewCode = (o) => (o.code && !o._new ? o.code : `${curIc()}${o.no || '??'}${o.size ? '-' + o.size.replace(/[\s/\\]+/g, '_') : ''}`)
   const paintOpts = () => {
     const t = $('#opt_tbl')
     if (!opts.length) {
       t.innerHTML = '<div class="drawer-note">옵션이 없습니다. 색상·사이즈를 입력해 "조합 추가"를 누르세요. 비워 두고 저장하면 옵션 없는 단일 품목으로 등록됩니다.</div>'
       return
     }
-    t.innerHTML = `<table class="data"><thead><tr><th>이미지</th><th>색상</th><th>사이즈</th><th>코드</th><th class="num">안전재고</th><th class="num">개별 가격</th><th class="num">현재고</th><th>사용</th><th></th></tr></thead><tbody>${
+    t.innerHTML = `<table class="data"><thead><tr><th>이미지</th><th>색상</th><th>사이즈</th><th>코드(번호)</th><th class="num">안전재고</th><th class="num">개별 가격</th><th class="num">현재고</th><th>사용</th><th></th></tr></thead><tbody>${
       opts.map((o, i) => `<tr>
-        <td><label style="cursor:${canW ? 'pointer' : 'default'};display:block">${thumb(o.image)}${canW ? `<input type="file" hidden accept="image/jpeg,image/png,image/webp,image/gif" data-img="${i}">` : ''}</label>${
-          o.image && canW ? `<button type="button" class="tb-logout" style="margin:4px 0 0" data-ri="${i}">제거</button>` : ''}</td>
+        <td>${codeThumb(o.code, $('#i_name')?.value || it.name, curIc(), o.no)}</td>
         <td><input class="field-input" style="width:100px" data-o="${i}" data-f="color" value="${esc(o.color)}" ${dis}></td>
         <td><input class="field-input" style="width:84px" data-o="${i}" data-f="size" value="${esc(o.size)}" ${dis}></td>
-        <td>${canW && (o._new || !o.code) ? `<input class="field-input mono" style="width:112px;padding:6px 8px" data-o="${i}" data-f="code" value="${esc(o.code)}" placeholder="자동">` : `<span class="mono">${esc(o.code)}</span>`}</td>
+        <td>${curIc()
+          ? `${canW && (o._new || !o.code) ? `<input class="field-input mono" style="width:70px;padding:6px 8px" data-o="${i}" data-f="no" value="${esc(o.no ?? '')}" placeholder="자동">` : `<span class="mono">${esc(o.no || o.code)}</span>`}<div class="mono" style="font-size:11px;color:var(--text-3)">${esc(previewCode(o))}</div>`
+          : canW && (o._new || !o.code) ? `<input class="field-input mono" style="width:112px;padding:6px 8px" data-o="${i}" data-f="code" value="${esc(o.code)}" placeholder="자동">` : `<span class="mono">${esc(o.code)}</span>`}</td>
         <td class="num"><input class="field-input" style="width:80px;text-align:right" type="number" min="0" data-o="${i}" data-f="safetyStock" value="${o.safetyStock ?? 0}" ${dis}></td>
         <td class="num"><input class="field-input" style="width:96px;text-align:right" type="number" min="0" data-o="${i}" data-f="price" value="${o.price ?? ''}" placeholder="기본" ${dis}></td>
         <td class="num">${o.code ? won(o.onHand ?? 0) : '-'}</td>
@@ -489,26 +507,15 @@ async function openItem(key, rec, done) {
       }
     })
     t.querySelectorAll('[data-rm]').forEach((b) => { b.onclick = () => { opts.splice(Number(b.dataset.rm), 1); paintOpts() } })
-    t.querySelectorAll('[data-ri]').forEach((b) => { b.onclick = () => { opts[b.dataset.ri].image = ''; paintOpts() } })
-    t.querySelectorAll('[data-img]').forEach((f) => {
-      f.onchange = async () => {
-        const file = f.files[0]
-        if (!file) return
-        setErr('')
-        try {
-          const fd = new FormData(); fd.append('file', file)
-          const r = await fetch('/api/uploads/image', { method: 'POST', body: fd, credentials: 'same-origin' })
-          const j = await r.json().catch(() => ({}))
-          if (!r.ok) throw new Error(j.error || r.statusText)
-          opts[f.dataset.img].image = j.path
-          paintOpts()
-        } catch (e) { setErr(e.message) }
-      }
-    })
   }
 
   const dlg = shell(rec ? `${I.label} 수정 · ${esc(it.name)}` : `${I.label} 등록`, body,
     `${rec && canD ? '<button type="button" class="btn btn-danger" id="ix">삭제</button>' : ''}${closeFoot(canW ? '<button type="button" class="btn btn-primary" id="save">저장</button>' : '')}`)
+  // 물품코드가 비어 있으면 이름으로 채워 준다 (수모 → caps, 자수사 → sewing). 직접 바꿀 수 있다.
+  const guessIc = (nm) => (nm.includes('수모') ? 'caps' : nm.includes('자수사') ? 'sewing' : '')
+  if (canW && !$('#i_ic').value) { $('#i_ic').value = guessIc($('#i_name').value) }
+  $('#i_name')?.addEventListener('input', () => { if (!$('#i_ic').value) { $('#i_ic').value = guessIc($('#i_name').value); paintOpts() } })
+  $('#i_ic')?.addEventListener('input', () => paintOpts())
   paintOpts()
   wirePicker('pk_bom', '#i_bom')
 
@@ -522,11 +529,22 @@ async function openItem(key, rec, done) {
     }
     if (!combos.length) { setErr('추가할 새 조합이 없습니다(이미 있는 색상·사이즈).'); return }
     if (base && /[\s/\\]/.test(base)) { setErr('코드에는 공백이나 슬래시를 쓸 수 없습니다.'); return }
+    if (curIc()) {   // 물품코드가 있으면 번호를 쓴다: 비우면 자동, 숫자면 그 번호부터 차례로
+      let n = base ? Number(base) : null
+      if (base && !Number.isInteger(n)) { setErr('번호는 숫자로 입력하세요. 예: 01'); return }
+      const width = base.length
+      combos.forEach((x) => {
+        const no = n == null ? '' : String(n++).padStart(width, '0')
+        opts.push({ code: '', no, _new: true, color: x.c, size: x.sz, image: '', safetyStock: 0, price: null, active: true })
+      })
+      $('#g_colors').value = ''; $('#g_sizes').value = ''; $('#g_code').value = ''
+      setErr(''); paintOpts(); return
+    }
     // 코드: 조합이 하나면 그대로, 여러 개면 코드-1, 코드-2 …
     const want = combos.map((_, i) => (!base ? '' : combos.length === 1 ? base : `${base}-${i + 1}`))
     const taken = new Set(opts.map((o) => o.code).filter(Boolean))
     const dup = want.find((cd) => cd && taken.has(cd))
-    if (dup) { setErr(`이미 쓰는 코드입니다: ${dup}`); return }
+    if (dup) { setErr(`이미 쓰는 코드입니다: ${dup} — 위 '물품코드'(예: sewing)를 입력하면 같은 번호를 사이즈별로 나눠 쓸 수 있습니다.`); return }
     combos.forEach((x, i) => opts.push({ code: want[i], _new: true, color: x.c, size: x.sz, image: '', safetyStock: 0, price: null, active: true }))
     $('#g_colors').value = ''; $('#g_sizes').value = ''; $('#g_code').value = ''
     setErr('')
@@ -540,7 +558,8 @@ async function openItem(key, rec, done) {
     const b = {
       name: $('#i_name').value, category: $('#i_cat').value, unit: $('#i_unit').value, memo: $('#i_memo').value,
       active: $('#i_act').value === 'true', [I.price]: Number($('#i_price').value) || 0,
-      options: opts.map(({ code, color, size, image, safetyStock, price, active }) => ({ code, color, size, image, safetyStock, price, active })),
+      itemCode: $('#i_ic').value,
+      options: opts.map(({ code, no, color, size, image, safetyStock, price, active }) => ({ code, no, color, size, image, safetyStock, price, active })),
     }
     if (key === 'materials') b.supplier = $('#i_sup').value
     else { b.designCode = $('#i_dc').value; b.bom = textToBom($('#i_bom').value) }
@@ -554,9 +573,32 @@ async function openItem(key, rec, done) {
 
 // 제작 명세 — 주문자별(장별) 색상·사이즈·위치·이니셜·이니셜색상·비고.
 // 엑셀·구글시트·Notion 표를 복사해 붙이면 서버가 열 이름을 보고 알맞은 칸으로 넣는다.
-const PC_COLS = [['person', '주문자', 92], ['color', '색상', 72], ['size', '사이즈', 62], ['position', '위치', 96], ['initials', '이니셜(왼쪽)', 110], ['initialsRight', '오른쪽 이니셜', 110], ['initialColor', '이니셜색상', 84], ['note', '비고', 170]]
-function wirePieces(initial, canW) {
+// 색상 → 수모 이미지(caps/01.png), 이니셜색상 → 자수사 이미지(sewing/2730.png). 번호만 쓰면 그 칸의 폴더, caps01 처럼 쓰면 접두어가 폴더.
+const PC_IMG_DIR = { color: 'caps', initialColor: 'sewing' }
+function pcImg(k, v) {
+  const s = String(v ?? '').trim()
+  let m = /^(\d+)$/.exec(s)
+  if (m) return `/images/${PC_IMG_DIR[k]}/${m[1]}.png`
+  m = /^([A-Za-z]+)(\d+)$/.exec(s)
+  return m ? `/images/${m[1].toLowerCase()}/${m[2]}.png` : ''
+}
+const pcThumb = (k, v) => { const u = pcImg(k, v); return u ? `<img src="${esc(u)}" alt="" title="${esc(u)}" style="width:30px;height:30px;object-fit:cover;border-radius:4px;border:1px solid var(--line)" onerror="this.style.display='none'">` : '' }
+// 제작 명세 읽기 전용 표 — 색상(수모)·이니셜색상(자수사)은 번호 이미지를 함께 보여 준다
+function pcReadTable(ps, maxH = 340) {
+  const g = new Map()
+  ps.forEach((p) => { const k = `${p.color || '-'} ${p.size || '-'}`; g.set(k, (g.get(k) || 0) + 1) })
+  return `<div class="field-hint" style="margin-bottom:6px">총 ${ps.length}줄 · ${[...g].map(([k, n]) => `${esc(k)} ${n}`).join(' · ')}</div>
+    <div class="table-scroll" style="max-height:${maxH}px;overflow:auto"><table class="data"><thead><tr><th class="num">#</th>${PC_COLS.map((c) => `<th>${c[1]}</th>`).join('')}</tr></thead><tbody>${
+      ps.map((p, i) => `<tr><td class="num">${p.no || i + 1}</td>${PC_COLS.map(([k]) => `<td>${PC_IMG_DIR[k]
+        ? `<span style="display:inline-flex;align-items:center;gap:6px">${esc(p[k] ?? '')}${pcThumb(k, p[k])}</span>` : esc(p[k] ?? '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`
+}
+const pcThumbS = (k, v) => { const u = pcImg(k, v); return u ? `<img src="${esc(u)}" alt="" style="display:inline-block;width:18px;height:18px;object-fit:cover;vertical-align:middle;margin-left:4px;border:1px solid #999" onerror="this.style.display='none'">` : '' }
+const PC_COLS = [['person', '주문자', 92], ['color', '색상', 72], ['size', '사이즈', 62], ['position', '위치', 96], ['initials', '이니셜(왼쪽)', 110], ['initialsRight', '오른쪽 이니셜', 110], ['initialColor', '이니셜색상', 60], ['note', '비고', 170]]
+function wirePieces(initial, canW, opt = {}) {
   let list = initial.map((p) => ({ ...p }))
+  // opt.designs: [{ code, label }] — 있으면 장마다 쓸 디자인을 고르는 열을 더한다 (디자인 매핑)
+  // 디자인 매핑에서는 디자인·세트 열을 비고 앞에 둔다 (비고가 맨 뒤)
+  const cols = opt.designs ? [...PC_COLS.filter((c) => c[0] !== 'note'), ['design', '디자인', 190], ['variant', '컬러 세트', 150], ...PC_COLS.filter((c) => c[0] === 'note')] : PC_COLS
   const box = $('#pc_box')
   const dis = canW ? '' : 'disabled'
   const titleQty = () => {
@@ -580,14 +622,38 @@ function wirePieces(initial, canW) {
     renumber()
     box.innerHTML = `<div class="drawer-note" id="pc_sum" style="margin-bottom:8px"></div>${
       canW ? `<textarea class="field-input" id="pc_paste" placeholder="엑셀·구글시트·Notion 표를 복사해서 여기에 붙여넣으세요.&#10;첫 줄이 제목 행이면 열 이름(주문자, 색상, 사이즈, 위치, 이니셜, 이니셜색상, 비고 …)으로 자동 매핑합니다." style="min-height:72px"></textarea>
-        <div style="display:flex;gap:8px;margin:8px 0;flex-wrap:wrap"><button type="button" class="btn btn-ghost" id="pc_add">붙여넣은 표 추가</button><button type="button" class="btn btn-ghost" id="pc_rep">전체 바꾸기</button><button type="button" class="btn btn-ghost" id="pc_row">+ 줄 추가</button><span style="flex:1"></span><button type="button" class="btn btn-ghost" id="pc_items">품목 요약에 반영</button></div>
+        <div style="display:flex;gap:8px;margin:8px 0;flex-wrap:wrap"><button type="button" class="btn btn-ghost" id="pc_add">붙여넣은 표 추가</button><button type="button" class="btn btn-ghost" id="pc_rep">전체 바꾸기</button><button type="button" class="btn btn-ghost" id="pc_row">+ 줄 추가</button><span style="flex:1"></span>${opt.noItems ? '' : '<button type="button" class="btn btn-ghost" id="pc_items">품목 요약에 반영</button>'}</div>
         <div class="field-hint" id="pc_info"></div>` : ''}
-      ${list.length ? `<div class="table-scroll" style="max-height:420px;overflow:auto"><table class="data"><thead><tr><th class="num">#</th>${PC_COLS.map((c) => `<th>${c[1]}</th>`).join('')}<th></th></tr></thead><tbody>${
-        list.map((p, i) => `<tr><td class="num">${p.no}</td>${PC_COLS.map(([k, , w]) => `<td><input class="field-input" style="width:${w}px;padding:6px 8px" data-r="${i}" data-f="${k}" value="${esc(p[k] ?? '')}" ${dis}></td>`).join('')}<td>${
+      ${list.length ? `<div class="table-scroll" style="max-height:420px;overflow:auto"><table class="data"><thead><tr><th class="num">#</th>${cols.map((c) => `<th>${c[1]}</th>`).join('')}<th></th></tr></thead><tbody>${
+        list.map((p, i) => `<tr><td class="num">${p.no}</td>${cols.map(([k, , w]) => `<td>${k === 'design'
+          ? `<select class="field-input" style="width:${w}px;padding:6px 8px" data-r="${i}" data-f="design" ${dis}><option value="">(미지정)</option>${
+            [...new Set(opt.designs.map((d) => d.group || ''))].map((g) => { const body = opt.designs.filter((d) => (d.group || '') === g).map((d) => `<option value="${esc(d.code)}" ${d.code === p.design ? 'selected' : ''}>${esc(d.label)}</option>`).join(''); return g ? `<optgroup label="${esc(g)}">${body}</optgroup>` : body }).join('')}${
+            p.design && !opt.designs.some((d) => d.code === p.design) ? `<option value="${esc(p.design)}" selected>${esc(p.design)}</option>` : ''}</select>`
+          : k === 'variant'
+          ? (() => {
+            const vs = opt.variantsOf ? opt.variantsOf(p.design) : []
+            if (!p.design) return '<span class="field-hint">디자인을 먼저 선택</span>'
+            if (!vs.length) return '<span class="field-hint">세트 없음</span>'
+            const auto = variantFor(vs, p.color)
+            return `<select class="field-input" style="width:${w}px;padding:6px 8px" data-r="${i}" data-f="variant" ${dis}><option value="">(자동: ${esc(auto ? auto.name : vs.baseName)})</option><option value="기본" ${p.variant === '기본' ? 'selected' : ''}>${esc(vs.baseName)}</option>${vs.map((x) => `<option value="${esc(x.name)}" ${x.name === p.variant ? 'selected' : ''}>${esc(x.name)}${(x.caps || []).length ? ` (${esc(x.caps.join(', '))})` : ''}</option>`).join('')}</select>`
+          })()
+          : PC_IMG_DIR[k]
+          ? `<div style="display:flex;align-items:center;gap:6px"><input class="field-input" style="width:${w}px;padding:6px 8px" data-r="${i}" data-f="${k}" value="${esc(p[k] ?? '')}" ${dis}><span data-th="${i}-${k}" style="width:30px;height:30px;flex:none">${pcThumb(k, p[k])}</span></div>`
+          : `<input class="field-input" style="width:${w}px;padding:6px 8px" data-r="${i}" data-f="${k}" value="${esc(p[k] ?? '')}" ${dis}>`}</td>`).join('')}<td>${
           canW ? `<button type="button" class="drawer-x" style="font-size:18px" data-rr="${i}" title="줄 삭제">×</button>` : ''}</td></tr>`).join('')}</tbody></table></div>` : ''}`
     paintSum()
     box.querySelectorAll('[data-r]').forEach((el) => {
-      el.oninput = () => { list[el.dataset.r][el.dataset.f] = el.value; paintSum() }
+      el.oninput = el.onchange = () => {
+        list[el.dataset.r][el.dataset.f] = el.value; paintSum()
+        if (opt.variantsOf && el.dataset.f === 'design') { list[el.dataset.r].variant = ''; paint(); return }      // 디자인이 바뀌면 세트 열을 다시 만든다
+        if (opt.variantsOf && el.dataset.f === 'color') {                                                         // 수모 색이 바뀌면 '자동' 표시만 갱신
+          const sel = box.querySelector(`[data-r="${el.dataset.r}"][data-f="variant"]`)
+          const vs = opt.variantsOf(list[el.dataset.r].design)
+          if (sel && vs.length) sel.options[0].textContent = `(자동: ${variantFor(vs, el.value)?.name || vs.baseName})`
+        }
+        const th = box.querySelector(`[data-th="${el.dataset.r}-${el.dataset.f}"]`)
+        if (th) th.innerHTML = pcThumb(el.dataset.f, el.value)
+      }
     })
     box.querySelectorAll('[data-rr]').forEach((b) => { b.onclick = () => { list.splice(Number(b.dataset.rr), 1); paint() } })
     const convert = async (replace) => {
@@ -606,7 +672,7 @@ function wirePieces(initial, canW) {
     }
     $('#pc_add')?.addEventListener('click', () => convert(false))
     $('#pc_rep')?.addEventListener('click', () => convert(true))
-    $('#pc_row')?.addEventListener('click', () => { list.push({ no: 0, person: '', color: '', size: '', position: '', initials: '', initialsRight: '', initialColor: '', note: '' }); paint() })
+    $('#pc_row')?.addEventListener('click', () => { list.push({ no: 0, person: '', color: '', size: '', position: '', initials: '', initialsRight: '', initialColor: '', note: '', design: '' }); paint() })
     $('#pc_items')?.addEventListener('click', () => {
       const area = $('#f_items')
       if (!area || !list.length) return
@@ -846,12 +912,12 @@ async function viewSchedule() {
   const canW = me.can.includes('orders')
   const canWork = me.can.includes('work')
   const canDesign = me.can.includes('design')
-  const hasLeft = canW || canDesign                       // 주문관리(배정) 또는 디자인 담당만 왼쪽 목록을 쓴다
-  if (!canW && canDesign) SCH.leftTab = 'design'
+  const hasLeft = canW                                    // 주문관리(배정) 담당만 왼쪽 목록을 쓴다 (디자인은 '디자인 매핑' 메뉴로 분리)
+  SCH.leftTab = 'orders'
   if (!canW && canWork && !canDesign && !SCH.workInit) { SCH.workInit = true; SCH.view = 'day'; SCH.cur = new Date() }    // 작업자는 오늘 할 일부터 본다
   $('#main').innerHTML = `<div class="sch ${hasLeft ? '' : 'solo'}">
     ${hasLeft ? `<section class="table-card sch-left" id="sch_left">
-      <div class="table-tools" style="flex-wrap:wrap"><span class="sch-seg">${canW ? '<button data-lt="orders">접수 주문</button>' : ''}<button data-lt="design">디자인 필요 <b id="dq_n"></b></button></span>
+      <div class="table-tools" style="flex-wrap:wrap"><span class="sch-seg"><button data-lt="orders">접수 주문</button></span>
         <input id="sq" class="table-search" style="max-width:none;flex:1;min-width:120px" placeholder="검색…" type="search" value="${esc(SCH.q)}"></div>
       <div class="sch-orders" id="sch_orders"></div>
     </section>` : ''}
@@ -935,12 +1001,10 @@ async function viewSchedule() {
     try {
       SCH.cur.setHours(12, 0, 0, 0)
       const [s, e] = schRange()
-      const [cal, ord, dq] = await Promise.all([
+      const [cal, ord] = await Promise.all([
         api(`/schedule?from=${ymd(s)}&to=${ymd(e)}`),
         canW ? api(`/schedule/orders${SCH.q ? `?q=${encodeURIComponent(SCH.q)}` : ''}`) : { items: [] },
-        hasLeft ? api('/schedule/design-queue').catch(() => ({ items: [] })) : { items: [] },
       ])
-      SCH.dq = dq.items
       SCH.entries = cal.entries; SCH.dues = cal.dues; SCH.orders = ord.items
       SCH.cap = cal.capacity || {}; SCH.cfg = cal.cfg || SCH.cfg
       paint()
@@ -965,49 +1029,26 @@ const dragData = (ev) => { try { return JSON.parse(ev.dataTransfer.getData('text
 // 좌측: 탭에 맞는 목록
 function paintLeft(canW, canAct) {
   if (!$('#sch_orders')) return
-  if (!canW && SCH.leftTab !== 'design') SCH.leftTab = 'design'
   document.querySelectorAll('[data-lt]').forEach((b) => b.classList.toggle('on', b.dataset.lt === SCH.leftTab))
-  const n = $('#dq_n')
-  if (n) n.textContent = SCH.dq.length ? `(${SCH.dq.length})` : ''
-  if (SCH.leftTab === 'design') paintDesignQueue(canAct)
-  else paintOrders(canW)
-}
-
-// 디자인 필요 — 작업관리자의 디자인 할 일 (배정은 됐는데 디자인이 확정되지 않은 주문, 작업일 빠른 순)
-function paintDesignQueue(canAct) {
-  const box = $('#sch_orders')
-  const q = SCH.q.trim().toLowerCase()
-  const list = SCH.dq.filter((o) => !q || o.title.toLowerCase().includes(q) || String(o.orderNo) === q || (o.partnerName || '').toLowerCase().includes(q))
-  const today = ymd(new Date())
-  const KIND = { new: ['신규', 'b-warn'], reorder: ['재주문 후보', 'b-info'], working: ['작업 중', 'b-mute'] }
-  box.innerHTML = list.length ? list.map((o) => {
-    const diff = o.nextDate ? Math.round((new Date(`${o.nextDate}T12:00`) - new Date(`${today}T12:00`)) / 864e5) : null
-    const when = o.nextDate ? `작업일 ${mdText(o.nextDate)} (${diff < 0 ? `D+${-diff}` : diff === 0 ? '오늘' : `D-${diff}`})` : ''
-    const hint = o.kind === 'reorder' ? `이전 디자인 ${o.candidates.length}건: ${o.candidates.map((c) => esc(c.code)).join(', ')}`
-      : o.kind === 'working' ? `연결된 디자인 ${o.designs.length}건 작업 중(확정 전)` : '이전 디자인 없음 — 로고 디자인 필요'
-    return `<div class="sch-order" data-dq="${o._id}">
-      <div class="so-top"><b>#${o.orderNo}</b>${badge(KIND[o.kind][0], KIND[o.kind][1])}<span class="so-q">${o.totalQty ? `${won(o.totalQty)}장` : ''}</span></div>
-      <div class="so-title">${esc(o.title)}</div>
-      <div class="so-sub ${diff !== null && diff < 0 ? 'late' : diff !== null && diff <= 1 ? 'soon' : ''}">${when}${o.partnerName ? ` · ${esc(o.partnerName)}` : ''}</div>
-      <div class="so-design working">${hint}</div></div>`
-  }).join('') : `<div class="sch-hint">${SCH.q ? '검색 결과가 없습니다.' : '디자인이 필요한 배정 주문이 없습니다.'}</div>`
-  box.querySelectorAll('[data-dq]').forEach((el) => { el.onclick = () => openDesignAssist(SCH.dq.find((x) => String(x._id) === el.dataset.dq), canAct) })
+  paintOrders(canW)
 }
 
 // 디자인 작업 화면: 주문 요구사항·원본 이미지를 보면서 이전 디자인을 연결하거나 새로 만든다.
-async function openDesignAssist(item, canAct) {
+async function openDesignAssist(item, canAct, onDone) {
+  const refresh = () => (onDone ? onDone() : SCH.reload && SCH.reload())
   if (!item) return
   let o
   try { o = await api(`/orders/${item._id}`) } catch (e) { return alert(e.message) }
   const cur = o.designsState || []
   const imgs = o.attachments || []
   const links = () => (o.designs || []).map((l) => ({ designId: String(l.designId), version: l.version, role: l.role || '', note: l.note || '' }))
-  const after = () => { dlg.close(); SCH.reload && SCH.reload() }
+  const after = () => { dlg.close(); refresh() }
   const body = `<div class="drawer-note" style="grid-column:1/-1"><b>#${o.orderNo}</b> ${esc(o.title)}${item.partnerName ? ` · ${esc(item.partnerName)}` : ''}${item.totalQty ? ` · ${won(item.totalQty)}장` : ''}${item.nextDate ? ` · 작업일 ${esc(item.nextDate)}` : ''}</div>
     ${o.content || o.request ? `<div class="field full"><span class="field-label">주문 요구사항</span><div style="white-space:pre-wrap;font-size:13.5px;line-height:1.6">${esc([o.content, o.request].filter(Boolean).join('\n'))}</div></div>` : ''}
     <div class="field full"><span class="field-label">원본 이미지 (주문 첨부)</span>${imgs.length
       ? `<div style="display:flex;gap:10px;flex-wrap:wrap">${imgs.map((p) => `<a href="${esc(imgSrc(p))}" target="_blank" rel="noopener"><img class="cell-img" style="width:130px;height:130px" src="${esc(imgSrc(p))}" alt="" loading="lazy"></a>`).join('')}</div>`
       : '<span class="field-hint">첨부된 이미지가 없습니다. 주문의 첨부 이미지를 확인하세요.</span>'}</div>
+    <div class="field full"><span class="field-label">제작 명세 — 장별 수모 · 이니셜 컬러 · 디자인 매핑 (한 장씩)</span><div id="pc_box"></div></div>
     <div class="field full"><span class="field-label">연결된 디자인</span>${cur.length ? cur.map((d) => `<div class="dz-row"><span>${thumb(d.preview)}</span>
       <div class="dz-main"><b>${esc(d.code)}</b> ${esc(d.name)} ${badge(`v${d.version} ${d.status || ''}`, DS_BADGE[d.status] || 'b-mute')}${d.role ? ` · ${esc(d.role)}` : ''}</div>
       ${canAct ? `<button type="button" class="btn btn-ghost" data-open-design="${d.designId}">디자인 열기</button>` : ''}</div>`).join('') : '<span class="field-hint">연결된 디자인이 없습니다.</span>'}</div>
@@ -1015,9 +1056,34 @@ async function openDesignAssist(item, canAct) {
       <div class="dz-main"><b>${esc(c.code)}</b> ${esc(c.name)} · 확정 v${c.version}</div>
       ${canAct ? `<button type="button" class="btn btn-primary" data-link="${c._id}" data-ver="${c.version}">이 디자인 사용</button>` : ''}</div>`).join('')
       : '<span class="field-hint">확정된 이전 디자인이 없습니다. 신규로 만드세요.</span>'}</div>`
-  const dlg = shell(`디자인 작업 · #${o.orderNo}`, body,
-    `${canAct ? '<button type="button" class="btn btn-ghost" id="da_na">디자인 불필요로 표시</button><button type="button" class="btn btn-primary" id="da_new">새 디자인 만들기</button>' : ''}${closeFoot()}`)
-  dlg.querySelectorAll('[data-open-design]').forEach((b) => b.addEventListener('click', () => { dlg.close(); openDesign(b.dataset.openDesign, () => SCH.reload && SCH.reload()) }))
+  const dlg = shell(`디자인 매핑 · #${o.orderNo}`, body,
+    `${canAct ? '<button type="button" class="btn btn-primary" id="pc_save">제작 명세 저장</button><button type="button" class="btn btn-ghost" id="da_na">디자인 불필요로 표시</button><button type="button" class="btn btn-ghost" id="da_new">새 디자인 만들기</button>' : ''}${closeFoot()}`)
+  dlg.classList.add('wide')
+  dlg.classList.add('wide')
+  // 장별 매핑 — 주문에서 입력하지 않은 장도 여기서 채운다. 디자인 열은 이 주문에 연결된 디자인에서 고른다.
+  const confirmed = (await api('/designs?status=확정&active=1&limit=300').catch(() => ({ items: [] }))).items
+  const seen = new Set()
+  const choices = []
+  const add = (code, label, group) => { if (code && !seen.has(code)) { seen.add(code); choices.push({ code, label, group }) } }
+  cur.forEach((d) => add(d.code, d.name, '이 주문에 연결됨'))
+  const mine = String(o.partnerId || '')
+  confirmed.filter((d) => mine && String(d.partnerId || '') === mine).forEach((d) => add(d.code, d.name, `${item.partnerName || '이 거래처'}의 확정 디자인`))
+  confirmed.forEach((d) => add(d.code, d.name, '다른 확정 디자인'))
+  const variantsOf = (code) => { const d = cur.find((x) => x.code === code) || confirmed.find((x) => x.code === code); const a = [...(d?.variants || [])]; a.baseName = d?.baseName || '기본'; return a }
+  const getPieces = wirePieces(o.pieces || [], canAct, { designs: choices, noItems: true, variantsOf })
+  $('#pc_save')?.addEventListener('click', async () => {
+    try {
+      const pcs = getPieces()
+      // 장에서 고른 디자인이 주문에 아직 연결되어 있지 않으면 함께 연결한다 (확정된 최신 버전)
+      const have = new Set(cur.map((d) => d.code))
+      const byCode = new Map(confirmed.map((d) => [d.code, d]))
+      const addLinks = [...new Set(pcs.map((x) => x.design).filter((c) => c && !have.has(c) && byCode.has(c)))].map((c) => ({ designId: String(byCode.get(c)._id), version: 0, role: '' }))
+      if (addLinks.length) await api(`/orders/${o._id}/designs`, { method: 'POST', body: { designs: [...links(), ...addLinks] } })
+      await api(`/orders/${o._id}/pieces`, { method: 'POST', body: { pieces: pcs } })
+      after()
+    } catch (e) { setErr(e.message) }
+  })
+  dlg.querySelectorAll('[data-open-design]').forEach((b) => b.addEventListener('click', () => { dlg.close(); openDesign(b.dataset.openDesign, refresh) }))
   dlg.querySelectorAll('[data-link]').forEach((b) => b.addEventListener('click', async () => {
     try {
       await api(`/orders/${o._id}/designs`, { method: 'POST', body: { designs: [...links(), { designId: b.dataset.link, version: Number(b.dataset.ver), role: '' }] } })
@@ -1034,8 +1100,8 @@ async function openDesignAssist(item, canAct) {
     openDesign(null, null, { name, partnerId: o.partnerId ? String(o.partnerId) : '' }, async (d) => {
       try {
         await api(`/orders/${o._id}/designs`, { method: 'POST', body: { designs: [...links(), { designId: String(d._id), version: 1, role: '' }] } })
-        SCH.reload && SCH.reload()
-        openDesign(String(d._id), () => SCH.reload && SCH.reload())
+        refresh()
+        openDesign(String(d._id), refresh)
       } catch (e) { alert(e.message) }
     })
   })
@@ -1126,7 +1192,7 @@ function paintCal(canW, repaint, canWork) {
         <div class="meta"><div class="t">#${en.orderNo} ${esc(en.order?.title || '')}</div>
           <div class="s">${esc(en.order?.partnerName || '')}${en.status !== '완료' && ['none', 'working'].includes(en.order?.designState) ? ` · <span class="late-txt" style="color:var(--orange-deep)">디자인 ${en.order.designState === 'none' ? '필요' : '작업 중'}</span>` : ''}${lateInfo(en) ? ` · <span class="late-txt">⚠ ${esc(lateInfo(en))}</span>` : ''}${en.note ? ` · ${esc(en.note)}` : ''}${en._draft ? ' · 저장 전' : ''}</div>
           ${(en.order?.designs || []).filter((d) => !en.task || !d.role || d.role === en.task).map((d) => `<div class="sch-dz">${thumb(d.preview)}
-            <span><b>${esc(d.role || '디자인')}</b> ${esc(d.code)} v${d.version} ${esc(d.status)}${d.colors.length ? ` · 컬러 ${d.colors.map((c) => esc(c.label || c.code)).join(', ')}` : ''}</span>
+            <span><b>${esc(d.role || '디자인')}</b> ${esc(d.code)} v${d.version} ${esc(d.status)}${d.colors.some((c) => c.label || c.code || c.no) ? ` · 컬러 ${d.colors.filter((c) => c.label || c.code || c.no).map((c) => esc(c.label || c.code || c.no)).join(', ')}` : ''}</span>
             ${d.files.map((f) => `<a href="${esc(fileUrl(f.path))}" download>${esc(f.ext)} 파일</a>`).join(' ')}</div>`).join('')}
           ${en.order?.totalQty ? `<div class="prog">${esc(en.task || '전체')} 공정 완료 ${won(en.order.taskDone?.[en.task || ''] || 0)} / ${won(en.order.totalQty)}장</div>` : ''}</div>
         ${badge(en.status, en.status === '완료' ? 'b-good' : en.status === '진행' ? 'b-info' : 'b-warn')}
@@ -1281,6 +1347,39 @@ const DS_BADGE = { 확정: 'b-good', '디자인 중': 'b-warn', 삭제됨: 'b-ba
 const fileUrl = (p) => `/api/files/${String(p).split('/').map(encodeURIComponent).join('/')}`
 const fmtSize = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)}MB` : `${Math.max(1, Math.round(n / 1024))}KB`)
 
+// ── 디자인 매핑 — 주문 → 디자인 (주문마다 쓸 디자인을 연결한다. 컬러 설정은 '디자인 · 컬러') ──
+async function viewDesignMap() {
+  const canAct = me.can.includes('design') || me.can.includes('orders')
+  pageShell({
+    en: 'Design Mapping', title: '디자인 매핑',
+    tools: `<input id="q" class="table-search" placeholder="주문번호·주문명·거래처 검색…" type="search">
+      <select id="f" class="table-select"><option value="need">매핑 필요</option><option value="ready">연결됨(확정)</option><option value="working">연결됨(작업 중)</option><option value="na">디자인 불필요</option><option value="">전체</option></select>`,
+  })
+  let all = []
+  const stateOf = (o) => (o.notNeeded ? 'na' : o.designState === 'ready' ? 'ready' : o.designState === 'working' ? 'working' : 'need')
+  const paint = () => {
+    const q = $('#q').value.trim().toLowerCase(), f = $('#f').value
+    const list = all.filter((o) => (!f || (f === 'need' ? stateOf(o) === 'need' : stateOf(o) === f))
+      && (!q || o.title.toLowerCase().includes(q) || String(o.orderNo) === q || (o.partnerName || '').toLowerCase().includes(q)))
+    const ST = { need: ['매핑 필요', 'b-warn'], working: ['작업 중', 'b-info'], ready: ['확정', 'b-good'], na: ['불필요', 'b-mute'] }
+    paintTable(list, [
+      ['no', '#', (o) => o.orderNo, 'r'],
+      ['img', '받은 이미지', (o) => ((o.attachments || []).length ? `<span style="display:inline-flex;gap:4px">${o.attachments.slice(0, 3).map((p) => thumb(p)).join('')}${o.attachments.length > 3 ? `<span class="field-hint">+${o.attachments.length - 3}</span>` : ''}</span>` : '<span class="field-hint">없음</span>')],
+      ['title', '주문명', (o) => `<b>${esc(o.title)}</b>`], ['partner', '거래처', (o) => esc(o.partnerName)],
+      ['due', '납기', (o) => (o.dueAt ? dueCell(o) : '')], ['qty', '수량', (o) => (o.totalQty ? won(o.totalQty) : ''), 'r'],
+      ['st', '매핑', (o) => badge(ST[stateOf(o)][0], ST[stateOf(o)][1])],
+      ['dz', '디자인 · 세트', (o) => ((o.designUse || []).length || o.unmapped ? `${(o.designUse || []).map((u) => `<div><span class="mono">${esc(u.code)}</span> ${esc(u.name)}${u.hasSets ? ` — ${u.sets.map((s) => `${esc(s.name)} ${s.n}`).join(' · ')}` : ` ${u.sets.reduce((a, s) => a + s.n, 0)}장`}</div>`).join('')}${o.unmapped ? `<div class="late-txt">디자인 미지정 ${o.unmapped}장</div>` : ''}` : (o.designs || []).length ? o.designs.map((d) => `<span class="mono">${esc(d.code)}</span> v${d.version}${d.role ? ` ${esc(d.role)}` : ''}`).join('<br>') : (stateOf(o) === 'need' && o.candidates.length ? `<span class="field-hint">이전 디자인 ${o.candidates.length}건</span>` : ''))],
+    ], (o) => openDesignAssist(o, canAct, load), f === 'need' ? '매핑이 필요한 주문이 없습니다.' : '해당하는 주문이 없습니다.')
+    $('#ft').textContent = `${list.length}건 / 진행 주문 ${all.length}건`
+  }
+  const load = async () => {
+    try { all = (await api('/schedule/design-queue?scope=all')).items; paint() } catch (e) { $('#tbl').innerHTML = emptyTable(e.message) }
+  }
+  $('#q').addEventListener('input', debounce(paint))
+  $('#f').onchange = paint
+  load()
+}
+
 async function viewDesigns() {
   const canW = me.can.includes('design')
   pageShell({
@@ -1299,7 +1398,7 @@ async function viewDesigns() {
         ['name', '디자인', (d) => `<b>${esc(d.name)}</b>${d.active === false ? ` ${badge('중지', 'b-mute')}` : ''}`],
         ['partner', '거래처', (d) => esc(d.partnerName)],
         ['ver', '최신 버전', (d) => `v${d.latestVersion} ${badge(d.latestStatus, DS_BADGE[d.latestStatus] || 'b-mute')}`],
-        ['col', '컬러', (d) => `${d.colorCount}색`, 'r'], ['files', '자수 파일', (d) => `${d.fileCount}개`, 'r'],
+        ['col', '컬러', (d) => `${d.colorCount}색`, 'r'], ['sets', '세트', (d) => `${d.setCount || 1}개`, 'r'], ['stc', '스티치', (d) => (d.stitches ? won(d.stitches) : '-'), 'r'], ['files', '자수 파일', (d) => `${d.fileCount}개`, 'r'],
         ['upd', '수정', (d) => day(d.updatedAt)],
       ], (d) => openDesign(d._id, load), '등록된 디자인이 없습니다. "디자인 등록"으로 시작하세요.')
       $('#ft').textContent = `${items.length}건`
@@ -1312,6 +1411,10 @@ async function viewDesigns() {
 }
 
 // 디자인 드로어: id 가 없으면 새로 만든다. prefill: { name, partnerId } (주문 화면에서 만들 때)
+// 컬러 세트 고르기 — 장의 수모 색(color)이 어느 세트의 '적용 수모'에 있으면 그 세트, 없으면 null(=기본 세트)
+const capKey = (v) => { const s = String(v ?? '').trim().toLowerCase().replace(/^caps/, ''); return /^\d+$/.test(s) ? String(Number(s)) : s }
+const variantFor = (variants, capColor) => (variants || []).find((x) => (x.caps || []).some((c) => capKey(c) === capKey(capColor)) && capKey(capColor) !== '') || null
+const thColorImg = (no) => `<img src="/images/sewing/${encodeURIComponent(no)}.png" alt="" style="width:30px;height:30px;object-fit:cover;border-radius:4px;border:1px solid var(--line)" onerror="this.style.visibility='hidden'">`
 async function openDesign(id, done, prefill = {}, onCreated) {
   const canW = me.can.includes('design'), canD = me.can.includes('delete')
   if (!cache.partners) await refs().catch(() => {})
@@ -1338,18 +1441,21 @@ async function openDesign(id, done, prefill = {}, onCreated) {
   let design = await api(`/designs/${id}`)
   const threads = (await api('/designs/thread-options').catch(() => ({ items: [], keyword: '자수사' })))
   let curNo = Math.max(...design.versions.map((v) => v.no))
-  let colors = []
+  let sets = []                                   // sets[0] = 기본 세트, 이후 = 컬러 세트(배리에이션). 각 세트의 colors[i] = 침 i+1
 
   const ver = () => design.versions.find((v) => v.no === curNo)
   const editable = () => canW && ver().status === '디자인 중'
   const readVersionFields = () => ({
-    note: $('#v_note')?.value ?? '', widthMm: $('#v_w')?.value ?? '', heightMm: $('#v_h')?.value ?? '', stitches: $('#v_s')?.value ?? '', colors,
+    note: $('#v_note')?.value ?? '', widthMm: $('#v_w')?.value ?? '', heightMm: $('#v_h')?.value ?? '', stitches: $('#v_s')?.value ?? '', colors: sets[0].colors, baseName: sets[0].name.trim() || '기본',
+    variants: sets.slice(1).map(({ name, caps, colors: cs }) => ({ name, caps, colors: cs })),
   })
 
   const render = () => {
     const v = ver()
     const ed = editable()
-    colors = v.colors.map((c) => ({ ...c }))
+    sets = [{ name: v.baseName || '기본', caps: [], colors: v.colors.map((c) => ({ ...c })) },
+      ...(v.variants || []).map((x) => ({ name: x.name, caps: [...(x.caps || [])], colors: (x.colors || []).map((c) => ({ ...c })) }))]
+    sets.forEach((s) => { while (s.colors.length < 7) s.colors.push({}) })      // 침 7칸
     const dis = ed ? '' : 'disabled'
     const body = `
       <div class="drawer-note" style="grid-column:1/-1"><b>${esc(design.code)}</b> · 버전 ${design.versions.length}개 · 사용 주문 ${design.usedBy.length ? design.usedBy.map((u) => `#${u.orderNo}(v${u.version})`).join(', ') : '없음'}</div>
@@ -1362,7 +1468,7 @@ async function openDesign(id, done, prefill = {}, onCreated) {
           <span class="field-label" style="margin:0">버전</span>
           <select class="field-input" id="v_sel" style="width:auto">${design.versions.slice().sort((a, b) => b.no - a.no).map((x) => `<option value="${x.no}" ${x.no === curNo ? 'selected' : ''}>v${x.no} · ${esc(x.status)}</option>`).join('')}</select>
           ${badge(v.status, DS_BADGE[v.status])}
-          <span class="field-hint">${v.status === '확정' ? `확정 ${day(v.confirmedAt)} — 확정된 버전은 수정할 수 없습니다. 고치려면 새 버전을 만드세요.` : '디자인 중 — 파일을 올리고 컬러를 정한 뒤 확정하세요.'}</span>
+          <span class="field-hint">${v.status === '확정' ? `확정 ${day(v.confirmedAt)} — 확정된 버전은 수정할 수 없습니다. 고치려면 새 버전을 만드세요.` : '디자인 중 — 컬러를 정하고(자수 파일은 있으면 올리고) 확정하세요.'}</span>
         </div>
       </div>
       <div class="field full"><span class="field-label">시안 이미지</span>
@@ -1376,12 +1482,9 @@ async function openDesign(id, done, prefill = {}, onCreated) {
           : '<div class="field-hint">올린 자수 파일이 없습니다.</div>'}
         ${ed ? '<input type="file" id="up_file" style="margin-top:8px">' : ''}
       </div>
-      <div class="field full"><span class="field-label">컬러 — 자수사 번호 (재고관리 &gt; ${esc(threads.keyword)} 물품의 옵션)</span>
-        <div id="d_colors"></div>
-        ${ed ? `<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><select class="field-input" id="th_sel" style="flex:1;min-width:200px"><option value="">자수사 선택…</option>${
-          threads.items.map((t) => `<option value="${esc(t.code)}">${esc(t.label)}</option>`).join('')}</select>
-          <input class="field-input" id="th_part" placeholder="사용 부위 (예: 외곽, 글자)" style="flex:1;min-width:140px"><button type="button" class="btn btn-ghost" id="th_add">컬러 추가</button></div>
-          ${threads.items.length ? '' : `<span class="field-hint" style="color:var(--bad)">"${esc(threads.keyword)}"이(가) 들어간 물품이 없습니다. 재고관리에서 자수사를 등록하거나 설정의 키워드를 확인하세요.</span>`}` : ''}
+      <div class="field full"><span class="field-label">침별 컬러 — 자수사 번호 (세트별 · 위에서부터 침 1~7)</span>
+        <div id="d_matrix" class="cmx-wrap"></div>
+        <span class="field-hint">번호를 입력하면 컬러 이미지가 나옵니다. 세트는 "추가+"로 만들고, 적용 수모 번호에 해당하는 장에 그 세트가 쓰입니다.</span>
       </div>
       ${fieldHtml('가로(mm)', `<input class="field-input" id="v_w" type="number" min="0" step="any" value="${v.widthMm ?? ''}" ${dis}>`)}
       ${fieldHtml('세로(mm)', `<input class="field-input" id="v_h" type="number" min="0" step="any" value="${v.heightMm ?? ''}" ${dis}>`)}
@@ -1390,20 +1493,56 @@ async function openDesign(id, done, prefill = {}, onCreated) {
     const latest = Math.max(...design.versions.map((x) => x.no))
     const foot = `${canD ? '<button type="button" class="btn btn-danger" id="d_del">디자인 삭제</button>' : ''}${
       canW && ver().status === '확정' && curNo === latest ? '<button type="button" class="btn btn-ghost" id="d_newver">새 버전 만들기</button>' : ''}${
-      closeFoot(canW ? `<button type="button" class="btn btn-ghost" id="save">저장</button>${ed ? '<button type="button" class="btn btn-primary" id="d_confirm">확정</button>' : ''}` : '')}`
+      closeFoot(canW ? `<button type="button" class="btn btn-ghost" id="save">저장</button>${ed ? '<button type="button" class="btn btn-primary" id="d_confirm">확정</button>' : ''}${me.role === 'admin' && ver().status === '확정' && curNo === latest ? '<button type="button" class="btn btn-ghost" id="d_reopen" title="관리자 전용 — 수정할 수 있게 디자인 중으로 되돌립니다">디자인 중으로 변경</button>' : ''}` : '')}`
     const dlg = shell(`디자인 · ${esc(design.name)}`, body, foot)
     wire(dlg)
-    paintColors()
+    paintMatrix()
   }
 
-  const paintColors = () => {
-    const box = $('#d_colors')
+  // 침별 컬러 표: 열 = 컬러 세트(기본 + 배리에이션), 행 = 침 1~7. 칸마다 번호를 입력하면 컬러 이미지(sewing/번호.png)가 옆에 나온다.
+  const swatch = (no) => (/^\d+$/.test(String(no || '').trim()) ? thColorImg(String(no).trim()) : '')
+  const paintMatrix = () => {
+    const box = $('#d_matrix')
     if (!box) return
     const ed = editable()
-    box.innerHTML = colors.length ? colors.map((c, i) => `<div class="cp-row"><b>${i + 1}</b><span>${esc(c.label || c.code)}</span>
-      <span class="field-hint">${esc(c.part || '')}</span><span class="sp"></span>${ed ? `<button type="button" class="tb-logout" data-rmc="${i}">삭제</button>` : ''}</div>`).join('')
-      : '<div class="field-hint">지정된 컬러가 없습니다.</div>'
-    box.querySelectorAll('[data-rmc]').forEach((b) => { b.onclick = () => { colors.splice(Number(b.dataset.rmc), 1); paintColors() } })
+    const rows = Math.max(7, ...sets.map((s) => s.colors.length))
+    const th = sets.map((s, si) => `<th colspan="2">${si === 0
+      ? `<div class="cmx-h"><input class="cmx-in" data-sn="0" value="${esc(s.name)}" placeholder="기본" style="font-weight:700" ${ed ? '' : 'disabled'}></div>`
+      : `<div class="cmx-h"><input class="cmx-in" data-sn="${si}" value="${esc(s.name)}" placeholder="세트 이름" ${ed ? '' : 'disabled'}>${ed ? `<button type="button" class="cmx-x" data-sdel="${si}" title="이 세트 삭제">×</button>` : ''}</div>`}</th>`).join('')
+      + (ed && sets.length < 11 ? '<th class="cmx-add"><button type="button" class="btn btn-ghost" id="set_add" style="padding:4px 12px">추가 +</button></th>' : '')
+    const caps = sets.map((s, si) => `<td colspan="2" class="cmx-caps">${si === 0
+      ? '<span class="field-hint">나머지 수모 전체</span>'
+      : `<input class="cmx-in" data-sc="${si}" value="${esc((s.caps || []).join(', '))}" placeholder="적용 수모 (예: 08, 12)" ${ed ? '' : 'disabled'}>`}</td>`).join('') + (ed && sets.length < 11 ? '<td></td>' : '')
+    const body = Array.from({ length: rows }, (_, r) => `<tr>${sets.map((s, si) => { const c = s.colors[r] || {}; const no = c.no || c.code || ''
+      return `<td class="cmx-no"><input class="cmx-in num" data-cs="${si}" data-cr="${r}" value="${esc(no)}" placeholder="${r + 1}" inputmode="numeric" ${ed ? '' : 'disabled'}></td><td class="cmx-sw" data-sw="${si}-${r}">${swatch(no)}</td>` }).join('')}${ed && sets.length < 11 ? '<td></td>' : ''}</tr>`).join('')
+    box.innerHTML = `<div class="table-scroll"><table class="cmx"><thead><tr>${th}</tr><tr>${caps}</tr></thead><tbody>${body}</tbody></table></div>`
+    box.querySelectorAll('[data-cs]').forEach((el) => {
+      el.oninput = () => {
+        const s = sets[Number(el.dataset.cs)], r = Number(el.dataset.cr), v = el.value.trim()
+        if (!v) { s.colors[r] = {} } else {
+          // 재고에 등록된 자수사면 그 옵션과 연결한다 (번호가 같은 옵션이 하나일 때). 없어도 번호만으로 지정된다.
+          const hits = threads.items.filter((x) => String(x.no || x.code) === v || x.code === v)
+          s.colors[r] = { ...(s.colors[r] || {}), code: hits.length === 1 ? hits[0].code : '', no: v, label: `${hits[0]?.name || threads.keyword} ${v}` }
+        }
+        const sw = box.querySelector(`[data-sw="${el.dataset.cs}-${r}"]`)
+        if (sw) sw.innerHTML = swatch(v)
+      }
+    })
+    box.querySelectorAll('[data-sn]').forEach((el) => { el.oninput = () => { sets[Number(el.dataset.sn)].name = el.value.trim() } })
+    box.querySelectorAll('[data-sc]').forEach((el) => { el.oninput = () => { sets[Number(el.dataset.sc)].caps = el.value.split(/[,\s]+/).map((x) => x.trim()).filter(Boolean) } })
+    box.querySelectorAll('[data-sdel]').forEach((b) => {
+      b.onclick = () => {
+        const si = Number(b.dataset.sdel)
+        if (!confirm(`컬러 세트 "${sets[si].name}"을(를) 삭제할까요?`)) return
+        sets.splice(si, 1); paintMatrix()
+      }
+    })
+    $('#set_add')?.addEventListener('click', () => {
+      // 마지막 세트의 컬러를 복사해서 시작 — 달라지는 침만 고치면 된다
+      const last = sets[sets.length - 1]
+      sets.push({ name: `세트${sets.length}`, caps: [], colors: last.colors.map((c) => ({ ...c })) })
+      paintMatrix()
+    })
   }
 
   const reload = async (keepNo) => {
@@ -1440,20 +1579,15 @@ async function openDesign(id, done, prefill = {}, onCreated) {
       if (!confirm('이 파일을 지울까요?')) return
       try { await api(`/designs/${id}/versions/${curNo}/files?path=${encodeURIComponent(b.dataset.rmf)}`, { method: 'DELETE' }); await reload(curNo) } catch (e) { setErr(e.message) }
     }))
-    $('#th_add')?.addEventListener('click', () => {
-      const code = $('#th_sel').value
-      if (!code) return setErr('자수사를 선택하세요.')
-      const t = threads.items.find((x) => x.code === code)
-      colors.push({ code, label: t?.label || code, part: $('#th_part').value.trim() })
-      $('#th_sel').value = ''; $('#th_part').value = ''
-      setErr(''); paintColors()
-    })
     $('#save')?.addEventListener('click', async () => {
       try { await saveAll(); await reload(curNo); done && done() } catch (e) { setErr(e.message) }
     })
     $('#d_confirm')?.addEventListener('click', async () => {
-      if (!confirm(`v${curNo}을(를) 확정할까요? 확정하면 수정할 수 없고, 고치려면 새 버전을 만들어야 합니다.`)) return
-      try { await saveAll(); await api(`/designs/${id}/versions/${curNo}/confirm`, { method: 'POST' }); await reload(curNo); done && done() } catch (e) { setErr(e.message) }
+      try { await saveAll(); await api(`/designs/${id}/versions/${curNo}/confirm`, { method: 'POST' }); await reload(curNo); done && done() } catch (e) { setErr(e.message); alert(`확정하지 못했습니다.
+${e.message}`) }
+    })
+    $('#d_reopen')?.addEventListener('click', async () => {
+      try { await api(`/designs/${id}/versions/${curNo}/reopen`, { method: 'POST' }); await reload(curNo); done && done() } catch (e) { setErr(e.message); alert(e.message) }
     })
     $('#d_newver')?.addEventListener('click', async () => {
       try { const v = await api(`/designs/${id}/versions`, { method: 'POST' }); await reload(v.no); done && done() } catch (e) { setErr(e.message) }
@@ -1489,7 +1623,7 @@ function wireDesigns(initial, canW, partnerOf) {
         <div class="dz-main">
           <div><b>${esc(l.code || '')}</b> ${esc(l.name || '')} ${v ? badge(`v${l.version} ${v.status}`, DS_BADGE[v.status]) : badge('삭제됨', 'b-bad')}
             ${newer ? `<span class="field-hint">· 새 버전 v${latest.no}(${esc(latest.status)})이 있습니다</span>` : ''}</div>
-          <div class="field-hint">${(v?.colors || []).map((c) => esc(`${c.label || c.code}${c.part ? '(' + c.part + ')' : ''}`)).join(' · ') || '컬러 미지정'}
+          <div class="field-hint">${(v?.colors || []).filter((c) => c.label || c.code || c.no).map((c) => esc(`${c.label || c.code || c.no}${c.part ? '(' + c.part + ')' : ''}`)).join(' · ') || '컬러 미지정'}
             ${(v?.files || []).map((f) => ` · <a href="${esc(fileUrl(f.path))}" download>${esc(f.name)}</a>`).join('')}</div>
         </div>
         <div class="dz-ctl">
@@ -1642,6 +1776,16 @@ const wsGroups = (o) => {
   return [...m].map(([k, n]) => { const [color, size] = k.split('\u0000'); return { color, size, n } })
 }
 
+// 수모 컬러 칸: 코드 + 이미지를 왼쪽 정렬. 한 줄뿐이면(장별 시트) 칸을 키워 이미지를 크게 보여 준다.
+const capCell = (v, big) => {
+  const c = String(v ?? '').trim()
+  const u = c ? pcImg('color', c) : ''
+  return big ? `<td class="cim cap" style="height:46px"><div class="ws-ci"><span>${esc(c)}</span>${u ? `<img src="${esc(u)}" alt="" onerror="this.style.visibility='hidden'">` : ''}</div></td>`
+    : `<td class="cim"><div class="ws-ci"><span>${esc(c)}</span>${u ? `<img class="sm" src="${esc(u)}" alt="" onerror="this.style.visibility='hidden'">` : ''}</div></td>`
+}
+// 컬러코드 + 이미지(남는 칸을 가득) — 이니셜 컬러 칸용
+const codeImgCell = (v) => { const c = String(v ?? '').trim(); if (!c) return ''; const u = pcImg('initialColor', c); return `<div class="ws-ci"><span>${esc(c)}</span>${u ? `<img src="${esc(u)}" alt="" onerror="this.style.visibility='hidden'">` : ''}</div>` }
+
 function wsSheet(row, o, pos) {
   const ps = o.pieces || []
   const one = ps.length === 1 ? ps[0] : null
@@ -1649,60 +1793,60 @@ function wsSheet(row, o, pos) {
   const groups = wsGroups(o)
   const shown = groups.slice(0, 4)
   const designs = o.designsState || []
-  const logo = designs.find((d) => d.role === '로고') || designs.find((d) => d.role !== '이니셜') || designs[0] || null
+  // 장별로 매핑한 디자인(디자인 매핑 단계) — 많이 쓰는 순. 매핑이 없으면 주문에 연결된 디자인 중 로고용을 쓴다.
+  const usedN = new Map()
+  ps.forEach((p) => { if (p.design) usedN.set(p.design, (usedN.get(p.design) || 0) + 1) })
+  const used = [...usedN].sort((a, b) => b[1] - a[1]).map(([code, n]) => ({ d: designs.find((x) => x.code === code), code, n }))
+  const logo = used.find((u) => u.d)?.d || designs.find((d) => d.role === '로고') || designs.find((d) => d.role !== '이니셜') || designs[0] || null
   const initDesign = designs.find((d) => d.role === '이니셜')
-  const colors = (logo?.colors || [])
+  // 컬러 세트: 장이 고른 세트(없으면 수모 색으로 자동, 그래도 없으면 기본)의 침별 컬러
+  const dset = (() => {
+    const vs = logo?.variants || []
+    if (!one || !vs.length) return null
+    if (one.variant && one.variant !== '기본') { const x = vs.find((y) => y.name === one.variant); if (x) return x }
+    if (one.variant === '기본') return { name: logo.baseName || '기본', colors: logo.colors }
+    return variantFor(vs, one.color) || { name: logo.baseName || '기본', colors: logo.colors }
+  })()
+  const colors = dset ? (dset.colors || []) : (logo?.colors || [])
   const colorText = (c) => `${c.label || c.code}${c.part ? ` (${c.part})` : ''}`
   const img = logo?.preview || initDesign?.preview || (o.attachments || [])[0] || ''
-  const memo = [o.content, o.request, ...(row.notes || [])].filter((x) => x && String(x).trim()).join('\n')
+  const memo = [o.content, o.request, one?.note ? `비고: ${one.note}` : '', ...(row.notes || [])].filter((x) => x && String(x).trim()).join('\n')
   const taskTxt = row.tasks.map((t) => `${t.task || '전체'} ${won(t.qty)}장`).join(' · ')
   const tr = (cells) => `<tr>${cells.join('')}</tr>`
 
-  const capRows = shown.map((g, i) => tr([`<td class="l">${i === 0 ? '컬러' : ''}</td>`, `<td>${esc(g.color)}</td>`, `<td>${esc(g.size)}${groups.length > 1 || g.n > 1 ? ` ×${g.n}` : ''}</td>`])).join('')
-    + (groups.length > shown.length ? tr(['<td class="l"></td>', `<td colspan="2">외 ${groups.length - shown.length}종 — 별지 참조</td>`]) : '')
+  const capRows = shown.map((g, i) => tr([`<td class="l">${i === 0 ? '컬러' : ''}</td>`, capCell(g.color, shown.length === 1), `<td>${esc(g.size)}${groups.length > 1 || g.n > 1 ? ` ×${g.n}` : ''}</td>`])).join('')
+    + (groups.length > shown.length ? tr(['<td class="l"></td>', `<td colspan="2">외 ${groups.length - shown.length}종</td>`]) : '')
   const initRows = many
     ? tr(['<td class="l">좌측</td>', `<td colspan="2">개별 ${ps.length}건 — 별지 참조</td>`]) + tr(['<td class="l">우측</td>', '<td></td><td></td>'])
-    : tr(['<td class="l">좌측</td>', `<td>${esc(one?.initials || '')}</td>`, `<td>${esc(one?.initialColor || '')}</td>`])
-      + tr(['<td class="l">우측</td>', `<td>${esc(one?.initialsRight || '')}</td>`, `<td>${esc(one?.initialsRight ? (one?.initialColor || '') : '')}</td>`])
-  const logoRows = [0, 1, 2, 3, 4, 5].map((i) => tr([`<td class="n">${i + 1}</td>`, '<td></td>', `<td>${colors[i] ? esc(colorText(colors[i])) : ''}</td>`])).join('')
-    + tr(['<td class="n"></td>', '<td></td>', `<td>${colors.length > 6 ? `외 ${colors.length - 6}색` : ''}</td>`])
+    : tr(['<td class="l">좌측</td>', `<td>${esc(one?.initials || '')}</td>`, `<td class="cim">${codeImgCell(one?.initialColor)}</td>`])
+      + tr(['<td class="l">우측</td>', `<td>${esc(one?.initialsRight || '')}</td>`, `<td class="cim">${one?.initialsRight ? codeImgCell(one?.initialColor) : ''}</td>`])
+  // 로고: 침(1~7) · 컬러코드 · 컬러 이미지(칸을 가득 채움). 번호가 없는 옛 컬러는 이름 글자로 보여 준다.
+  const logoRows = [0, 1, 2, 3, 4, 5, 6].map((i) => {
+    const c = colors[i] && (colors[i].no || colors[i].code || colors[i].label) ? colors[i] : null
+    const u = c?.no ? pcImg('initialColor', c.no) : ''
+    return tr([`<td class="n">${i + 1}</td>`, `<td class="cc">${c ? esc(c.no || c.code || c.label || '') : ''}</td>`,
+      `<td class="cim">${u ? `<img src="${esc(u)}" alt="" onerror="this.style.visibility='hidden'">` : (c && !c.no ? esc(colorText(c)) : '')}</td>`])
+  }).join('')
 
   return `<div class="ws-sheet ${pos}">
     <div class="ws-left">
       <table class="ws-t ws-head"><tbody>
-        <tr><td class="no">#${row.orderNo}</td><td colspan="2" class="ti">${esc(row.title)}</td></tr>
+        <tr><td class="no">#${row.orderNo}</td><td colspan="2" class="ti">${esc(row.title)}${row.seq ? ` <span class="ws-seq">${esc(row.seq)}</span>` : ''}</td></tr>
         <tr><td class="l2">작업일자</td><td>${esc(row.date)}</td><td class="sub">${esc(taskTxt)}</td></tr>
+        ${row.seq && one && (one.person || one.position) ? `<tr><td class="l2">주문자</td><td colspan="2"><div class="ws-pr"><span>${esc([one.person, one.position].filter(Boolean).join(' · '))}</span><b>${one.design && logo ? esc(logo.name) + (dset ? ` (${esc(dset.name)})` : '') : ''}</b></div></td></tr>` : ''}
       </tbody></table>
       <table class="ws-t"><thead><tr><th>수모</th><th>컬러</th><th>사이즈</th></tr></thead><tbody>${capRows || tr(['<td class="l">컬러</td>', '<td></td>', '<td></td>'])}</tbody></table>
       <table class="ws-t"><thead><tr><th>이니셜</th><th>이니셜</th><th>컬러</th></tr></thead><tbody>${initRows}</tbody></table>
-      <table class="ws-t"><thead><tr><th>로고</th><th>침</th><th>색상</th></tr></thead><tbody>${logoRows}</tbody></table>
+      <table class="ws-t"><thead><tr><th>로고</th><th>color</th><th>색상</th></tr></thead><tbody>${logoRows}</tbody></table>
       <table class="ws-t"><tbody><tr><td class="l">작업자</td><td></td><td></td></tr></tbody></table>
     </div>
     <div class="ws-right">
       <div class="ws-img">${img ? `<img src="${esc(imgSrc(img))}" alt="">` : '<span>디자인 이미지 없음</span>'}</div>
-      <div class="ws-cap">${logo ? `${esc(logo.code)} ${esc(logo.name)} v${logo.version}${logo.status ? ` (${esc(logo.status)})` : ''}` : ''}</div>
+      <div class="ws-cap">${used.length > 1 ? used.map((u) => `${esc(u.code)}${u.d ? ' ' + esc(u.d.name) : ''} ×${u.n}`).join(' · ') : logo ? `${esc(logo.code)} ${esc(logo.name)} v${logo.version}${logo.status ? ` (${esc(logo.status)})` : ''}${dset ? ` · ${esc(dset.name)}` : ''}` : ''}</div>
       <div class="ws-memo-l">메모</div>
       <div class="ws-memo">${esc(memo)}</div>
     </div>
   </div>`
-}
-
-// 별지: 제작 명세가 여러 줄인 주문의 개별 내역 (한 장에 40줄씩)
-function wsDetailPages(row, o) {
-  const ps = o.pieces || []
-  if (ps.length <= 1) return []
-  const PER = 32
-  const pages = []
-  const total = Math.ceil(ps.length / PER)
-  for (let p = 0; p < total; p++) {
-    const part = ps.slice(p * PER, (p + 1) * PER)
-    pages.push(`<div class="ws-page ws-detail">
-      <div class="ws-dh"><b>#${row.orderNo}</b> ${esc(row.title)} <span>· 작업일자 ${esc(row.date)} · 개별 주문내역 ${ps.length}건 (${p + 1}/${total})</span></div>
-      <table class="ws-t ws-dt"><thead><tr><th>#</th>${PC_COLS.map((c) => `<th>${c[1]}</th>`).join('')}<th>확인</th></tr></thead><tbody>${
-        part.map((x, i) => `<tr><td>${x.no || p * PER + i + 1}</td>${PC_COLS.map(([k]) => `<td>${esc(x[k] ?? '')}</td>`).join('')}<td></td></tr>`).join('')}</tbody></table>
-    </div>`)
-  }
-  return pages
 }
 
 async function makeWorksheets(mode) {
@@ -1714,12 +1858,18 @@ async function makeWorksheets(mode) {
   try {
     // 주문 상세(제작 명세·디자인·메모)
     const details = await Promise.all(picked.map((r) => api(`/orders/${r.orderId}`)))
-    const sheets = picked.map((r, i) => wsSheet(r, details[i], ''))
+    // 주문이 여러 장(제작 명세 2줄 이상)이면 장마다 한 장씩 만든다. 같은 디자인이어도 각각이며 1/7, 2/7 … 로 구분한다.
+    const sheets = []
+    picked.forEach((r, i) => {
+      const d = details[i], ps = d.pieces || []
+      if (ps.length > 1) {
+        ps.forEach((p, k) => sheets.push(wsSheet({ ...r, seq: `${k + 1}/${ps.length}`, tasks: r.tasks.map((x) => ({ ...x, qty: 1 })) }, { ...d, pieces: [p] }, '')))
+      } else sheets.push(wsSheet(r, d, ''))
+    })
     const pages = []
     for (let i = 0; i < sheets.length; i += 2) {
       pages.push(`<div class="ws-page">${sheets[i].replace('class="ws-sheet "', 'class="ws-sheet top"')}${sheets[i + 1] ? sheets[i + 1].replace('class="ws-sheet "', 'class="ws-sheet bottom"') : ''}<div class="ws-cut"></div></div>`)
     }
-    picked.forEach((r, i) => pages.push(...wsDetailPages(r, details[i])))
 
     let host = document.getElementById('ws_render')
     if (!host) { host = document.createElement('div'); host.id = 'ws_render'; document.body.appendChild(host) }
@@ -1984,6 +2134,15 @@ function openEntry(en, canW, repaint, canWork) {
         : `<div>${badge(en.status, en.status === '완료' ? 'b-good' : en.status === '진행' ? 'b-info' : 'b-warn')}</div>${
           canWork && (en._draft || String(en._id).startsWith('new-') || DRAFT.edits.has(en._id)) ? '<span class="field-hint">저장 전의 임시 배정입니다. 오른쪽 위 <b>저장</b>을 누르면 지시·진행·완료를 처리할 수 있습니다.</span>' : ''}`}</div>`
     + fieldHtml('작업 메모', `<textarea class="field-input" id="e_note" ${dis}>${esc(en.note || '')}</textarea>`, true)
+    + '<div class="field full"><span class="field-label">주문 시 받은 이미지</span><div id="en_imgs"><span class="field-hint">불러오는 중…</span></div></div>'
+    + `<div class="field full"><span class="field-label">수모 선택 — 이 주문에 쓸 수모 (번호 + 사이즈)</span><div id="en_caps"></div>${canWork ? `
+        <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:center"><input class="field-input" id="cp_no" placeholder="수모 번호 (예: 01)" style="width:150px" inputmode="numeric">
+        <span id="cp_prev" style="width:30px;height:30px;flex:none"></span><input class="field-input" id="cp_size" placeholder="사이즈 (예: L)" style="width:110px">
+        <button type="button" class="btn btn-ghost" id="cp_add">수모 추가</button></div>` : ''}</div>`
+    + `<div class="field full"><span class="field-label">디자인 선택</span><div id="en_dz"></div>${canWork ? `
+        <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><input class="field-input" id="dz_q" placeholder="디자인 이름·코드·거래처로 찾기" style="flex:1;min-width:200px" type="search">
+        <select class="field-input" id="dz_sel" style="flex:1;min-width:220px"><option value="">디자인 선택…</option></select>
+        <button type="button" class="btn btn-ghost" id="dz_add">디자인 연결</button></div>` : ''}</div>`
     + '<div class="field full"><span class="field-label">개별 주문내역 (제작 명세)</span><div id="en_pieces"><span class="field-hint">불러오는 중…</span></div></div>'
     + (canW && en.status === '지시' && en.qty >= Math.max(1, (SCH.cfg.machines || 0) * (SCH.cfg.perMachine || 0)) ? `<div class="field full"><span class="field-label">기간 배정 — ${esc(en.task || '전체')} 공정 ${won(en.qty)}장을 하루 수량씩 여러 날에</span>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button type="button" class="btn btn-ghost" id="pl_open">기간 배정</button>
@@ -2003,16 +2162,77 @@ function openEntry(en, canW, repaint, canWork) {
       ''}${
       closeFoot(canW ? '<button type="button" class="btn btn-primary" id="e_apply">적용</button>' : '')}`)
   // 개별 주문내역(제작 명세) — 주문 수정 화면의 표와 같은 내용을 읽기 전용으로 보여 준다
+  let ord = null
+  const paintCaps = () => {
+    const box = $('#en_caps')
+    if (!box) return
+    const caps = ord?.caps || []
+    box.innerHTML = caps.length ? caps.map((c, i) => `<div class="cp-row"><b>${i + 1}</b><span class="mono" style="min-width:56px">${esc(c.no || c.code)}</span>
+      <span style="display:inline-flex;align-items:center;gap:6px;min-width:120px">${c.no ? `<img src="/images/caps/${encodeURIComponent(c.no)}.png" alt="" style="width:30px;height:30px;object-fit:cover;border-radius:4px;border:1px solid var(--line)" onerror="this.style.visibility='hidden'"><span class="field-hint">${esc(c.no)}.png</span>` : ''}</span>
+      <span style="min-width:40px">${esc(c.size || '')}</span><span class="sp"></span>${canWork ? `<button type="button" class="tb-logout" data-rmcap="${i}">삭제</button>` : ''}</div>`).join('')
+      : '<div class="field-hint">선택한 수모가 없습니다.</div>'
+    box.querySelectorAll('[data-rmcap]').forEach((b) => b.addEventListener('click', () => saveCaps(caps.filter((_, i) => i !== Number(b.dataset.rmcap)))))
+  }
+  const saveCaps = async (caps) => {
+    try { const r = await api(`/orders/${en.orderId}/caps`, { method: 'POST', body: { caps } }); ord.caps = r.caps; paintCaps(); setErr('') } catch (e) { setErr(e.message) }
+  }
+  const paintDz = () => {
+    const box = $('#en_dz')
+    if (!box) return
+    const cur = ord?.designsState || []
+    box.innerHTML = cur.length ? cur.map((d) => `<div class="dz-row"><span>${thumb(d.preview)}</span>
+      <div class="dz-main"><b>${esc(d.code)}</b> ${esc(d.name)} ${badge(`v${d.version} ${d.status || ''}`, DS_BADGE[d.status] || 'b-mute')}${d.role ? ` · ${esc(d.role)}` : ''}</div>
+      ${canWork ? `<button type="button" class="tb-logout" data-rmdz="${esc(String(d.designId))}:${d.version}:${esc(d.role || '')}">연결 해제</button>` : ''}</div>`).join('')
+      : `<div class="field-hint">${ord?.designNotNeeded ? '디자인이 필요 없는 주문으로 표시되어 있습니다.' : '연결된 디자인이 없습니다. 아래에서 선택하세요.'}</div>`
+    box.querySelectorAll('[data-rmdz]').forEach((b) => b.addEventListener('click', () => saveDz((ord.designs || []).filter((l) => `${l.designId}:${l.version}:${l.role || ''}` !== b.dataset.rmdz))))
+  }
+  const saveDz = async (links) => {
+    try {
+      await api(`/orders/${en.orderId}/designs`, { method: 'POST', body: { designs: links.map((l) => ({ designId: String(l.designId), version: l.version, role: l.role || '', note: l.note || '' })) } })
+      ord = await api(`/orders/${en.orderId}`); paintDz(); setErr('')
+    } catch (e) { setErr(e.message) }
+  }
+  let dzList = []
+  const loadDzList = async () => {
+    const sel = $('#dz_sel')
+    if (!sel) return
+    try {
+      const p = new URLSearchParams({ limit: '60', active: '1' })
+      if ($('#dz_q').value.trim()) p.set('q', $('#dz_q').value.trim())
+      else if (ord?.partnerId) p.set('partnerId', String(ord.partnerId))             // 검색어가 없으면 이 주문 거래처의 디자인부터
+      dzList = (await api(`/designs?${p}`)).items
+      sel.innerHTML = `<option value="">디자인 선택… (${dzList.length}개)</option>${dzList.map((d) => `<option value="${d._id}">${esc(d.code)} · ${esc(d.name)}${d.partnerName ? ` · ${esc(d.partnerName)}` : ''} (${d.hasConfirmed ? '확정' : '디자인 중'})</option>`).join('')}`
+    } catch (e) { /* 목록 없이 진행 */ }
+  }
+  $('#dz_q')?.addEventListener('input', debounce(loadDzList))
+  $('#dz_add')?.addEventListener('click', () => {
+    const id = $('#dz_sel').value
+    if (!id) return setErr('연결할 디자인을 선택하세요.')
+    saveDz([...(ord.designs || []), { designId: id, version: 0, role: '' }])
+  })
+  $('#cp_no')?.addEventListener('input', () => { const v = $('#cp_no').value.trim(); $('#cp_prev').innerHTML = /^\d+$/.test(v) ? `<img src="/images/caps/${v}.png" alt="" style="width:30px;height:30px;object-fit:cover;border-radius:4px;border:1px solid var(--line)" onerror="this.style.visibility='hidden'">` : '' })
+  $('#cp_add')?.addEventListener('click', async () => {
+    const no = $('#cp_no').value.trim(), size = $('#cp_size').value.trim()
+    if (!no) return setErr('수모 번호를 입력하세요.')
+    if ((ord.caps || []).some((c) => c.no === no && (c.size || '') === size)) return setErr('이미 선택한 수모입니다.')
+    await saveCaps([...(ord.caps || []), { no, size, label: `수모 ${no}${size ? ' ' + size : ''}` }])
+    $('#cp_no').value = ''; $('#cp_size').value = ''; $('#cp_prev').innerHTML = ''
+  })
   api(`/orders/${en.orderId}`).then((o) => {
+    ord = o
+    const im = $('#en_imgs')
+    if (im) {
+      const list = o.attachments || []
+      im.innerHTML = list.length
+        ? `<div style="display:flex;gap:10px;flex-wrap:wrap">${list.map((p) => `<a href="${esc(imgSrc(p))}" target="_blank" rel="noopener"><img class="cell-img" style="width:150px;height:150px;object-fit:cover" src="${esc(imgSrc(p))}" alt="" loading="lazy"></a>`).join('')}</div>`
+        : '<span class="field-hint">주문에 첨부된 이미지가 없습니다.</span>'
+    }
+    paintCaps(); paintDz(); loadDzList()
     const box = $('#en_pieces')
     if (!box) return
     const ps = o.pieces || []
     if (!ps.length) { box.innerHTML = `<span class="field-hint">입력된 제작 명세가 없습니다. (주문 수량 ${en.order?.totalQty ? en.order.totalQty + '장' : '미정'})</span>`; return }
-    const g = new Map()
-    ps.forEach((p) => { const k = `${p.color || '-'} ${p.size || '-'}`; g.set(k, (g.get(k) || 0) + 1) })
-    box.innerHTML = `<div class="field-hint" style="margin-bottom:6px">총 ${ps.length}줄 · ${[...g].map(([k, n]) => `${esc(k)} ${n}`).join(' · ')}</div>
-      <div class="table-scroll" style="max-height:340px;overflow:auto"><table class="data"><thead><tr><th class="num">#</th>${PC_COLS.map((c) => `<th>${c[1]}</th>`).join('')}</tr></thead><tbody>${
-        ps.map((p, i) => `<tr><td class="num">${p.no || i + 1}</td>${PC_COLS.map(([k]) => `<td>${esc(p[k] ?? '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`
+    box.innerHTML = pcReadTable(ps)
   }).catch(() => { const box = $('#en_pieces'); if (box) box.innerHTML = '<span class="field-hint">제작 명세를 불러오지 못했습니다.</span>' })
   $('#e_open').onclick = () => { dlg.close(); openForm(ENT.orders, { _id: String(en.orderId) }, SCH.reload) }
   $('#wk_st')?.querySelectorAll('[data-wkst]').forEach((b) => b.addEventListener('click', () => { dlg.close(); setWorkStatus(en, b.dataset.wkst) }))

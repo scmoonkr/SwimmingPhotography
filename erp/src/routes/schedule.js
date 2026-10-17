@@ -7,7 +7,7 @@ import { requireCap } from '../auth.js'
 import { oid, escRe } from '../crud.js'
 import { flatItems, onHandMap } from '../stockLib.js'
 import { loadAppSettings } from '../settings.js'
-import { designDetails, designState, latestConfirmed } from '../designLib.js'
+import { designDetails, designState, latestConfirmed, pickSetName } from '../designLib.js'
 
 export const WORK_STATUSES = ['지시', '진행', '완료']
 // 공정 구분 — '' 은 구분 없음(전체). 로고·이니셜을 따로 작업하는 주문은 같은 주문에 공정별 배정을 둔다(각각 전체 수량).
@@ -67,6 +67,7 @@ const summary = (o, pn) => ({
 })
 const PROJ = { orderNo: 1, title: 1, status: 1, dueAt: 1, priority: 1, partnerId: 1, items: 1, pieceCount: 1, designs: 1, designNotNeeded: 1 }
 
+
 // 하루 처리 한도 설정 — 조회는 누구나, 변경은 관리자·매니저(write)
 router.get('/capacity', async (_req, res) => {
   try {
@@ -104,20 +105,23 @@ router.put('/capacity', requireCap('settings'), async (req, res) => {
 // 디자인 필요 목록 — 작업관리자의 디자인 할 일.
 // 끝나지 않은 배정이 있는데 디자인이 확정되지 않았고 '불필요'도 아닌 주문을, 가장 빠른 작업일 순으로.
 //   kind: new(신규 — 거래처에 이전 디자인 없음) · reorder(재주문 후보 — 거래처의 확정 디자인이 있음) · working(연결한 디자인이 작업 중)
-router.get('/design-queue', async (_req, res) => {
+router.get('/design-queue', async (req, res) => {
   try {
+    // scope=all : 디자인 매핑 화면용 — 배정 여부와 상관없이 진행 중인 모든 주문을 상태와 함께 (매핑 필요·연결됨·불필요 모두)
+    const all = req.query.scope === 'all'
     const pend = await (await col('workSchedules')).aggregate([
       { $match: { status: { $ne: '완료' } } },
       { $group: { _id: '$orderId', next: { $min: '$date' }, qty: { $sum: '$qty' } } },
     ]).toArray()
-    if (!pend.length) return res.json({ items: [] })
+    if (!all && !pend.length) return res.json({ items: [] })
     const orders = await (await col('orders')).find(
-      { _id: { $in: pend.map((p) => p._id) }, status: { $ne: '취소' }, designNotNeeded: { $ne: true } },
-      { projection: { ...PROJ, attachments: 1, content: 1, request: 1 } },
-    ).toArray()
+      all ? { status: { $in: ['예정', '접수', '작업배정', '제작중', '검수'] } }
+        : { _id: { $in: pend.map((p) => p._id) }, status: { $ne: '취소' }, designNotNeeded: { $ne: true } },
+      { projection: { ...PROJ, attachments: 1, content: 1, request: 1, designNotNeeded: 1, 'pieces.design': 1, 'pieces.variant': 1, 'pieces.color': 1 } },
+    ).limit(all ? 500 : 0).toArray()
     const dd = await designDetails(orders)
     const pn = await partnerNames(orders)
-    const need = orders.filter((o) => designState(dd.get(String(o._id))) !== 'ready')
+    const need = all ? orders : orders.filter((o) => designState(dd.get(String(o._id))) !== 'ready')
 
     // 거래처의 확정된 이전 디자인(최근 수정 순, 거래처당 5개)
     const pids = [...new Set(need.map((o) => String(o.partnerId || '')).filter(Boolean))].map((x) => oid(x))
@@ -137,12 +141,25 @@ router.get('/design-queue', async (_req, res) => {
       const det = dd.get(String(o._id)) || []
       const st = designState(det)
       const cands = cand.get(String(o.partnerId || '')) || []
+      // 장별 매핑 현황 — 디자인(코드)별로 어느 세트가 몇 장인지. 디자인을 정하지 않은 장은 unmapped.
+      const use = new Map()
+      let unmapped = 0
+      for (const p of o.pieces || []) {
+        if (!p.design) { unmapped++; continue }
+        const d = det.find((x) => x.code === p.design)
+        if (!use.has(p.design)) use.set(p.design, { code: p.design, name: d?.name || '', hasSets: !!(d?.variants || []).length, sets: new Map() })
+        const u = use.get(p.design)
+        const nm = pickSetName(d, p)
+        u.sets.set(nm, (u.sets.get(nm) || 0) + 1)
+      }
+      const designUse = [...use.values()].map((u) => ({ code: u.code, name: u.name, hasSets: u.hasSets, sets: [...u.sets].map(([name, n]) => ({ name, n })) }))
       return {
         ...summary(o, pn), nextDate: nextBy.get(String(o._id))?.next || null, designState: st, designs: det,
         candidates: cands, kind: st === 'working' ? 'working' : (cands.length ? 'reorder' : 'new'),
         attachments: o.attachments || [], content: o.content || '', request: o.request || '', partnerId: o.partnerId || null,
+        notNeeded: !!o.designNotNeeded, pieceTotal: (o.pieces || []).length, unmapped, designUse,
       }
-    }).sort((a, b) => String(a.nextDate).localeCompare(String(b.nextDate)) || a.orderNo - b.orderNo)
+    }).sort((a, b) => (all ? (String(a.dueAt || '9').localeCompare(String(b.dueAt || '9'))) : String(a.nextDate).localeCompare(String(b.nextDate))) || a.orderNo - b.orderNo)
     res.json({ items })
   } catch (e) { fail(res, e) }
 })

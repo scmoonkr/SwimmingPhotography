@@ -13,7 +13,7 @@ import { oid, escRe } from '../crud.js'
 import { saveBuffer, removeRel, IMG_EXT, DESIGN_EXT, safeName } from '../files.js'
 import { flatItems } from '../stockLib.js'
 import { loadAppSettings } from '../settings.js'
-import { latestOf, versionOf } from '../designLib.js'
+import { latestOf, latestConfirmed, versionOf } from '../designLib.js'
 
 const router = Router()
 const str = (v, n = 200) => String(v ?? '').trim().slice(0, n)
@@ -22,10 +22,22 @@ const fail = (res, e) => res.status(e.status || 500).json({ error: e.message })
 const bad = (res, m, s = 400) => res.status(s).json({ error: m })
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024, files: 1 } })
 
+// 침별 컬러 — 순서가 침 번호이므로 가운데 빈 칸은 그대로 두고 뒤쪽 빈 칸만 뺀다
+const normColors = (list) => {
+  const out = (Array.isArray(list) ? list : []).slice(0, 30).map((x) => ({
+    code: str(x?.code, 40), no: str(x?.no, 20), size: str(x?.size, 20), label: str(x?.label, 80), part: str(x?.part, 40),
+  }))
+  while (out.length && !out[out.length - 1].code && !out[out.length - 1].label && !out[out.length - 1].no) out.pop()
+  return out
+}
+const hasColor = (x) => !!(x && (x.code || x.label || x.no))
+
 const newVersion = (no, by, from) => ({
   no, status: '디자인 중', createdAt: new Date(), createdBy: by, note: '',
   previewImage: from?.previewImage || '', files: (from?.files || []).map((f) => ({ ...f })),
   colors: (from?.colors || []).map((c) => ({ ...c })),
+  baseName: from?.baseName || '기본',
+  variants: (from?.variants || []).map((x) => ({ name: x.name, caps: [...(x.caps || [])], colors: (x.colors || []).map((c) => ({ ...c })) })),
   widthMm: from?.widthMm ?? null, heightMm: from?.heightMm ?? null, stitches: from?.stitches ?? null,
 })
 
@@ -41,8 +53,11 @@ const summary = (d, pn) => {
     _id: d._id, code: d.code, name: d.name, partnerId: d.partnerId || null, partnerName: pn.get(String(d.partnerId || '')) || '',
     tags: d.tags || [], active: d.active !== false, updatedAt: d.updatedAt,
     versionCount: (d.versions || []).length, latestVersion: v?.no ?? null, latestStatus: v?.status || '',
-    preview: v?.previewImage || '', colorCount: (v?.colors || []).length, fileCount: (v?.files || []).length,
+    preview: v?.previewImage || '', colorCount: (v?.colors || []).filter(hasColor).length,
+    setCount: 1 + (v?.variants || []).length, stitches: v?.stitches ?? null,        // 컬러 세트 수(기본 포함) · 최신 버전의 스티치 수 fileCount: (v?.files || []).length,
     hasConfirmed: (d.versions || []).some((x) => x.status === '확정'),
+    variants: ((latestConfirmed(d) || v)?.variants || []).map((x) => ({ name: x.name, caps: x.caps || [] })),
+    baseName: (latestConfirmed(d) || v)?.baseName || '기본',
   }
 }
 
@@ -83,7 +98,7 @@ router.get('/thread-options', async (_req, res) => {
     const items = (await flatItems('material', { activeOnly: true })).filter((m) => m.name.includes(kw) || m.category === kw)
     res.json({
       keyword: kw,
-      items: items.map((m) => ({ code: m.code, name: m.name, color: m.color, size: m.size, label: [m.name, m.color, m.size].filter(Boolean).join(' ') })),
+      items: items.map((m) => ({ code: m.code, no: m.no || '', name: m.name, color: m.color, size: m.size, label: [m.name, m.color, m.size].filter(Boolean).join(' ') })),
     })
   } catch (e) { fail(res, e) }
 })
@@ -167,18 +182,24 @@ router.patch('/:id/versions/:no', requireCap('design'), async (req, res) => {
     if ('widthMm' in b) set[`${P}widthMm`] = num(b.widthMm)
     if ('heightMm' in b) set[`${P}heightMm`] = num(b.heightMm)
     if ('stitches' in b) set[`${P}stitches`] = num(b.stitches)
-    if ('colors' in b) {
-      // 컬러 = 자수사 번호(재고관리의 자수사 물품 옵션) + 사용 부위. 물품이 바뀌어도 알아볼 수 있게 이름을 함께 저장한다.
-      set[`${P}colors`] = (Array.isArray(b.colors) ? b.colors : []).slice(0, 30).map((x) => ({
-        code: str(x.code, 40), label: str(x.label, 80), part: str(x.part, 40),
-      })).filter((x) => x.code || x.label)
+    if ('colors' in b) set[`${P}colors`] = normColors(b.colors)      // 컬러 = 자수사 번호(+ 연결된 재고 옵션 코드). 순서 = 침 번호
+    // 컬러 세트(배리에이션) — 같은 디자인이라도 수모 색에 따라 침별 컬러가 다를 때. colors 는 '기본' 세트이고,
+    // 여기의 세트는 caps(적용 수모 번호)에 해당하는 장에만 쓴다. [{ name, caps: ['08','12'], colors: [...] }]
+    if ('baseName' in b) set[`${P}baseName`] = str(b.baseName, 30) || '기본'        // 기본 세트의 이름 (바꿀 수 있다)
+    if ('variants' in b) {
+      const seen = new Set(['기본', ('baseName' in b ? str(b.baseName, 30) : v.baseName) || '기본'])
+      set[`${P}variants`] = (Array.isArray(b.variants) ? b.variants : []).slice(0, 10).map((x) => {
+        const name = str(x?.name, 30)
+        const caps = [...new Set((Array.isArray(x?.caps) ? x.caps : String(x?.caps ?? '').split(/[,\s]+/)).map((y) => str(y, 20)).filter(Boolean))].slice(0, 40)
+        return { name, caps, colors: normColors(x?.colors) }
+      }).filter((x) => { if (!x.name || seen.has(x.name)) return false; seen.add(x.name); return true })
     }
     await c.updateOne({ _id }, { $set: set }, { arrayFilters: [{ 'v.no': no }] })
     res.json(versionOf(await c.findOne({ _id }), no))
   } catch (e) { fail(res, e) }
 })
 
-// 확정 — 자수 파일이 하나 이상 있어야 한다.
+// 확정 — 자수 파일 또는 컬러가 하나 이상 있어야 한다.
 router.post('/:id/versions/:no/confirm', requireCap('design'), async (req, res) => {
   try {
     const _id = oid(req.params.id)
@@ -188,8 +209,25 @@ router.post('/:id/versions/:no/confirm', requireCap('design'), async (req, res) 
     const v = d && versionOf(d, no)
     if (!v) return bad(res, '없는 버전입니다.', 404)
     if (v.status === '확정') return bad(res, '이미 확정된 버전입니다.', 409)
-    if (!(v.files || []).length) return bad(res, '자수 파일을 올린 뒤 확정하세요.')
+    if (!(v.files || []).length && !(v.colors || []).some(hasColor) && !(v.variants || []).some((x) => (x.colors || []).some(hasColor))) return bad(res, '컬러(자수사)를 지정하거나 자수 파일을 올린 뒤 확정하세요.')
     await c.updateOne({ _id }, { $set: { 'versions.$[v].status': '확정', 'versions.$[v].confirmedAt': new Date(), 'versions.$[v].confirmedBy': req.user.username, updatedAt: new Date() } }, { arrayFilters: [{ 'v.no': no }] })
+    res.json(versionOf(await c.findOne({ _id }), no))
+  } catch (e) { fail(res, e) }
+})
+
+// 확정 되돌리기 — 관리자만. 가장 최신 버전이 확정된 경우에 '디자인 중'으로 되돌려 다시 수정할 수 있게 한다.
+router.post('/:id/versions/:no/reopen', async (req, res) => {
+  try {
+    if (req.user?.role !== 'admin') return bad(res, '관리자만 확정을 되돌릴 수 있습니다.', 403)
+    const _id = oid(req.params.id)
+    const no = Number(req.params.no)
+    const c = await col('designs')
+    const d = _id && await c.findOne({ _id })
+    const v = d && versionOf(d, no)
+    if (!v) return bad(res, '없는 버전입니다.', 404)
+    if (v.status !== '확정') return bad(res, '확정된 버전이 아닙니다.', 409)
+    if (latestOf(d)?.no !== no) return bad(res, '더 새로운 버전이 있어 되돌릴 수 없습니다.', 409)
+    await c.updateOne({ _id }, { $set: { 'versions.$[v].status': '디자인 중', updatedAt: new Date() }, $unset: { 'versions.$[v].confirmedAt': '', 'versions.$[v].confirmedBy': '' } }, { arrayFilters: [{ 'v.no': no }] })
     res.json(versionOf(await c.findOne({ _id }), no))
   } catch (e) { fail(res, e) }
 })

@@ -3,6 +3,7 @@
 //   type : in 입고(+) · out 출고(−) · adjust 보정(실제 센 수량을 넣으면 차이만큼 이력이 생긴다)
 import { col } from './db.js'
 import { oid, escRe } from './crud.js'
+import { optionImage } from './codeImage.js'
 
 export const KINDS = ['material', 'goods']
 export const collOf = (kind) => (kind === 'goods' ? 'goods' : 'materials')
@@ -26,15 +27,15 @@ export async function flatItems(kind, { codes, q, activeOnly, category } = {}) {
   pipe.push(
     {
       $project: {
-        _id: 0, parentId: '$_id', name: 1, category: 1, supplier: 1, designCode: 1, unit: 1, active: 1,
-        code: '$options.code', color: '$options.color', size: '$options.size', image: '$options.image',
+        _id: 0, parentId: '$_id', name: 1, category: 1, supplier: 1, designCode: 1, unit: 1, active: 1, itemCode: 1,
+        code: '$options.code', color: '$options.color', size: '$options.size', no: '$options.no', image: '$options.image',
         safetyStock: '$options.safetyStock',
         price: { $ifNull: ['$options.price', kind === 'goods' ? '$salePrice' : '$purchasePrice'] },
       },
     },
     { $sort: { category: 1, name: 1, color: 1, size: 1 } },
   )
-  return (await col(collOf(kind))).aggregate(pipe).toArray()
+  return (await col(collOf(kind))).aggregate(pipe).toArray().then((rows) => rows.map((r) => ({ ...r, image: optionImage(r, r) })))
 }
 
 // 코드 → { onHand, lastAt }

@@ -252,6 +252,8 @@ export function normPieces(list) {
       initials: s(p?.initials), initialsRight: s(p?.initialsRight), initialColor: s(p?.initialColor), note: s(p?.note, 1000),
     }
     if (!PIECE_KEYS.some((k) => o[k])) continue
+    o.variant = s(p?.variant, 30)                    // 컬러 세트 이름 — 비우면 수모 색으로 자동 선택, '기본'이면 기본 세트
+    o.design = s(p?.design, 40)                      // 이 장에 쓰는 디자인 코드 (디자인 매핑 단계에서 지정)
     out.push(o)
   }
   out.forEach((o, i) => { if (!o.no) o.no = i + 1 })
