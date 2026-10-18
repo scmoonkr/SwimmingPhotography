@@ -21,7 +21,7 @@ function toQueues(sc) {
   q[UNASSIGNED] = []
   for (const j of [...sc.jobs].sort((a, b) => a.seq - b.seq)) {
     const key = j.machineId && q[j.machineId] ? j.machineId : UNASSIGNED
-    q[key].push({ id: j.id, groupKey: j.groupKey, orderId: j.orderId, count: j.count, secPerCap: j.secPerCap, threads: j.threads, locked: !!j.locked, entryId: j.entryId, source: j.source })
+    q[key].push({ id: j.id, groupKey: j.groupKey, orderId: j.orderId, count: j.count, secPerCap: j.secPerCap, threads: j.threads, locked: !!j.locked, entryId: j.entryId, source: j.source, units: j.units })
   }
   return q
 }
@@ -41,18 +41,18 @@ async function view(sc) {
         id: j.id, machineId: mid, seq, orderId: j.orderId, orderNo: o?.orderNo, title: o?.title || '',
         designCode: g?.designCode || '', designName: g?.designName || '', setName: g?.setName || '', initialColor: g?.initialColor || '',
         threads: j.threads, count: j.count, secPerCap: j.secPerCap, source: j.source || g?.source || '',
-        locked: !!j.locked, fixed: !!j.entryId, startMs: r?.startMs ?? null, endMs: r?.endMs ?? null, swaps: r?.swaps || 0, waitMs: r?.waitMs || 0, capDays: r?.capDays || {},
+        locked: !!j.locked, fixed: !!j.entryId, units: j.units || [], startMs: r?.startMs ?? null, endMs: r?.endMs ?? null, swaps: r?.swaps || 0, waitMs: r?.waitMs || 0, capDays: r?.capDays || {},
       })
     })
   }
-  const orders = Object.entries(sc.snap.orders).map(([id, o]) => ({ id, ...o, endMs: sim.orders[id]?.endMs ?? null, dueMs: sc.snap.due[id] ?? null, lateMs: sim.orders[id]?.lateMs || 0 }))
+  const orders = Object.entries(sc.snap.orders).map(([id, o]) => ({ id, ...o, priority: sc.snap.prio?.[id] || o.priority || 0, endMs: sim.orders[id]?.endMs ?? null, dueMs: sc.snap.due[id] ?? null, lateMs: sim.orders[id]?.lateMs || 0 }))
     .sort((a, b) => (a.dueMs ?? Infinity) - (b.dueMs ?? Infinity) || a.orderNo - b.orderNo)
   const cal = new WorkCal(sc.snap.cfg, sc.snap.startMs, 40)
   const cfg = sc.snap.cfg
   return {
     _id: sc._id, name: sc.name, status: sc.status, createdAt: sc.createdAt, createdBy: sc.createdBy, confirmedAt: sc.confirmedAt || null,
     stale: sc.status === 'draft' && sc.baseVersion !== await workVersion(),
-    startMs: sc.snap.startMs, threadSec: sc.snap.threadSec, cfg: { workStart: cfg.workStart, workEnd: cfg.workEnd, lunchStart: cfg.lunchStart, lunchEnd: cfg.lunchEnd, workers: cfg.workers, capChangeSec: cfg.capChangeSec, shipBufferDays: cfg.shipBufferDays },
+    startMs: sc.snap.startMs, threadSec: sc.snap.threadSec, cap: sc.snap.cap || null, cfg: { workStart: cfg.workStart, workEnd: cfg.workEnd, lunchStart: cfg.lunchStart, lunchEnd: cfg.lunchEnd, workers: cfg.workers, capChangeSec: cfg.capChangeSec, shipBufferDays: cfg.shipBufferDays },
     axis: cal.axis(ymdOf(sc.snap.startMs), Math.min(21, cfg.lookAheadDays + 7)),
     machines: sc.snap.machines.map((m) => ({ id: m.id, name: m.name, needles: m.needles, segs: sim.machines[m.id]?.segs || [], embMs: sim.machines[m.id]?.embMs || 0, util: sim.machines[m.id]?.util || 0, swaps: sim.machines[m.id]?.swaps || 0 })),
     workerSegs: sim.workerSegs, jobs, orders, warnings: sc.snap.warnings,
@@ -72,6 +72,31 @@ const save = async (sc, queues, extra = {}) => {
 }
 const metricsOf = (snap, queues) => { const ev = evaluate(snap, queues); return { ...ev.sim.metrics, unassignedCaps: ev.unassigned } }
 
+// 우선순위 지정 — { id, priority: 0~9, scenarioId? }   숫자가 큰 주문부터 배정한다 (0 = 보통).
+//   주문의 우선순위 값(주문 화면의 '우선순위')을 바꾸고, 초안(scenarioId)이 있으면 그 계획에도 반영한다.
+//   이미 짠 배정은 그대로이고, 자동 개선·계획 만들기가 숫자가 큰 주문부터 앞에 배정한다.
+router.post('/priority', CAN, async (req, res) => {
+  try {
+    const id = oid(req.body?.id)
+    if (!id) throw bad('주문을 선택하세요.')
+    const p = Math.max(0, Math.min(9, Math.round(Number(req.body?.priority) || 0)))
+    const oc = await col('orders')
+    const r = await oc.updateOne({ _id: id }, { $set: { priority: p, updatedAt: new Date() } })
+    if (!r.matchedCount) throw bad('없는 주문입니다.', 404)
+    if (req.body?.scenarioId) {
+      const sc = await load(req.body.scenarioId)
+      const key = String(id)
+      if (sc.snap.orders[key]) {
+        const set = { [`snap.orders.${key}.priority`]: p }
+        const upd = p > 0 ? { $set: { ...set, [`snap.prio.${key}`]: p } } : { $set: set, $unset: { [`snap.prio.${key}`]: '' } }
+        await (await col('scheduleScenarios')).updateOne({ _id: sc._id }, upd)
+      }
+      return res.json(await view(await load(req.body.scenarioId)))
+    }
+    res.json({ ok: true, priority: p })
+  } catch (e) { fail(res, e) }
+})
+
 // 가장 최근 계획 (없으면 null)
 router.get('/scenarios/latest', async (_req, res) => {
   try {
@@ -87,7 +112,9 @@ router.get('/scenarios/:id', async (req, res) => {
 // 새 계획 — 지금의 주문·자수기 상태로 자동 배정까지 만든다
 router.post('/scenarios', CAN, async (req, res) => {
   try {
-    const snap = await buildSnapshot()
+    const sd = String(req.body?.startDate || '').trim()
+    if (sd && !/^\d{4}-\d{2}-\d{2}$/.test(sd)) throw bad('시작일은 YYYY-MM-DD 형식입니다.')
+    const snap = await buildSnapshot({ startDate: sd })
     if (!snap.machines.length) throw bad('가동 중인 자수기가 없습니다. 작업 > 자수기에서 등록하세요.')
     let q = greedy(snap, snap.fixed)
     if (req.body?.optimize !== false) q = improve(snap, q, { iterations: 400, timeMs: 3000, seed: 7 }).queues
@@ -138,10 +165,11 @@ router.patch('/scenarios/:id/jobs', CAN, async (req, res) => {
       } else if (op.op === 'split') {
         const take = Math.round(Number(op.count))
         if (!(take >= 1 && take < f.job.count)) throw bad(`나눌 수량은 1 ~ ${f.job.count - 1} 입니다.`)
-        q[f.mid][f.i] = { ...f.job, count: f.job.count - take }
+        const us = f.job.units || []
+        q[f.mid][f.i] = { ...f.job, count: f.job.count - take, units: us.slice(0, us.length - take) }
         const dest = q[to]
         const at = to === f.mid ? f.i + 1 : dest.length
-        dest.splice(at, 0, { ...f.job, id: `${f.job.id}s${Date.now().toString(36)}${n++}`, count: take })
+        dest.splice(at, 0, { ...f.job, id: `${f.job.id}s${Date.now().toString(36)}${n++}`, count: take, units: us.slice(us.length - take) })
         q[f.mid] = mergeAdjacent(q[f.mid]); q[to] = mergeAdjacent(q[to])
       } else throw bad('op 는 move · split · lock 입니다.')
     }
@@ -163,9 +191,12 @@ router.post('/scenarios/:id/confirm', CAN, async (req, res) => {
     const docs = []
     for (const j of v.jobs) {
       if (!j.machineId || j.fixed) continue
-      for (const [date, qty] of Object.entries(j.capDays)) {
+      let cursor = 0
+      for (const [date, qty] of Object.entries(j.capDays).sort((a, b) => a[0].localeCompare(b[0]))) {
+        const units = (j.units || []).slice(cursor, cursor + qty)          // 이 날짜에 자수하는 장(주문 전체 기준 번호)
+        cursor += qty
         docs.push({
-          orderId: oid(j.orderId), orderNo: j.orderNo, date, qty, task: '', status: '지시', note: '', machineId: oid(j.machineId), seq: j.seq,
+          orderId: oid(j.orderId), orderNo: j.orderNo, date, qty, units, task: '', status: '지시', note: '', machineId: oid(j.machineId), seq: j.seq,
           estStartAt: new Date(j.startMs), estEndAt: new Date(j.endMs), planScenario: sc._id, timeSource: j.source, locked: !!j.locked, createdAt: now, by: req.user.username,
         })
       }

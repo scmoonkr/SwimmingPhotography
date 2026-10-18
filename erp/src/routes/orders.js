@@ -50,7 +50,7 @@ function build(b = {}) {
   if ('orderedAt' in b) d.orderedAt = date(b.orderedAt)
   if ('dueAt' in b) d.dueAt = date(b.dueAt)
   if ('shippedAt' in b) d.shippedAt = date(b.shippedAt)
-  if ('priority' in b) d.priority = Math.max(0, Math.min(3, num(b.priority)))  // 0 보통 · 1 높음 · 2 긴급 · 3 최우선
+  if ('priority' in b) d.priority = Math.max(0, Math.min(9, Math.round(num(b.priority))))  // 0 보통 · 1 높음 · 2 긴급 · 3 최우선 · 4~9 (작업배정에서 숫자가 큰 주문부터 배정)
   if ('tags' in b) d.tags = (Array.isArray(b.tags) ? b.tags : []).map(str).filter(Boolean)
   if ('pieces' in b) { d.pieces = normPieces(b.pieces); d.pieceCount = d.pieces.length }   // 제작 명세(사람별 사양)
   if ('designNotNeeded' in b) d.designNotNeeded = !!b.designNotNeeded      // 디자인이 필요 없는 주문(후드티 등)

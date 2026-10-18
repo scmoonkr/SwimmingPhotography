@@ -5,7 +5,7 @@ import { col } from '../db.js'
 import { loadAppSettings } from '../settings.js'
 import { designDetails, pickSetName } from '../designLib.js'
 import { normNeedles, threadNeeds } from '../machineLib.js'
-import { orderQty } from '../routes/schedule.js'
+import { orderQty, loadCapacity } from '../routes/schedule.js'
 import { WorkCal, dayStart } from './calendar.js'
 import { secPerCap } from './estimate.js'
 
@@ -13,11 +13,13 @@ const ACTIVE = ['접수', '작업배정', '제작중', '검수']
 
 const hhmmMin = (s) => { const [h, m] = s.split(':').map(Number); return h * 60 + m }
 
-// 계획 시작 시각: 지금 이후 가장 이른 근무 시각
-export function planStart(cfg, now = Date.now()) {
-  const cal = new WorkCal(cfg, now, 14)
-  const t = cal.nextStart(now)
-  return Number.isFinite(t) ? t : now
+// 계획 시작 시각: 시작일(기본 오늘)의 가장 이른 근무 시각. 오늘이면 지금 이후, 과거 날짜는 오늘로 본다.
+export function planStart(cfg, now = Date.now(), startDate = '') {
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(String(startDate || '')) ? dayStart(startDate) : 0
+  const from = Math.max(now, day)
+  const cal = new WorkCal(cfg, from, 14)
+  const t = cal.nextStart(from)
+  return Number.isFinite(t) ? t : from
 }
 
 // 출고일(dueAt) → 자수 완료 목표 시각: 출고일의 근무 종료 − 출고 전 여유(일)
@@ -34,26 +36,27 @@ export const workVersion = async () => {
   return `${n}:${new Date(last?.updatedAt || last?.createdAt || 0).getTime()}`
 }
 
-export async function buildSnapshot({ now = Date.now() } = {}) {
+export async function buildSnapshot({ now = Date.now(), startDate = '' } = {}) {
   const settings = await loadAppSettings()
   const cfg = settings.production
   const threadSec = settings.swapMinutes * 60
-  const startMs = planStart(cfg, now)
-  const lookEnd = now + cfg.lookAheadDays * 86400e3
+  const startMs = planStart(cfg, now, startDate)
+  const lookEnd = startMs + cfg.lookAheadDays * 86400e3          // 납기가 시작일 기준 참고 기간(기본 14일) 안인 주문까지
+  const capc = await loadCapacity()                       // 작업 일정 · 하루 처리 한도: 자수기 1대의 하루 작업 수량(장) · 가동 대수 · 날짜별 지정
 
   const machines = (await (await col('machines')).find({ active: { $ne: false } }).sort({ order: 1, name: 1 }).toArray())
     .map((m) => ({ id: String(m._id), name: m.name, needles: normNeedles(m.needles), freeAt: 0 }))
   const known = new Set(machines.map((m) => m.id))
 
   const orders = await (await col('orders')).find({ status: { $in: ACTIVE } }, {
-    projection: { orderNo: 1, title: 1, dueAt: 1, items: 1, pieceCount: 1, pieces: 1, designs: 1, status: 1, partnerId: 1 },
+    projection: { orderNo: 1, title: 1, dueAt: 1, priority: 1, items: 1, pieceCount: 1, pieces: 1, designs: 1, status: 1, partnerId: 1 },
   }).sort({ orderNo: 1 }).toArray()
   const dd = await designDetails(orders)
   const entries = orders.length ? await (await col('workSchedules')).find({ orderId: { $in: orders.map((o) => o._id) } }).toArray() : []
   const byOrder = new Map()
   for (const e of entries) { const k = String(e.orderId); if (!byOrder.has(k)) byOrder.set(k, []); byOrder.get(k).push(e) }
 
-  const groups = [], fixed = Object.fromEntries(machines.map((m) => [m.id, []])), due = {}, info = {}
+  const groups = [], fixed = Object.fromEntries(machines.map((m) => [m.id, []])), due = {}, info = {}, prio = {}
   const warnings = { outOfRange: 0, noDue: 0, noDesign: 0, noMachineFixed: 0 }
   let fx = 0
   for (const o of orders) {
@@ -75,7 +78,8 @@ export async function buildSnapshot({ now = Date.now() } = {}) {
     const det = dd.get(oidS) || []
     const link = det[0] || null
     const verOf = (code) => det.find((x) => x.code === code) || link
-    info[oidS] = { orderNo: o.orderNo, title: o.title, dueAt: o.dueAt || null, total, remaining: Math.max(0, remaining), status: o.status, noDesign: !det.length }
+    if ((o.priority || 0) > 0) prio[oidS] = o.priority
+    info[oidS] = { orderNo: o.orderNo, title: o.title, priority: o.priority || 0, dueAt: o.dueAt || null, total, done, remaining: Math.max(0, remaining), status: o.status, noDesign: !det.length }
     if (dueMs != null) due[oidS] = dueMs
     if (!det.length) warnings.noDesign++
 
@@ -93,6 +97,8 @@ export async function buildSnapshot({ now = Date.now() } = {}) {
     const rest = pieces.length ? pieces.slice(done + lockedQty, done + lockedQty + remaining) : []
     const synth = Math.max(0, remaining - rest.length)
     const gmap = new Map()
+    const base = done + lockedQty                                  // 이 주문에서 이미 빠진 장수 = 남은 장의 시작 번호(0부터)
+    let unit = 0
     const add = (p, n) => {
       const code = p?.design || link?.code || ''
       const d = verOf(code)
@@ -100,13 +106,15 @@ export async function buildSnapshot({ now = Date.now() } = {}) {
       const ic = String(p?.initialColor || '').trim()
       const key = `${oidS}|${code}|${setName}|${ic}`
       const est = secPerCap(d, cfg)
-      if (!gmap.has(key)) gmap.set(key, { key, orderId: oidS, orderNo: o.orderNo, designCode: code, designName: d?.name || '', setName, initialColor: ic, threads: threadNeeds(p ? [p] : [], det, ''), secPerCap: est.sec, source: est.source, count: 0, dueMs })
-      gmap.get(key).count += n
+      if (!gmap.has(key)) gmap.set(key, { key, orderId: oidS, orderNo: o.orderNo, designCode: code, designName: d?.name || '', setName, initialColor: ic, threads: threadNeeds(p ? [p] : [], det, ''), secPerCap: est.sec, source: est.source, count: 0, units: [], dueMs })
+      const g = gmap.get(key)
+      g.count += n
+      for (let k = 0; k < n; k++) g.units.push(base + unit++)        // 장 번호(주문 전체 기준) — 확정 때 작업배정에 남겨 작업지시서가 장별 자수기를 알게 한다
     }
     rest.forEach((p) => add(p, 1))
     if (synth) add(null, synth)                                  // 제작 명세가 없는 장: 연결된 디자인의 기본 컬러로
     groups.push(...gmap.values())
   }
-  return { startMs, nowMs: now, cfg, threadSec, machines, groups, fixed, due, orders: info, warnings, baseVersion: await workVersion() }
+  return { startMs, nowMs: now, cfg, threadSec, cap: { perMachine: capc.perMachine, machines: capc.machines, overrides: capc.overrides }, machines, groups, fixed, due, prio, orders: info, warnings, baseVersion: await workVersion() }
 }
 

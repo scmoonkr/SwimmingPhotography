@@ -219,6 +219,13 @@ router.get('/', async (req, res) => {
       { dueAt: { $gte: new Date(`${from}T00:00:00Z`), $lte: new Date(`${to}T23:59:59Z`) }, status: { $nin: DONE } },
       { projection: { orderNo: 1, title: 1, dueAt: 1 } },
     ).toArray()
+    // 같은 주문·공정에서 앞선 배정의 수량 합 (날짜 · 등록 순) — 주문 전체 N장 중 이 배정이 몇 번째 장부터인지
+    const offsetOf = new Map()
+    if (ids.length) {
+      const all = await (await col('workSchedules')).find({ orderId: { $in: ids } }, { projection: { orderId: 1, task: 1, date: 1, qty: 1, createdAt: 1 } }).sort({ date: 1, createdAt: 1, _id: 1 }).toArray()
+      const run = new Map()
+      for (const e of all) { const k = `${e.orderId}|${e.task || ''}`; offsetOf.set(String(e._id), run.get(k) || 0); run.set(k, (run.get(k) || 0) + (e.qty || 0)) }
+    }
     const cfg = await loadCapacity()
     const capacity = {}
     for (let d = from; d <= to; d = dayAfter(d)) capacity[d] = capacityOn(cfg, d)
@@ -226,7 +233,7 @@ router.get('/', async (req, res) => {
       cfg: { machines: cfg.machines, perMachine: cfg.perMachine },
       capacity,
       // needs: 이 작업이 필요로 하는 실 번호(로고 컬러 + 이니셜색상) — 자수기에 걸린 실과 비교해 교체 개수를 계산한다
-      entries: entries.map((e) => ({ ...e, order: byId.get(String(e.orderId)) || null, needs: threadNeeds(piecesOf.get(String(e.orderId)), byId.get(String(e.orderId))?.designs, e.task || '') })),
+      entries: entries.map((e) => ({ ...e, offset: offsetOf.get(String(e._id)) || 0, order: byId.get(String(e.orderId)) || null, needs: threadNeeds(piecesOf.get(String(e.orderId)), byId.get(String(e.orderId))?.designs, e.task || '') })),
       dues: dueDocs.map((o) => ({ orderId: o._id, orderNo: o.orderNo, title: o.title, date: ymd(o.dueAt) })),
     })
   } catch (e) { fail(res, e) }
@@ -386,7 +393,7 @@ export async function syncConsumption(orderId, user) {
 // 한도 = 가동 중인 자수기 수 × 대당 일 처리량. 장애로 대수가 줄면 한도도 줄어든다(8대 80장 → 6대 60장).
 // 특정 날짜만 대수를 바꿀 수 있다(overrides). 주말은 기본적으로 작업일이 아니며(한도 없음), 필요하면 그날의 대수를 지정해 연다.
 const CAP_DEFAULT = { perMachine: 10, machines: 8, overrides: {} }
-async function loadCapacity() {
+export async function loadCapacity() {
   const d = await (await col('settings')).findOne({ _id: 'capacity' })
   return { perMachine: d?.perMachine ?? CAP_DEFAULT.perMachine, machines: d?.machines ?? CAP_DEFAULT.machines, overrides: d?.overrides || {} }
 }
@@ -572,54 +579,23 @@ router.post('/:id/work', requireCap('work'), async (req, res) => {
       if (!qty) return res.status(400).json({ error: '완료 수량은 1 이상이어야 합니다.' })
       const task = cur.task || ''
       let doneQty = qty
+      // 완료 처리는 이 작업(칸) 하나만 바꾼다 — 같은 주문의 다른 배정(다른 자수기·다른 날짜)의 수량은 다시 계산하지 않는다.
       if (qty > cur.qty) {
-        // 계획보다 많이 했다 — 초과분은 같은 주문·공정의 이후 배정에서 (빠른 날짜부터) 차감한다.
-        let extra = qty - cur.qty
-        const later = await wc.find({ _id: { $ne: _id }, orderId: cur.orderId, status: { $ne: '완료' }, date: { $gte: cur.date }, ...sameTaskFilter(task) })
-          .sort({ date: 1, createdAt: 1 }).toArray()
-        const plan = []
-        for (const l of later) {
-          if (extra <= 0) break
-          const take = Math.min(l.qty, extra)
-          plan.push({ l, take })
-          extra -= take
+        // 계획보다 많이 했다: 주문 수량을 넘지만 않으면 이 칸의 수량만 늘린다 (다른 배정은 그대로)
+        const order = await (await col('orders')).findOne({ _id: cur.orderId }, { projection: PROJ })
+        const total = order ? orderQty(order) : 0
+        if (total > 0) {
+          const others = await wc.find({ _id: { $ne: _id }, orderId: cur.orderId, status: '완료', ...sameTaskFilter(task) }, { projection: { qty: 1 } }).toArray()
+          const room = total - others.reduce((s, x) => s + x.qty, 0)
+          if (qty > room) return res.status(400).json({ error: `주문 수량을 넘습니다. 이 공정은 최대 ${Math.max(0, room)}장까지 완료할 수 있습니다.` })
         }
-        if (extra > 0) {
-          // 이후 배정으로 모자라면, 아직 배정하지 않은 주문 수량까지만 허용한다
-          const order = await (await col('orders')).findOne({ _id: cur.orderId }, { projection: PROJ })
-          const all = await wc.find({ orderId: cur.orderId, ...sameTaskFilter(task) }, { projection: { qty: 1 } }).toArray()
-          const free = Math.max(0, (order ? orderQty(order) : 0) - all.reduce((t, x) => t + x.qty, 0))
-          if (extra > free) {
-            const room = qty - (extra - free)
-            return res.status(400).json({ error: `주문 수량을 넘습니다. 이 공정은 최대 ${room}장까지 완료할 수 있습니다.` })
-          }
-        }
-        for (const { l, take } of plan) {
-          if (take >= l.qty) await wc.deleteOne({ _id: l._id })
-          else await wc.updateOne({ _id: l._id }, { $inc: { qty: -take }, $set: { updatedAt: now } })
-          reduced.push({ date: l.date, take })
-        }
-        await wc.updateOne({ _id }, { $set: { qty: doneQty } })
       } else if (qty < cur.qty) {
-        // 일부만 완료 — 남은 수량: carry 가 있으면 그 날짜(또는 다음 작업일)의 배정에 합치고, 없으면 같은 날 지시로 남긴다.
-        const rest = cur.qty - qty
-        let to = null
-        if (req.body?.carry === 'next') {
-          const nxt = await wc.find({ _id: { $ne: _id }, orderId: cur.orderId, status: { $ne: '완료' }, date: { $gt: cur.date }, ...sameTaskFilter(task) }).sort({ date: 1 }).limit(1).next()
-          if (nxt) to = nxt.date
-          else { to = dayAfter(cur.date); while (isWeekend(to)) to = dayAfter(to) }
-        } else if (validDate(req.body?.carry)) to = req.body.carry
-        if (to && to !== cur.date) {
-          const sib = await wc.findOne({ _id: { $ne: _id }, orderId: cur.orderId, date: to, status: { $in: ['지시', '진행'] }, ...sameTaskFilter(task) })
-          if (sib) await wc.updateOne({ _id: sib._id }, { $inc: { qty: rest }, $set: { updatedAt: now } })
-          else await wc.insertOne({ orderId: cur.orderId, orderNo: cur.orderNo, date: to, qty: rest, task, status: '지시', note: cur.note || '', createdAt: now, by: who.by, splitFrom: cur._id, ...(cur.machineId ? { machineId: cur.machineId } : {}) })
-          carried = { date: to, qty: rest }
-        } else {
-          await wc.insertOne({
-            orderId: cur.orderId, orderNo: cur.orderNo, date: cur.date, qty: rest, task,
-            status: cur.status, note: cur.note || '', createdAt: now, by: who.by, splitFrom: cur._id, ...(cur.machineId ? { machineId: cur.machineId } : {}),
-          })
-        }
+        // 일부만 완료: 남은 수량은 같은 날짜·같은 자수기의 새 지시로 남긴다 (다른 배정과 합치거나 옮기지 않는다 — 옮기려면 일정에서 직접)
+        await wc.insertOne({
+          orderId: cur.orderId, orderNo: cur.orderNo, date: cur.date, qty: cur.qty - qty, task,
+          status: cur.status, note: cur.note || '', createdAt: now, by: who.by, splitFrom: cur._id, ...(cur.machineId ? { machineId: cur.machineId } : {}),
+          ...(cur.seq != null ? { seq: cur.seq } : {}),
+        })
       }
       await wc.updateOne({ _id }, { $set: { qty: doneQty, status: '완료', completedAt: now, completedBy: who.by, updatedAt: now } })
       detail = { action, qty, of: cur.qty, carried: carried?.date || null, reduced: reduced.length || undefined }
@@ -631,7 +607,7 @@ router.post('/:id/work', requireCap('work'), async (req, res) => {
       if (cur.status !== '완료') return res.status(409).json({ error: '완료된 작업이 아닙니다.' })
       const task = cur.task || ''
       const sameTask = task ? { task } : { $or: [{ task: '' }, { task: { $exists: false } }] }
-      const sibling = await wc.findOne({ _id: { $ne: _id }, orderId: cur.orderId, date: cur.date, status: { $in: ['지시', '진행'] }, ...sameTask })
+      const sibling = await wc.findOne({ _id: { $ne: _id }, orderId: cur.orderId, date: cur.date, status: { $in: ['지시', '진행'] }, machineId: cur.machineId || null, ...sameTask })      // 같은 자수기의 칸에만 합친다
       if (sibling) {
         await wc.updateOne({ _id: sibling._id }, { $inc: { qty: cur.qty }, $set: { updatedAt: now } })
         await wc.deleteOne({ _id })

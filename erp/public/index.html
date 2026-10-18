@@ -97,7 +97,7 @@ const ENT = {
       ['orderNo', '#', (o) => o.orderNo, 'r'], ['ptype', 'type', (o) => (o.productType ? `<span class="badge b-mute">${esc(o.productType)}</span>` : '')],
       ['title', '주문명', (o) => esc(o.title)], ['partner', '거래처', (o) => esc(o.partnerName)],
       ['status', '상태', (o) => badge(o.status, ORDER_BADGE[o.status] || 'b-warn')], ['due', '납기', (o) => dueCell(o)],
-      ['pri', '우선', (o) => ['', '높음', '긴급', '최우선'][o.priority || 0]],
+      ['pri', '우선', (o) => ['', '높음', '긴급', '최우선'][o.priority || 0] ?? String(o.priority)],
       ['pc', '명세', (o) => (o.pieceCount ? `${o.pieceCount}줄` : ''), 'r'],
       ['qty', '수량', (o) => (o.totalQty ? `${won(o.totalQty)}장` : ''), 'r'],
       ['total', '합계', (o) => won(o.amounts?.total), 'r'], ['bal', '잔금', (o) => won(o.amounts?.balance), 'r'],
@@ -109,7 +109,7 @@ const ENT = {
       { k: 'partnerId', l: '거래처', t: 'ref', ref: 'partners' }, { k: 'customerId', l: '담당 고객', t: 'ref', ref: 'customers' },
       { k: 'orderedAt', l: '주문일', t: 'date' }, { k: 'dueAt', l: '납기(출발필수)', t: 'date' },
       { k: 'designNotNeeded', l: '디자인', t: 'select', opts: ['false', 'true'], names: ['필요', '불필요(자수 디자인 없음)'], def: 'false', bool: 1 },
-      { k: 'priority', l: '우선순위', t: 'select', opts: ['0', '1', '2', '3'], names: ['보통', '높음', '긴급', '최우선'], def: '0', num: 1 },
+      { k: 'priority', l: '우선순위', t: 'select', opts: ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'], names: ['보통', '높음', '긴급', '최우선', '4', '5', '6', '7', '8', '9'], def: '0', num: 1 },
       { k: 'items', l: '품목 (한 줄에 하나)', t: 'area', to: itemsToText, from: textToItems, hint: '품목명, 색상, 사이즈, 수량, 단가, 비고' },
       { k: 'tags', l: '태그 (쉼표)', t: 'text', to: tagsToText, from: textToTags },
       { k: 'paid', l: '입금액', t: 'number' }, { k: 'vat', l: '부가세 별도', t: 'select', opts: ['false', 'true'], names: ['아니오', '예'], def: 'false', bool: 1 },
@@ -1398,8 +1398,6 @@ function workResultText(r, en, action) {
   for (const c of r.statusChanged || []) parts.push(`주문 ${c.from} → ${c.to}`)
   if (r.stock?.moves) parts.push(`수모 ${Math.abs(r.stock.delta)}장 ${r.stock.delta > 0 ? '재고 차감' : '재고 복원'}`)
   if (r.stock?.unmatched) parts.push(`⚠ 수모 옵션을 찾지 못해 ${r.stock.unmatched}장은 재고에 반영되지 않았습니다`)
-  if (r.carried) parts.push(`남은 ${won(r.carried.qty)}장 → ${Number(r.carried.date.slice(5, 7))}/${Number(r.carried.date.slice(8, 10))} 배정에 합침`)
-  if (r.reduced?.length) parts.push(`초과분 ${won(r.reduced.reduce((t, x) => t + x.take, 0))}장을 이후 배정에서 차감`)
   return parts.join(' · ')
 }
 // 작업 상태 버튼(지시 · 진행 · 완료) — 누르면 바로 처리된다 (저장 불필요)
@@ -1440,8 +1438,8 @@ function nextWorkDate(en) {
 }
 
 // 완료 수량 입력
-//   · 계획보다 적게 → 남은 수량을 다음 작업일에 합칠지(기본) / 같은 날 지시로 남길지 / 날짜를 고를지 묻는다
-//   · 계획보다 많이 → 초과분은 이후 배정에서 자동 차감된다
+//   · 계획보다 적게 → 남은 수량은 같은 날·같은 자수기의 지시로 남는다
+//   · 계획보다 많이 → 이 칸의 수량만 늘린다 (다른 배정의 수량은 다시 계산하지 않는다)
 function openComplete(en) {
   const nextD = nextWorkDate(en)
   const body = `<div class="drawer-note" style="grid-column:1/-1"><b>#${en.orderNo}</b> ${esc(en.order?.title || '')}${en.task ? ` · <b>${esc(en.task)}</b>` : ''} · ${esc(en.date)} · 계획 ${won(en.qty)}장</div>`
@@ -1452,12 +1450,9 @@ function openComplete(en) {
     const n = Math.round(Number($('#c_qty').value))
     const box = $('#c_more')
     if (n > 0 && n < en.qty) {
-      box.innerHTML = `<div class="field-label" style="margin-bottom:4px">남은 ${won(en.qty - n)}장은?</div>
-        <label class="c-opt"><input type="radio" name="c_carry" value="next" checked> 다음 작업일(${mdText(nextD)})에 합치기</label>
-        <label class="c-opt"><input type="radio" name="c_carry" value="same"> 같은 날(${mdText(en.date)}) 지시로 남기기</label>
-        <label class="c-opt"><input type="radio" name="c_carry" value="date"> 날짜 선택 <input class="field-input" id="c_date" type="date" value="${nextD}" style="width:auto"></label>`
+      box.innerHTML = `<div class="drawer-note">남은 <b>${won(en.qty - n)}장</b>은 같은 날(${mdText(en.date)})·같은 자수기의 지시로 남습니다. 다른 배정의 수량은 바꾸지 않습니다.</div>`
     } else if (n > en.qty) {
-      box.innerHTML = `<div class="drawer-note">계획(${won(en.qty)}장)보다 <b>${won(n - en.qty)}장</b> 더 했습니다. 초과분은 같은 주문·공정의 이후 배정에서 빠른 날짜부터 차감됩니다.</div>`
+      box.innerHTML = `<div class="drawer-note">계획(${won(en.qty)}장)보다 <b>${won(n - en.qty)}장</b> 더 했습니다. 이 칸의 수량만 늘어나고, 다른 배정의 수량은 바꾸지 않습니다.</div>`
     } else box.innerHTML = ''
   }
   $('#c_qty').addEventListener('input', more)
@@ -1465,13 +1460,8 @@ function openComplete(en) {
   $('#c_ok').onclick = () => {
     const n = Math.round(Number($('#c_qty').value))
     if (!(n > 0)) return setErr('완료 수량은 1 이상이어야 합니다.')
-    let carry
-    if (n < en.qty) {
-      const v = document.querySelector('input[name=c_carry]:checked')?.value
-      carry = v === 'next' ? 'next' : v === 'date' ? ($('#c_date').value || nextD) : undefined
-    }
     dlg.close()
-    workAction(en, 'complete', n, carry)
+    workAction(en, 'complete', n)
   }
 }
 
@@ -1496,6 +1486,7 @@ async function viewAssign() {
   const canW = me.can.includes('orders') || me.can.includes('work')
   $('#main').innerHTML = `<div class="plan">
     <div class="table-card plan-bar">
+      <label class="plan-start" title="계획 만들기는 이 날짜부터 배정합니다">시작일<input type="date" id="p_start"></label>
       <span class="sch-nav"><button id="p_prev" title="이전 기간">‹</button><button id="p_today">처음</button><button id="p_next" title="다음 기간">›</button></span>
       <span class="sch-label" id="p_label" style="font-size:14px"></span>
       <span class="plan-stale" id="p_stale"></span>
@@ -1546,11 +1537,17 @@ async function viewAssign() {
     const w = s.warnings || {}
     const skipped = [w.outOfRange ? `납기가 참고 기간 밖 ${w.outOfRange}건` : '', w.noDue ? `납기 없음·미배정 ${w.noDue}건` : ''].filter(Boolean).join(' · ')
     box.innerHTML = s.orders.map((o) => `<div class="po ${o.lateMs ? 'late' : ''} ${PLAN.hl === o.id ? 'on' : ''}" data-poid="${o.id}">
-        <div><b>#${o.orderNo}</b> ${esc(o.title)}<span class="so-q" style="float:right">${o.remaining}장</span></div>
+        ${canW ? `<div class="po-prio" title="priority 0~9 — 숫자가 큰 주문부터 배정합니다 (자동 개선·계획 만들기에 반영)"><span>priority</span><button type="button" data-pdec="${o.id}">−</button><input type="number" min="0" max="9" step="1" data-prio="${o.id}" value="${o.priority || 0}"><button type="button" data-pinc="${o.id}">+</button></div>` : (o.priority > 0 ? `<span class="po-prio on">priority ${o.priority}</span>` : '')}
+        <div><b>#${o.orderNo}</b> ${esc(o.title)}<span class="so-q" style="float:right" title="${o.done ? `전체 ${o.total}장 중 완료 ${o.done}장 · 남은 ${o.total - o.done}장` : ''}">${o.done ? `${Math.max(0, o.total - o.done)}/${o.done}` : `${o.remaining}장`}</span></div>
         <div class="po-s">${o.dueMs ? `납기 ${o.dueAt ? new Date(o.dueAt).toISOString().slice(5, 10).replace('-', '/') : ''} · 자수 목표 ${fmtT(o.dueMs)}` : '납기 없음'}</div>
         <div class="po-s ${o.lateMs ? 'late-txt' : ''}">${o.endMs ? `예상 완료 ${fmtT(o.endMs)}${o.lateMs ? ` · ⚠ ${fmtDur(o.lateMs)} 지연` : ''}` : '<span class="late-txt">배정되지 않음</span>'}${o.noDesign ? ' · 디자인 미연결' : ''}</div></div>`).join('')
       + (skipped ? `<div class="field-hint" style="padding:8px">제외: ${skipped}</div>` : '')
     box.querySelectorAll('[data-poid]').forEach((el) => { el.onclick = () => { PLAN.hl = PLAN.hl === el.dataset.poid ? null : el.dataset.poid; paintOrders2(); paintGantt() } })
+    box.querySelectorAll('.po-prio').forEach((l) => l.addEventListener('click', (ev) => ev.stopPropagation()))
+    const clampP = (v) => Math.max(0, Math.min(9, Math.round(Number(v) || 0)))
+    box.querySelectorAll('[data-prio]').forEach((inp) => { inp.onchange = () => setPrio(inp.dataset.prio, clampP(inp.value)) })
+    box.querySelectorAll('[data-pinc]').forEach((b) => { b.onclick = () => { const inp = box.querySelector(`[data-prio="${b.dataset.pinc}"]`); setPrio(b.dataset.pinc, clampP(Number(inp.value) + 1)) } })
+    box.querySelectorAll('[data-pdec]').forEach((b) => { b.onclick = () => { const inp = box.querySelector(`[data-prio="${b.dataset.pdec}"]`); setPrio(b.dataset.pdec, clampP(Number(inp.value) - 1)) } })
   }
 
   // ── 간트: 열 = 날짜(근무 시간 구간), 행 = 자수기 + 작업자 ──
@@ -1620,7 +1617,8 @@ async function viewAssign() {
     const todays = (j) => j.capDays?.[d.date] || 0
     const un = s.jobs.filter((j) => !j.machineId)
     const unHtml = un.length ? `<div class="pg-un" style="grid-column:1/-1"><b>미배정</b> ${un.map((j) => `<span class="pg-chip" data-job="${j.id}">#${j.orderNo} ×${j.count}</span>`).join('')}</div>` : ''
-    const cards = s.machines.map((m) => {
+    const cards = s.machines.map((m, mi) => {
+      const lim = s.cap ? ((s.cap.overrides?.[d.date] ?? s.cap.machines) > mi ? s.cap.perMachine : 0) : null          // 이 자수기의 이 날 작업 수량 한도(장)
       const mine = s.jobs.filter((j) => j.machineId === m.id && todays(j) > 0).sort((a, b) => a.seq - b.seq)
       const caps = mine.reduce((t, j) => t + todays(j), 0)
       const items = mine.map((j) => {
@@ -1633,9 +1631,10 @@ async function viewAssign() {
           <div><b>#${j.orderNo}</b> ${esc(j.title)}</div>
           <div class="po-s">${esc(j.designName || j.designCode || '')}${j.setName ? ` · ${esc(j.setName)}` : ''}${j.initialColor ? ` · 이니셜 ${esc(j.initialColor)}` : ''}</div>
           <div class="po-s"><b>${todays(j)}장</b>${todays(j) !== j.count ? ` / 전체 ${j.count}장` : ''}${j.locked ? ' 🔒' : ''}${startsToday && j.swaps ? ` <span class="mchip warn">실 교체 ${j.swaps}</span>` : ''}</div>
+          ${todays(j) < j.count ? `<div class="po-s">나머지 ${j.count - todays(j)}장: ${Object.entries(j.capDays).filter(([dt]) => dt !== d.date).sort().map(([dt, n]) => `${Number(dt.slice(5, 7))}/${Number(dt.slice(8))} ${n}장`).join(' · ')}</div>` : ''}
           <div class="pd-th">${j.threads.slice(0, 9).map((x) => thColorImg(x)).join('')}</div></div>`
       }).join('')
-      return `<div class="pd-card"><div class="asg-h"><b>${esc(m.name)}</b><span class="asg-load">${caps ? `${caps}장 · ${mine.length}건` : '작업 없음'}</span></div>${items || '<div class="field-hint" style="padding:6px 2px">이 날 작업이 없습니다</div>'}</div>`
+      return `<div class="pd-card"><div class="asg-h"><b>${esc(m.name)}</b><span class="asg-load ${lim != null && caps > lim ? 'over' : ''}" title="자수기 1대 하루 작업 수량 한도 ${lim ?? '-'}장">${caps ? `${caps}${lim != null ? `/${lim}` : ''}장 · ${mine.length}건` : (lim === 0 ? '쉬는 날' : lim != null ? `한도 ${lim}장` : '작업 없음')}</span></div>${items || '<div class="field-hint" style="padding:6px 2px">이 날 작업이 없습니다</div>'}</div>`
     }).join('')
     box.innerHTML = `<div class="pd-grid">${d.work ? '' : '<div class="field-hint" style="grid-column:1/-1">휴무일입니다. (근무 요일은 설정 > 생산 계획에서 바꿉니다)</div>'}${unHtml}${cards}</div>`
     box.querySelectorAll('[data-job]').forEach((el) => { el.onclick = () => openJob(el.dataset.job) })
@@ -1681,8 +1680,18 @@ async function viewAssign() {
     $('#j_lock')?.addEventListener('change', () => send([{ op: 'lock', jobId: id, locked: $('#j_lock').checked }]))
   }
 
+  // 우선 지정 — 주문의 우선순위를 바꾸고 계획에 반영(이미 짠 배정은 그대로, 다음 자동 개선·계획 만들기에서 먼저 배정)
+  const setPrio = async (id, priority) => {
+    try {
+      PLAN.sc = await api('/production/priority', { method: 'POST', body: { id, priority, scenarioId: sc()._id } })
+      repaint()
+      $('#p_stale').textContent = sc().status === 'draft' ? 'priority가 바뀌었습니다 — "자동 개선"(또는 계획 만들기)을 누르면 숫자가 큰 주문부터 배정합니다' : 'priority가 바뀌었습니다 — "계획 만들기"를 누르면 숫자가 큰 주문부터 배정합니다'
+      $('#p_stale').className = 'plan-stale warn'
+    } catch (e) { alert(e.message); repaint() }
+  }
   const repaint = () => {
     const s = sc()
+    if (s && s.startMs && document.activeElement !== $('#p_start')) $('#p_start').value = kst(s.startMs).slice(0, 10)          // 만들어 둔 계획의 시작일
     $('#p_stale').textContent = s ? (s.status === 'confirmed' ? `확정됨 (${fmtT(new Date(s.confirmedAt).getTime())})` : s.stale ? '⚠ 계획을 만든 뒤 작업배정이 바뀌었습니다 — 계획 만들기로 다시 계산하세요' : '초안 — 확정 전에는 실제 작업배정이 바뀌지 않습니다') : ''
     $('#p_stale').className = `plan-stale ${s && (s.stale ? 'warn' : s.status === 'confirmed' ? 'ok' : '')}`
     const ok = $('#p_ok'); if (ok) ok.disabled = !s || s.status !== 'draft'
@@ -1713,7 +1722,7 @@ async function viewAssign() {
   $('#p_zoom').onclick = () => { PLAN.zoom = PLAN.zoom ? 0 : 1; $('#p_zoom').textContent = PLAN.zoom ? '맞춤' : '확대'; paintGantt() }
   $('#p_new')?.addEventListener('click', () => {
     if (sc()?.status === 'draft' && !confirm('지금의 초안을 버리고 새로 계산할까요? (수동으로 바꾼 내용은 사라집니다)')) return
-    run('계산 중…', () => api('/production/scenarios', { method: 'POST', body: {} }))
+    run('계산 중…', () => api('/production/scenarios', { method: 'POST', body: { startDate: $('#p_start').value || undefined } }))
   })
   $('#p_opt')?.addEventListener('click', () => run('개선하는 중…', () => api(`/production/scenarios/${sc()._id}/optimize`, { method: 'POST', body: {} })))
   $('#p_ok')?.addEventListener('click', async () => {
@@ -1728,6 +1737,8 @@ async function viewAssign() {
   })
   window.addEventListener('resize', () => { if ($('#p_gantt')) paintGantt() }, { once: true })
   try { PLAN.sc = await api('/production/scenarios/latest') } catch (e) { alert(e.message) }
+  $('#p_start').min = ymd(new Date())
+  $('#p_start').value = ymd(new Date())
   modeUi()
   repaint()
 }
@@ -2187,13 +2198,18 @@ async function viewWorksheets() {
       WS.all = all; WS.date = $('#ws_date').value || ymd(new Date())
       const from = all ? ymd(new Date()) : WS.date
       const to = all ? ymd(addDays(new Date(), 30)) : WS.date
-      const r = await api(`/schedule?from=${from}&to=${to}`)
+      const [r, mc] = await Promise.all([api(`/schedule?from=${from}&to=${to}`), api('/machines').catch(() => ({ items: [] }))])
+      const mname = new Map(mc.items.map((m) => [String(m._id), m.name]))
       const map = new Map()
       for (const e of r.entries) {
         if (all && e.status === '완료') continue
         const k = `${e.orderId}|${e.date}`
-        if (!map.has(k)) map.set(k, { orderId: String(e.orderId), orderNo: e.orderNo, title: e.order?.title || '', partnerName: e.order?.partnerName || '', date: e.date, tasks: [], notes: [], statuses: [], designState: e.order?.designState || 'none' })
+        if (!map.has(k)) map.set(k, { orderId: String(e.orderId), orderNo: e.orderNo, title: e.order?.title || '', partnerName: e.order?.partnerName || '', date: e.date, tasks: [], notes: [], statuses: [], machines: [], designState: e.order?.designState || 'none', total: e.order?.totalQty || 0, offset: e.offset || 0 })
         const row = map.get(k)
+        row.offset = Math.min(row.offset, e.offset || 0)
+        const mn = e.machineId ? mname.get(String(e.machineId)) : ''
+        if (mn && !row.machines.includes(mn)) row.machines.push(mn)
+        ;(row.ents = row.ents || []).push({ m: mn || '', qty: e.qty, off: e.offset || 0, units: e.units || null, at: new Date(e.estStartAt || e.createdAt || 0).getTime(), seq: e.seq ?? 0, task: e.task || '' })
         const t = row.tasks.find((x) => x.task === (e.task || ''))
         if (t) t.qty += e.qty; else row.tasks.push({ task: e.task || '', qty: e.qty })
         row.statuses.push(e.status)
@@ -2232,7 +2248,7 @@ const wsGroups = (o) => {
 const capCell = (v, big) => {
   const c = String(v ?? '').trim()
   const u = c ? pcImg('color', c) : ''
-  return big ? `<td class="cim cap" style="height:46px"><div class="ws-ci"><span>${esc(c)}</span>${u ? `<img src="${esc(u)}" alt="" onerror="this.style.visibility='hidden'">` : ''}</div></td>`
+  return big ? `<td class="cim cap" style="height:38px"><div class="ws-ci"><span>${esc(c)}</span>${u ? `<img src="${esc(u)}" alt="" onerror="this.style.visibility='hidden'">` : ''}</div></td>`
     : `<td class="cim"><div class="ws-ci"><span>${esc(c)}</span>${u ? `<img class="sm" src="${esc(u)}" alt="" onerror="this.style.visibility='hidden'">` : ''}</div></td>`
 }
 // 컬러코드 + 이미지(남는 칸을 가득) — 이니셜 컬러 칸용
@@ -2240,8 +2256,9 @@ const codeImgCell = (v) => { const c = String(v ?? '').trim(); if (!c) return ''
 
 function wsSheet(row, o, pos) {
   const ps = o.pieces || []
-  const one = ps.length === 1 ? ps[0] : null
-  const many = ps.length > 1
+  const grp = !!row.groupMode                                // 디자인·컬러 세트·이니셜이 같은 장을 묶은 시트
+  const one = ps.length === 1 || (grp && ps.length) ? ps[0] : null
+  const many = ps.length > 1 && !grp
   const groups = wsGroups(o)
   const shown = groups.slice(0, 4)
   const designs = o.designsState || []
@@ -2262,8 +2279,11 @@ function wsSheet(row, o, pos) {
   const colors = dset ? (dset.colors || []) : (logo?.colors || [])
   const colorText = (c) => `${c.label || c.code}${c.part ? ` (${c.part})` : ''}`
   const img = logo?.preview || initDesign?.preview || (o.attachments || [])[0] || ''
-  const memo = [o.content, o.request, one?.note ? `비고: ${one.note}` : '', ...(row.notes || [])].filter((x) => x && String(x).trim()).join('\n')
-  const taskTxt = row.tasks.map((t) => `${t.task || '전체'} ${won(t.qty)}장`).join(' · ')
+  const memo = [o.content, o.request, (row.pieceNote ?? one?.note) ? `비고: ${row.pieceNote ?? one.note}` : '', ...(row.notes || [])].filter((x) => x && String(x).trim()).join('\n')
+  // 공정 · 매수: 묶은 장이 여러 장이면 "N매 작업", 한 장이면 비운다 ("전체 1장" 표기는 쓰지 않는다)
+  const mae = row.mae || 0
+  const taskTxt = mae > 1 ? (row.tasks.some((t) => t.task) ? row.tasks.map((t) => `${t.task || '전체'} ${mae}매 작업`).join(' · ') : `${mae}매 작업`)
+    : (mae === 1 ? row.tasks.filter((t) => t.task).map((t) => t.task).join(' · ') : row.tasks.map((t) => `${t.task || '전체'} ${won(t.qty)}장`).join(' · '))
   const tr = (cells) => `<tr>${cells.join('')}</tr>`
 
   const capRows = shown.map((g, i) => tr([`<td class="l">${i === 0 ? '컬러' : ''}</td>`, capCell(g.color, shown.length === 1), `<td>${esc(g.size)}${groups.length > 1 || g.n > 1 ? ` ×${g.n}` : ''}</td>`])).join('')
@@ -2285,12 +2305,13 @@ function wsSheet(row, o, pos) {
       <table class="ws-t ws-head"><tbody>
         <tr><td class="no">#${row.orderNo}</td><td colspan="2" class="ti">${esc(row.title)}${row.seq ? ` <span class="ws-seq">${esc(row.seq)}</span>` : ''}</td></tr>
         <tr><td class="l2">작업일자</td><td>${esc(row.date)}</td><td class="sub">${esc(taskTxt)}</td></tr>
-        ${row.seq && one && (one.person || one.position) ? `<tr><td class="l2">주문자</td><td colspan="2"><div class="ws-pr"><span>${esc([one.person, one.position].filter(Boolean).join(' · '))}</span><b>${one.design && logo ? esc(logo.name) + (dset ? ` (${esc(dset.name)})` : '') : ''}</b></div></td></tr>` : ''}
+        ${(row.seq || grp) && one && ((row.personText ?? one.person) || one.position) ? `<tr><td class="l2">주문자</td><td colspan="2"><div class="ws-pr"><span>${esc([row.personText ?? one.person, one.position].filter(Boolean).join(' · '))}</span><b>${one.design && logo ? esc(logo.name) + (dset ? ` (${esc(dset.name)})` : '') : ''}</b></div></td></tr>` : ''}
       </tbody></table>
       <table class="ws-t"><thead><tr><th>수모</th><th>컬러</th><th>사이즈</th></tr></thead><tbody>${capRows || tr(['<td class="l">컬러</td>', '<td></td>', '<td></td>'])}</tbody></table>
       <table class="ws-t"><thead><tr><th>이니셜</th><th>이니셜</th><th>컬러</th></tr></thead><tbody>${initRows}</tbody></table>
       <table class="ws-t"><thead><tr><th>로고</th><th>color</th><th>색상</th></tr></thead><tbody>${logoRows}</tbody></table>
       <table class="ws-t"><tbody><tr><td class="l">작업자</td><td></td><td></td></tr></tbody></table>
+      <table class="ws-t ws-mach"><tbody><tr><td class="l">자수기</td><td colspan="2" class="mno">${esc((row.machines || []).map((n) => (/\d+/.exec(n) ? `${/\d+/.exec(n)[0]}번` : n)).join(' · '))}</td></tr></tbody></table>
     </div>
     <div class="ws-right">
       <div class="ws-img">${img ? `<img src="${esc(imgSrc(img))}" alt="">` : '<span>디자인 이미지 없음</span>'}</div>
@@ -2311,13 +2332,56 @@ async function makeWorksheets(mode) {
     // 주문 상세(제작 명세·디자인·메모)
     const details = await Promise.all(picked.map((r) => api(`/orders/${r.orderId}`)))
     // 주문이 여러 장(제작 명세 2줄 이상)이면 장마다 한 장씩 만든다. 같은 디자인이어도 각각이며 1/7, 2/7 … 로 구분한다.
+    //   주문 수량 N장이면 N장 각각: 이 작업일자에 배정된 장수만큼, 전체 번호(g/N)를 붙인다 (다른 날 배정분은 그 날짜의 작업지시서에서 이어서).
+    //   제작 명세(장별 사양)가 N줄이면 한 줄씩, 줄 수가 N과 다르면 균등하게 나눠 대응시킨다.
     const sheets = []
+    const notes = []
     picked.forEach((r, i) => {
       const d = details[i], ps = d.pieces || []
-      if (ps.length > 1) {
-        ps.forEach((p, k) => sheets.push(wsSheet({ ...r, seq: `${k + 1}/${ps.length}`, tasks: r.tasks.map((x) => ({ ...x, qty: 1 })) }, { ...d, pieces: [p] }, '')))
-      } else sheets.push(wsSheet(r, d, ''))
+      const count = Math.max(1, ...r.tasks.map((x) => x.qty))
+      const total = Math.max(r.total || 0, r.offset + count, ps.length)
+      if (total <= 1 && count <= 1) { sheets.push(wsSheet({ ...r, mae: 1 }, d, '')); return }
+      if (ps.length && ps.length !== total) notes.push(`#${r.orderNo}: 제작 명세 ${ps.length}줄 ≠ 주문 ${total}장 — 줄을 균등하게 나눠 ${total}장으로 만들었습니다`)
+      // 이 날짜 작업분의 장마다 (사양, 자수기)를 정하고, 디자인·컬러 세트·이니셜(좌우·색)과 자수기가 같은 장은 한 시트로 묶는다.
+      //   이니셜이 다르면 같은 디자인이어도 각각의 시트. 묶은 시트에는 "N매 작업"이 표시되고, 수모 색·사이즈는 ×장수로 나열된다.
+      // 이 날짜 작업분의 (장 번호, 자수기): 생산 계획에서 확정한 배정은 장 번호(units)를 알고 있어 그대로 쓰고,
+      //   장 번호가 없는 배정은 그 배정의 순서(offset)부터 수량만큼 차례로 잡는다. 로고·이니셜을 따로 배정한 주문은 수량이 많은 공정 하나만 본다.
+      const byTask = new Map()
+      for (const e of r.ents || []) byTask.set(e.task, (byTask.get(e.task) || 0) + e.qty)
+      const mainTask = [...byTask.entries()].sort((a, b) => b[1] - a[1])[0]?.[0]
+      const slots = []
+      for (const e of (r.ents || []).filter((x) => x.task === mainTask).sort((a, b) => a.at - b.at || a.seq - b.seq)) {
+        if (e.units && e.units.length) e.units.forEach((u) => slots.push({ g: u, m: e.m }))
+        else for (let i = 0; i < e.qty; i++) slots.push({ g: e.off + i, m: e.m })
+      }
+      if (!slots.length) for (let k = 0; k < count; k++) slots.push({ g: r.offset + k, m: '' })
+      slots.sort((a, b) => a.g - b.g)
+      const groups = new Map()
+      for (const slot of slots) {
+        const g = slot.g
+        const piece = ps.length ? (ps.length >= total ? (ps[g] || ps[ps.length - 1]) : ps[Math.min(ps.length - 1, Math.floor((g * ps.length) / total))]) : null
+        const mach = slot.m ? [slot.m] : []
+        const det = (d.designsState || []).find((x) => x.code === piece?.design)
+        const setName = piece?.design ? (piece.variant || variantFor(det?.variants, piece.color)?.name || '기본') : ''
+        const key = [piece?.design || '', setName, piece?.initials || '', piece?.initialsRight || '', piece?.initialColor || '', mach[0] || ''].join('\u0001')
+        if (!groups.has(key)) groups.set(key, { machines: mach, pcs: [] })
+        groups.get(key).pcs.push(piece)
+      }
+      const list = [...groups.values()]
+      list.forEach((grp, si) => {
+        const pcs = grp.pcs.filter(Boolean)
+        const persons = [...new Set(pcs.map((x) => x.person).filter(Boolean))]
+        const noteList = [...new Set(pcs.map((x) => x.note).filter(Boolean))]
+        const n = grp.pcs.length
+        sheets.push(wsSheet({
+          ...r, machines: grp.machines, groupMode: true, mae: n, tasks: r.tasks.map((x) => ({ ...x, qty: n })),
+          seq: list.length > 1 ? `${si + 1}/${list.length}` : '',
+          personText: persons.length > 1 ? `${persons[0]} 외 ${persons.length - 1}명` : persons[0] || '',
+          pieceNote: noteList.join(' / '),
+        }, { ...d, pieces: pcs }, ''))
+      })
     })
+    if (notes.length) alert(notes.join('\n'))
     const pages = []
     for (let i = 0; i < sheets.length; i += 2) {
       pages.push(`<div class="ws-page">${sheets[i].replace('class="ws-sheet "', 'class="ws-sheet top"')}${sheets[i + 1] ? sheets[i + 1].replace('class="ws-sheet "', 'class="ws-sheet bottom"') : ''}<div class="ws-cut"></div></div>`)

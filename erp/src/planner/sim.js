@@ -2,7 +2,7 @@
 //   자수기마다 작업 큐를 순서대로 돌린다. 한 작업은 [실 교체] → 수모마다 [수모 탈착·장착(작업자)] → [자수(자동)] 이다.
 //   작업자는 근무 시간에만 일하고 한 번에 한 대만 다룬다. 자수가 끝난 자수기는 작업자가 올 때까지 선다.
 import { loadThreads, normNeedles, swapCount } from '../machineLib.js'
-import { WorkCal, ymdOf } from './calendar.js'
+import { WorkCal, ymdOf, dayStart, addDaysYmd } from './calendar.js'
 
 const BIG = 9e15
 
@@ -13,8 +13,24 @@ const BIG = 9e15
  *  due      : Map(orderId → ms)                — 자수 완료 목표
  *  cfg      : normProduction() 결과,  threadSec : 실 1색 교체 초,  startMs : 계산 시작 시각
  */
-export function simulate({ machines, queues, due = new Map(), cfg, threadSec, startMs }) {
+export function simulate({ machines, queues, due = new Map(), prio = new Map(), cfg, threadSec, startMs, cap = null }) {
   const cal = new WorkCal(cfg, startMs, 150)
+  // 하루 작업 수량 한도 — 자수기 1대가 하루에 시작할 수 있는 수모 수(작업 일정 · 하루 처리 한도). 가동 대수가 줄어든 날(날짜별 지정)은 앞의 n대만 쓴다.
+  const counts = new Map()
+  const limitOn = (mi, date) => {
+    if (!cap) return Infinity
+    const n = cap.overrides?.[date] ?? cap.machines
+    return mi >= n ? 0 : cap.perMachine
+  }
+  // s 이후 이 자수기가 이 단계를 시작할 수 있는 가장 이른 근무 시각 (한도를 채운 날·쉬는 자수기는 다음 날로 미룬다)
+  const place = (mm, mi, s, isCap) => {
+    for (let g = 0; g < 400 && s !== Infinity; g++) {
+      const date = ymdOf(s), lim = limitOn(mi, date)
+      if (lim > 0 && (!isCap || (counts.get(`${mm.id}|${date}`) || 0) < lim)) return s
+      s = cal.nextStart(dayStart(addDaysYmd(date, 1)))
+    }
+    return Infinity
+  }
   const capMs = cfg.capChangeSec * 1000, thMs = threadSec * 1000
   const workerFree = Array(cfg.workers).fill(startMs)
   const workerSegs = Array.from({ length: cfg.workers }, () => [])
@@ -74,19 +90,23 @@ export function simulate({ machines, queues, due = new Map(), cfg, threadSec, st
       if (mm.si >= mm.steps.length) continue
       let wi = 0
       for (let k = 1; k < workerFree.length; k++) if (workerFree[k] < workerFree[wi]) wi = k
-      const s = cal.nextStart(Math.max(mm.ready, workerFree[wi]))
-      const d = due.get(mm.q[mm.steps[mm.si].ji].orderId) ?? BIG
-      if (!best || s < best.s || (s === best.s && d < best.d)) best = { i, wi, s, d }
+      const s0 = cal.nextStart(Math.max(mm.ready, workerFree[wi]))
+      const s = place(mm, i, s0, mm.steps[mm.si].type === 'cap')
+      const oidNow = mm.q[mm.steps[mm.si].ji].orderId
+      const pv = prio.get(oidNow) || 0
+      const d = pv > 0 ? -pv * 1e15 : (due.get(oidNow) ?? BIG)          // 같은 시각이면 우선 주문의 자수기를 먼저 챙긴다
+      if (!best || s < best.s || (s === best.s && d < best.d)) best = { i, wi, s, s0, d }
     }
     if (!best) break
     const mm = M[best.i], st = mm.steps[mm.si++]
     if (best.s === Infinity) { overflow = true; mm.si = mm.steps.length; continue }
     const e = cal.advance(best.s, st.dur)
     if (e === Infinity) { overflow = true; mm.si = mm.steps.length; continue }
+    if (st.type === 'cap') { const key = `${mm.id}|${ymdOf(best.s)}`; counts.set(key, (counts.get(key) || 0) + 1) }
     const wait = best.s - mm.ready
     if (wait > 120e3) push(mm, 'wait', mm.ready, best.s)             // 2분 넘게 작업자를 기다린 시간만 따로 표시
     else if (wait > 0) push(mm, 'run', mm.ready, best.s)
-    mm.waitWork += Math.max(0, wait - nonWork(cal, mm.ready, best.s))
+    mm.waitWork += Math.max(0, (best.s0 - mm.ready) - nonWork(cal, mm.ready, best.s0))      // 작업자를 기다린 시간만 (하루 한도로 미뤄진 시간은 제외)
     push(mm, st.type === 'thread' ? 'thread' : 'run', best.s, e)
     addWorker(best.wi, best.s, e)
     workerFree[best.wi] = e
@@ -114,6 +134,14 @@ export function simulate({ machines, queues, due = new Map(), cfg, threadSec, st
     if (late) { lateOrders++; lateMs += late }
     orders[oid] = { endMs: end, dueMs: dd ?? null, lateMs: late }
   }
+  // 우선 주문: 우선 주문에 속한 모든 장의 평균 완료 시각 (우선순위 값 가중) — 어느 자수기에서든 우선 주문이 앞에 있을수록 좋다.
+  //   주문 전체의 완료 시각만 보면 느린 자수기 몫에 가려져, 여유 있는 자수기에서 다른 주문이 먼저 하게 되기 때문이다.
+  const lv = {}                                             // 우선순위 값(1~9)별 { 장수, 완료 시각 합 }
+  for (const j of jobs.values()) {
+    const pv = prio.get(j.orderId) || 0
+    if (pv > 0 && j.caps > 0 && j.endMs != null) { const x = (lv[pv] ||= { n: 0, s: 0, max: 0 }); x.n += j.caps; x.s += j.caps * (j.endMs - startMs); x.max = Math.max(x.max, j.endMs - startMs) }
+  }
+  const prioByLevel = Object.fromEntries(Object.entries(lv).map(([k, x]) => [k, { mean: x.s / x.n, max: x.max }]))
   const span = Math.max(1, workBetween(cal, startMs, maxEnd))
   const emb = M.map((x) => x.embMs)
   const mean = emb.length ? emb.reduce((a, b) => a + b, 0) / emb.length : 0
@@ -122,7 +150,7 @@ export function simulate({ machines, queues, due = new Map(), cfg, threadSec, st
     machines: Object.fromEntries(M.map((mm) => [mm.id, { segs: mm.segs, embMs: mm.embMs, swaps: mm.swaps, endMs: mm.ready, util: mm.embMs / span }])),
     jobs, orders, workerSegs, overflow,
     metrics: {
-      lateOrders, lateMs, makespanMs: maxEnd - startMs, endMs: maxEnd, threadSwaps: swaps, threadMs: swaps * thMs,
+      lateOrders, lateMs, prioByLevel, makespanMs: maxEnd - startMs, endMs: maxEnd, threadSwaps: swaps, threadMs: swaps * thMs,
       workerBusyMs: workerBusy, workerCount: cfg.workers, waitWorkMs: waitWork, loadStdMs: loadStd, embMs: emb.reduce((a, b) => a + b, 0),
     },
   }
@@ -136,9 +164,10 @@ function workBetween(cal, a, b) {
 }
 const nonWork = (cal, a, b) => Math.max(0, (b - a) - workBetween(cal, a, b))
 
-// 점수(작을수록 좋음) — 사전식: 미배정 수량 → 납기 지연 건수 → 지연 시간 → 전체 완료 시각 → 작업자 대기 → 실 교체 → 부하 편차
+// 점수(작을수록 좋음) — 사전식: 미배정 수량 → 우선순위 9, 8, … 1 순서로 각 우선순위 주문의 마지막 완료 시각과 평균 완료 시각(30분 단위; 숫자가 큰 것부터 앞서 끝나야 함) → 납기 지연 건수 → 지연 시간(12시간 단위) → 실 교체 → 전체 완료 시각(하루 단위) → 작업자 대기 → 부하 편차
+//   납기를 지킨 뒤에는 '빨리 끝내기'보다 '실을 덜 바꾸기'가 먼저다 — 같은 디자인·실은 같은 자수기에 모이고, 일부러 여러 자수기로 흩어 완료 시각을 몇 시간 앞당기지 않는다.
 export const scoreOf = (metrics, unassignedCaps = 0) => [
-  unassignedCaps, metrics.lateOrders, Math.round(metrics.lateMs / 60e3), Math.round(metrics.makespanMs / 60e3),
-  Math.round(metrics.waitWorkMs / 60e3), metrics.threadSwaps, Math.round(metrics.loadStdMs / 60e3),
+  unassignedCaps, ...[9, 8, 7, 6, 5, 4, 3, 2, 1].flatMap((k) => { const x = metrics.prioByLevel?.[k]; return [Math.round((x?.max || 0) / 1800e3), Math.round((x?.mean || 0) / 1800e3)] }), metrics.lateOrders, Math.round(metrics.lateMs / 720 / 60e3), metrics.threadSwaps,
+  Math.round(metrics.makespanMs / 86400e3), Math.round(metrics.waitWorkMs / 900e3), Math.round(metrics.loadStdMs / 60e3),
 ]
 export const better = (a, b) => { for (let i = 0; i < a.length; i++) { if (a[i] !== b[i]) return a[i] < b[i] } return false }
