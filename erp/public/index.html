@@ -604,7 +604,8 @@ function wirePieces(initial, canW, opt = {}) {
   let list = initial.map((p) => ({ ...p }))
   // opt.designs: [{ code, label }] — 있으면 장마다 쓸 디자인을 고르는 열을 더한다 (디자인 매핑)
   // 디자인 매핑에서는 디자인·세트 열을 비고 앞에 둔다 (비고가 맨 뒤)
-  const cols = opt.designs ? [...PC_COLS.filter((c) => c[0] !== 'note'), ['design', '디자인', 190], ['variant', '컬러 세트', 150], ...PC_COLS.filter((c) => c[0] === 'note')] : PC_COLS
+  const cols = opt.designs ? [...PC_COLS.filter((c) => c[0] !== 'note'), ['design', '디자인', 190], ['variant', '컬러 세트', 150], ...PC_COLS.filter((c) => c[0] === 'note')] : [...PC_COLS.slice(0, 3), ['qty', '수량', 56], ...PC_COLS.slice(3)]   // 주문 화면: 사이즈 뒤에 수량 — 2 이상이면 저장할 때 그 수만큼 줄로 나뉜다
+  const qtyOf = (p) => Math.max(1, Math.floor(Number(p.qty)) || 1)
   const box = $('#pc_box')
   const dis = canW ? '' : 'disabled'
   const titleQty = () => {
@@ -613,15 +614,16 @@ function wirePieces(initial, canW, opt = {}) {
   }
   const groups = () => {
     const m = new Map()
-    list.forEach((p) => { const k = `${p.color || '-'} ${p.size || '-'}`; m.set(k, (m.get(k) || 0) + 1) })
+    list.forEach((p) => { const k = `${p.color || '-'} ${p.size || '-'}`; m.set(k, (m.get(k) || 0) + qtyOf(p)) })
     return [...m].sort((a, b) => a[0].localeCompare(b[0], 'ko'))
   }
   const paintSum = () => {
     const el = $('#pc_sum')
     if (!el) return
     const q = titleQty()
-    const warn = list.length && q && q !== list.length ? ` ⚠ 주문명의 #${q}장과 명세 ${list.length}줄이 다릅니다.` : ''
-    el.textContent = list.length ? `총 ${list.length}줄 · ${groups().map(([k, n]) => `${k} ${n}`).join(' · ')}${warn}` : '명세가 없습니다. (여러 장을 사람별로 다르게 주문할 때 사용)'
+    const total = list.reduce((sum, p) => sum + qtyOf(p), 0)
+    const warn = list.length && q && q !== total ? ` ⚠ 주문명의 #${q}장과 명세 ${total}장이 다릅니다.` : ''
+    el.textContent = list.length ? `총 ${total}장 · ${groups().map(([k, n]) => `${k} ${n}`).join(' · ')}${warn}` : '명세가 없습니다. (여러 장을 사람별로 다르게 주문할 때 사용)'
   }
   const renumber = () => list.forEach((p, i) => { p.no = i + 1 })
   const paint = () => {
@@ -643,6 +645,8 @@ function wirePieces(initial, canW, opt = {}) {
             const auto = variantFor(vs, p.color)
             return `<select class="field-input" style="width:${w}px;padding:6px 8px" data-r="${i}" data-f="variant" ${dis}><option value="">(자동: ${esc(auto ? auto.name : vs.baseName)})</option><option value="기본" ${p.variant === '기본' ? 'selected' : ''}>${esc(vs.baseName)}</option>${vs.map((x) => `<option value="${esc(x.name)}" ${x.name === p.variant ? 'selected' : ''}>${esc(x.name)}${(x.caps || []).length ? ` (${esc(x.caps.join(', '))})` : ''}</option>`).join('')}</select>`
           })()
+          : k === 'qty'
+          ? `<input class="field-input" style="width:${w}px;padding:6px 8px;text-align:right" type="number" min="1" data-r="${i}" data-f="qty" value="${qtyOf(p)}" ${dis}>`
           : PC_IMG_DIR[k]
           ? `<div style="display:flex;align-items:center;gap:6px"><input class="field-input" style="width:${w}px;padding:6px 8px" data-r="${i}" data-f="${k}" value="${esc(p[k] ?? '')}" ${dis}><span data-th="${i}-${k}" style="width:30px;height:30px;flex:none">${pcThumb(k, p[k])}</span></div>`
           : `<input class="field-input" style="width:${w}px;padding:6px 8px" data-r="${i}" data-f="${k}" value="${esc(p[k] ?? '')}" ${dis}>`}</td>`).join('')}<td>${
@@ -678,19 +682,24 @@ function wirePieces(initial, canW, opt = {}) {
     }
     $('#pc_add')?.addEventListener('click', () => convert(false))
     $('#pc_rep')?.addEventListener('click', () => convert(true))
-    $('#pc_row')?.addEventListener('click', () => { list.push({ no: 0, person: '', color: '', size: '', position: '', initials: '', initialsRight: '', initialColor: '', note: '', design: '' }); paint() })
+    $('#pc_row')?.addEventListener('click', () => { list.push({ no: 0, qty: 1, person: '', color: '', size: '', position: '', initials: '', initialsRight: '', initialColor: '', note: '', design: '' }); paint() })
     $('#pc_items')?.addEventListener('click', () => {
       const area = $('#f_items')
       if (!area || !list.length) return
       if (area.value.trim() && !confirm('품목을 색상×사이즈별 수량으로 바꿀까요? 지금 입력된 품목은 사라집니다.')) return
       const m = new Map()
-      list.forEach((p) => { const k = `${p.color || ''}\u0000${p.size || ''}`; m.set(k, (m.get(k) || 0) + 1) })
+      list.forEach((p) => { const k = `${p.color || ''}\u0000${p.size || ''}`; m.set(k, (m.get(k) || 0) + qtyOf(p)) })
       area.value = [...m].map(([k, n]) => { const [c, s] = k.split('\u0000'); return `, ${c}, ${s}, ${n}, 0,` }).join('\n')
     })
   }
   $('#f_title')?.addEventListener('input', paintSum)
   paint()
-  return () => { renumber(); return list }
+  // 저장할 때: 수량이 2 이상인 줄은 같은 내용의 줄 여러 개로 나눈다 (제작 명세는 한 줄 = 수모 한 개)
+  return () => {
+    const out = list.flatMap((p) => { const { qty, ...rest } = p; return Array.from({ length: qtyOf(p) }, () => ({ ...rest })) }).slice(0, 1000)
+    out.forEach((p, i) => { p.no = i + 1 })
+    return out
+  }
 }
 
 // 주문 메모 — 계속 덧붙이는 기록 (작성자 · 시각). Ctrl+Enter 로 추가.
