@@ -215,6 +215,26 @@ router.post('/:id/versions/:no/confirm', requireCap('design'), async (req, res) 
   } catch (e) { fail(res, e) }
 })
 
+// 실측 자수 시간 — 수모 1개(이니셜 포함)를 자수하는 순수 기계 시간. 반복 주문·대량 주문이면 1개를 직접 해 보고 입력한다.
+//   { actualMinutes?, standardMinutes? }  비우면(0·null) 해제 → 스티치 수 추정으로 돌아간다. 확정된 버전에도 입력할 수 있다.
+router.patch('/:id/versions/:no/production', requireCap('design', 'work'), async (req, res) => {
+  try {
+    const _id = oid(req.params.id)
+    const no = Number(req.params.no)
+    const c = await col('designs')
+    const d = _id && await c.findOne({ _id })
+    if (!d || !versionOf(d, no)) return bad(res, '없는 버전입니다.', 404)
+    const b = req.body || {}
+    const sec = (k) => { const n = Number(b[k]); return Number.isFinite(n) && n > 0 && n <= 600 ? Math.round(n * 60 * 10) / 10 : null }
+    const set = { updatedAt: new Date() }
+    const P = 'versions.$[v].production.'
+    if ('actualMinutes' in b) { set[`${P}actualSecondsPerCap`] = sec('actualMinutes'); set[`${P}actualAt`] = new Date(); set[`${P}actualBy`] = req.user.username }
+    if ('standardMinutes' in b) set[`${P}standardSecondsPerCap`] = sec('standardMinutes')
+    await c.updateOne({ _id }, { $set: set }, { arrayFilters: [{ 'v.no': no }] })
+    res.json(versionOf(await c.findOne({ _id }), no))
+  } catch (e) { fail(res, e) }
+})
+
 // 확정 되돌리기 — 관리자만. 가장 최신 버전이 확정된 경우에 '디자인 중'으로 되돌려 다시 수정할 수 있게 한다.
 router.post('/:id/versions/:no/reopen', async (req, res) => {
   try {

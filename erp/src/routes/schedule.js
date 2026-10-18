@@ -8,6 +8,7 @@ import { oid, escRe } from '../crud.js'
 import { flatItems, onHandMap } from '../stockLib.js'
 import { loadAppSettings } from '../settings.js'
 import { designDetails, designState, latestConfirmed, pickSetName } from '../designLib.js'
+import { threadNeeds, loadThreads } from '../machineLib.js'
 
 export const WORK_STATUSES = ['지시', '진행', '완료']
 // 공정 구분 — '' 은 구분 없음(전체). 로고·이니셜을 따로 작업하는 주문은 같은 주문에 공정별 배정을 둔다(각각 전체 수량).
@@ -21,7 +22,7 @@ const fail = (res, e) => res.status(e.status || 500).json({ error: e.message })
 const ymd = (d) => (d ? new Date(d).toISOString().slice(0, 10) : null)
 
 // 주문 수량: 품목 합계 → 제작 명세 줄 수 → 주문명의 #N장
-function orderQty(o) {
+export function orderQty(o) {
   const items = (o.items || []).reduce((s, i) => s + (Number(i.qty) || 0), 0)
   if (items > 0) return items
   if (o.pieceCount > 0) return o.pieceCount
@@ -174,14 +175,15 @@ router.get('/orders', async (req, res) => {
       q.$or = [{ title: re }, { 'pieces.person': re }, { tags: re }]
       if (/^\d+$/.test(String(req.query.q))) q.$or.push({ orderNo: Number(req.query.q) })
     }
-    const orders = await (await col('orders')).find(q, { projection: PROJ }).limit(500).toArray()
+    const orders = await (await col('orders')).find(q, { projection: { ...PROJ, 'pieces.design': 1, 'pieces.variant': 1, 'pieces.color': 1, 'pieces.initialColor': 1 } }).limit(500).toArray()
     const ids = orders.map((o) => o._id)
     const [sched, pn, tq] = await Promise.all([scheduledQty(ids), partnerNames(orders), taskQtyMap(ids)])
     const dd = await designDetails(orders)
     const items = orders.map((o) => {
       const s = sched.get(String(o._id))
       const det = dd.get(String(o._id)) || []
-      return { ...summary(o, pn), scheduledQty: s?.qty || 0, scheduledDays: s?.days || 0, taskQty: tq.get(String(o._id)) || {}, designState: o.designNotNeeded ? 'na' : designState(det), designCount: det.length }
+      return { ...summary(o, pn), scheduledQty: s?.qty || 0, scheduledDays: s?.days || 0, taskQty: tq.get(String(o._id)) || {}, designState: o.designNotNeeded ? 'na' : designState(det), designCount: det.length,
+        needsByTask: Object.fromEntries(['', '로고', '이니셜'].map((k) => [k, threadNeeds(o.pieces, det, k)])) }      // 공정별로 필요한 실 — 새로 배정할 때 자수기 교체 개수 계산용
     })
     // 납기 빠른 순 (납기 없는 건 뒤로), 같으면 주문번호
     items.sort((a, b) => (a.dueAt ? new Date(a.dueAt).getTime() : Infinity) - (b.dueAt ? new Date(b.dueAt).getTime() : Infinity) || a.orderNo - b.orderNo)
@@ -198,9 +200,10 @@ router.get('/', async (req, res) => {
     const entries = await (await col('workSchedules')).find({ date: { $gte: from, $lte: to } }).sort({ date: 1, orderNo: 1 }).toArray()
     const ids = [...new Set(entries.map((e) => String(e.orderId)))].map(oid)
     const oc = await col('orders')
-    const orders = ids.length ? await oc.find({ _id: { $in: ids } }, { projection: PROJ }).toArray() : []
+    const orders = ids.length ? await oc.find({ _id: { $in: ids } }, { projection: { ...PROJ, 'pieces.design': 1, 'pieces.variant': 1, 'pieces.color': 1, 'pieces.initialColor': 1 } }).toArray() : []
     const pn = await partnerNames(orders)
     const dd = await designDetails(orders)
+    const piecesOf = new Map(orders.map((o) => [String(o._id), o.pieces || []]))
     const byId = new Map(orders.map((o) => [String(o._id), { ...summary(o, pn), designs: dd.get(String(o._id)) || [], designState: o.designNotNeeded ? 'na' : designState(dd.get(String(o._id))) }]))
     // 공정별 완료 수량 (예: 로고 20/32) — 일 보기·작업자 화면의 진척 표시용
     const doneRows = ids.length ? await (await col('workSchedules')).aggregate([
@@ -222,7 +225,8 @@ router.get('/', async (req, res) => {
     res.json({
       cfg: { machines: cfg.machines, perMachine: cfg.perMachine },
       capacity,
-      entries: entries.map((e) => ({ ...e, order: byId.get(String(e.orderId)) || null })),
+      // needs: 이 작업이 필요로 하는 실 번호(로고 컬러 + 이니셜색상) — 자수기에 걸린 실과 비교해 교체 개수를 계산한다
+      entries: entries.map((e) => ({ ...e, order: byId.get(String(e.orderId)) || null, needs: threadNeeds(piecesOf.get(String(e.orderId)), byId.get(String(e.orderId))?.designs, e.task || '') })),
       dues: dueDocs.map((o) => ({ orderId: o._id, orderNo: o.orderNo, title: o.title, date: ymd(o.dueAt) })),
     })
   } catch (e) { fail(res, e) }
@@ -232,8 +236,21 @@ async function logSchedule(orderId, user, detail) {
   await (await col('activityLogs')).insertOne({ target: 'order', targetId: orderId, action: 'schedule', detail, by: user.username, at: new Date() })
 }
 
+// 작업을 시작·완료하면 배정된 자수기에 그 작업의 실이 걸린다 (이미 걸린 실은 그대로, 없는 실만 필요 없는 침에 교체)
+async function applyMachine(cur) {
+  if (!cur.machineId) return
+  const mc = await col('machines')
+  const m = await mc.findOne({ _id: cur.machineId })
+  if (!m) return
+  const o = await (await col('orders')).findOne({ _id: cur.orderId }, { projection: { designs: 1, 'pieces.design': 1, 'pieces.variant': 1, 'pieces.color': 1, 'pieces.initialColor': 1 } })
+  if (!o) return
+  const needs = threadNeeds(o.pieces, (await designDetails([o])).get(String(o._id)) || [], cur.task || '')
+  const { needles, swaps } = loadThreads(m.needles, needs)
+  await mc.updateOne({ _id: m._id }, { $set: { needles, updatedAt: new Date(), lastJob: { orderNo: cur.orderNo, task: cur.task || '', swaps, at: new Date() } } })
+}
+
 // 배정이 있으면 접수 → 작업배정, 배정이 모두 사라지면 작업배정 → 접수. (제작중 이후 상태는 건드리지 않는다)
-async function syncStatus(orderIds, user) {
+export async function syncStatus(orderIds, user) {
   const changed = []
   const oc = await col('orders')
   const wc = await col('workSchedules')
@@ -275,7 +292,7 @@ const WORK_FLOW = ['작업배정', '제작중', '검수']
 // 주문 상태: 하나라도 시작되면 제작중, 사용 중인 모든 공정이 주문 수량만큼 끝나면 검수.
 // allowDown=false 이면 상태를 올리기만 한다 — 일정을 저장할 때 사람이 정해 둔 상태(제작중 등)가 강등되지 않게 하기 위함.
 // 작업 시작·완료·되돌림(/work)에서는 allowDown=true 로 진행 상황을 그대로 반영한다.
-async function syncProgress(orderIds, user, allowDown = true) {
+export async function syncProgress(orderIds, user, allowDown = true) {
   const changed = []
   const oc = await col('orders')
   const wc = await col('workSchedules')
@@ -318,7 +335,7 @@ function unitsOf(o) {
 // 재고 차감: 공정이 끝난 장수(= 공정별 완료 수량의 최댓값)만큼, 제작 명세 앞에서부터 수모를 차감한다.
 // 로고·이니셜을 모두 하는 주문이라도 수모는 한 장에 한 번만 쓰이므로 공정별로 중복 차감하지 않는다.
 // 완료를 취소하면 같은 만큼 되돌린다. 수모 물품(이름에 '수모')의 색상·사이즈 옵션을 찾지 못한 장은 차감하지 않고 알린다.
-async function syncConsumption(orderId, user) {
+export async function syncConsumption(orderId, user) {
   const oc = await col('orders')
   const o = await oc.findOne({ _id: orderId })
   if (!o) return null
@@ -384,6 +401,25 @@ const sameTaskFilter = (task) => (task ? { task } : { $or: [{ task: '' }, { task
 
 const intQty = (v) => { const n = Math.round(Number(v)); return n > 0 ? n : null }
 
+// 배정 초기화 — 아직 시작하지 않은('지시') 작업배정을 모두 지운다. 진행·완료한 작업과 잠긴 작업은 그대로 두고,
+//   배정이 모두 사라진 주문은 접수 상태로 돌아간다. { dryRun: true } 이면 지울 건수만 알려 준다.
+router.post('/clear', requireCap('orders'), async (req, res) => {
+  try {
+    const wc = await col('workSchedules')
+    const q = { status: '지시', locked: { $ne: true } }
+    const docs = await wc.find(q, { projection: { orderId: 1, qty: 1 } }).toArray()
+    const info = { entries: docs.length, orders: new Set(docs.map((d) => String(d.orderId))).size, qty: docs.reduce((t, d) => t + (d.qty || 0), 0) }
+    if (req.body?.dryRun) return res.json(info)
+    if (docs.length) {
+      await wc.deleteMany({ _id: { $in: docs.map((d) => d._id) } })
+      const orderIds = [...new Set(docs.map((d) => String(d.orderId)))]
+      for (const id of orderIds) await logSchedule(oid(id), req.user, { clear: true })
+      await syncStatus(orderIds.map(oid), req.user)
+    }
+    res.json({ ...info, ok: true })
+  } catch (e) { fail(res, e) }
+})
+
 // 일괄 저장 — 작업관리 화면의 [저장]. 임시로 쌓아 둔 배정(adds) · 변경(edits) · 삭제(removes)를 한 번에 반영하고
 // 영향받은 주문의 상태를 접수 ↔ 작업배정으로 맞춘다. 검증에 실패하면 아무것도 저장하지 않는다.
 router.post('/commit', requireCap('orders'), async (req, res) => {
@@ -409,10 +445,11 @@ router.post('/commit', requireCap('orders'), async (req, res) => {
       if (!validDate(a.date)) return bad(`날짜가 올바르지 않습니다: ${a.date}`)
       const qty = intQty(a.qty) || orderQty(o) || 1
       if (a.task != null && !WORK_TASKS.includes(a.task)) return bad(`공정은 ${WORK_TASKS.filter(Boolean).join(' · ')} 입니다.`)
-      addDocs.push({ orderId: o._id, orderNo: o.orderNo, date: a.date, qty, task: taskOf(a.task), status: '지시', note: String(a.note || '').trim(), createdAt: new Date(), by: req.user.username })
+      addDocs.push({ orderId: o._id, orderNo: o.orderNo, date: a.date, qty, task: taskOf(a.task), status: '지시', note: String(a.note || '').trim(), createdAt: new Date(), by: req.user.username, ...(oid(a.machineId) ? { machineId: oid(a.machineId) } : {}) })
     }
     // 수정
     const editOps = []
+    const unsetMachine = []
     for (const e of edits) {
       const _id = oid(e?.id)
       if (!_id) return bad('수정할 작업지시 id 가 올바르지 않습니다.')
@@ -422,6 +459,7 @@ router.post('/commit', requireCap('orders'), async (req, res) => {
       if ('status' in e) { if (!WORK_STATUSES.includes(e.status)) return bad('작업 상태가 올바르지 않습니다.'); set.status = e.status }
       if ('note' in e) set.note = String(e.note ?? '').trim()
       if ('task' in e) { if (!WORK_TASKS.includes(e.task)) return bad('공정이 올바르지 않습니다.'); set.task = e.task }
+      if ('machineId' in e) { if (oid(e.machineId)) set.machineId = oid(e.machineId); else unsetMachine.push(_id) }
       editOps.push({ _id, set })
     }
     const rmIds = removes.map((x) => oid(x)).filter(Boolean)
@@ -440,10 +478,15 @@ router.post('/commit', requireCap('orders'), async (req, res) => {
     const removedDocs = touched.filter((t) => rmSet.has(String(t._id)))
     if (removedDocs.some((d) => d.status === '완료')) return bad('완료된 작업지시는 취소할 수 없습니다.')
 
+    // 초기화 — 시작하지 않은('지시') 잠기지 않은 배정을 모두 지운다 (새 배정을 넣기 전에 처리해, 같은 저장에서 다시 배정한 것은 남긴다)
+    const clearDocs = b.clearAll ? await wc.find({ status: '지시', locked: { $ne: true } }, { projection: { orderId: 1, qty: 1 } }).toArray() : []
+    if (clearDocs.length) await wc.deleteMany({ _id: { $in: clearDocs.map((d) => d._id) } })
+
     // 반영 — 주문 전체 취소는 새 배정을 넣기 전에 처리해, 같은 저장에서 다시 배정한 것은 남긴다
     if (cancelDocs.length) await wc.deleteMany({ _id: { $in: cancelDocs.map((d) => d._id) } })
     if (addDocs.length) await wc.insertMany(addDocs)
     for (const op of editOps) await wc.updateOne({ _id: op._id }, { $set: op.set })
+    if (unsetMachine.length) await wc.updateMany({ _id: { $in: unsetMachine } }, { $unset: { machineId: '' } })
     if (rmIds.length) await wc.deleteMany({ _id: { $in: rmIds } })
 
     // 삭제된 배정의 수량을 남은 배정에 합친다. 화면에서 이미 합쳐서 보낸 것(noMerge)은 다시 합치지 않는다.
@@ -461,7 +504,8 @@ router.post('/commit', requireCap('orders'), async (req, res) => {
       if (m) merged.push(m)
     }
 
-    const affected = [...addDocs.map((d) => d.orderId), ...touched.map((t) => t.orderId), ...cancelIds]
+    const affected = [...addDocs.map((d) => d.orderId), ...touched.map((t) => t.orderId), ...cancelIds, ...clearDocs.map((d) => d.orderId)]
+    for (const id of new Set(clearDocs.map((d) => String(d.orderId)))) await logSchedule(oid(id), req.user, { clear: true })
     for (const id of new Set(cancelDocs.map((d) => String(d.orderId)))) {
       const mine = cancelDocs.filter((d) => String(d.orderId) === id)
       await logSchedule(oid(id), req.user, { cancelAll: true, removed: mine.length, qty: mine.reduce((t, d) => t + (d.qty || 0), 0) })
@@ -470,7 +514,7 @@ router.post('/commit', requireCap('orders'), async (req, res) => {
     const statusChanged = await syncStatus(affected, req.user)
     statusChanged.push(...await syncProgress(affected, req.user, false))
     for (const id of new Set(affected.map(String))) await syncConsumption(oid(id), req.user)
-    res.json({ ok: true, added: addDocs.length, edited: editOps.length, removed: rmIds.length, cancelled: cancelDocs.length, merged, statusChanged })
+    res.json({ ok: true, added: addDocs.length, edited: editOps.length, removed: rmIds.length, cancelled: cancelDocs.length, cleared: clearDocs.length, merged, statusChanged })
   } catch (e) { fail(res, e) }
 })
 
@@ -493,6 +537,7 @@ router.post('/', requireCap('orders'), async (req, res) => {
     const doc = {
       orderId, orderNo: o.orderNo, date, qty: Math.round(qty), task: taskOf(req.body?.task), status: '지시',
       note: String(req.body?.note || '').trim(), createdAt: new Date(), by: req.user.username,
+      ...(oid(req.body?.machineId) ? { machineId: oid(req.body.machineId) } : {}),
     }
     const r = await (await col('workSchedules')).insertOne(doc)
     await logSchedule(orderId, req.user, { date, qty: doc.qty })
@@ -567,12 +612,12 @@ router.post('/:id/work', requireCap('work'), async (req, res) => {
         if (to && to !== cur.date) {
           const sib = await wc.findOne({ _id: { $ne: _id }, orderId: cur.orderId, date: to, status: { $in: ['지시', '진행'] }, ...sameTaskFilter(task) })
           if (sib) await wc.updateOne({ _id: sib._id }, { $inc: { qty: rest }, $set: { updatedAt: now } })
-          else await wc.insertOne({ orderId: cur.orderId, orderNo: cur.orderNo, date: to, qty: rest, task, status: '지시', note: cur.note || '', createdAt: now, by: who.by, splitFrom: cur._id })
+          else await wc.insertOne({ orderId: cur.orderId, orderNo: cur.orderNo, date: to, qty: rest, task, status: '지시', note: cur.note || '', createdAt: now, by: who.by, splitFrom: cur._id, ...(cur.machineId ? { machineId: cur.machineId } : {}) })
           carried = { date: to, qty: rest }
         } else {
           await wc.insertOne({
             orderId: cur.orderId, orderNo: cur.orderNo, date: cur.date, qty: rest, task,
-            status: cur.status, note: cur.note || '', createdAt: now, by: who.by, splitFrom: cur._id,
+            status: cur.status, note: cur.note || '', createdAt: now, by: who.by, splitFrom: cur._id, ...(cur.machineId ? { machineId: cur.machineId } : {}),
           })
         }
       }
@@ -600,6 +645,7 @@ router.post('/:id/work', requireCap('work'), async (req, res) => {
       return res.status(400).json({ error: "action 은 start · complete · undo · reset 입니다." })
     }
 
+    if (action === 'start' || action === 'complete') await applyMachine(cur).catch(() => {})       // 자수기에 이 작업의 실이 걸린 것으로 갱신
     await logSchedule(cur.orderId, req.user, { work: detail, task: cur.task || '', date: cur.date })
     const statusChanged = await syncProgress([cur.orderId], req.user)
     const stock = await syncConsumption(cur.orderId, req.user)
@@ -622,7 +668,9 @@ router.patch('/:id', requireCap('orders'), async (req, res) => {
     if ('status' in b) { if (!WORK_STATUSES.includes(b.status)) return res.status(400).json({ error: `상태는 ${WORK_STATUSES.join(' · ')} 입니다.` }); set.status = b.status }
     if ('note' in b) set.note = String(b.note ?? '').trim()
     if ('task' in b) { if (!WORK_TASKS.includes(b.task)) return res.status(400).json({ error: '공정이 올바르지 않습니다.' }); set.task = b.task }
-    const next = await c.findOneAndUpdate({ _id }, { $set: set }, { returnDocument: 'after' })
+    const unset = {}
+    if ('machineId' in b) { if (oid(b.machineId)) set.machineId = oid(b.machineId); else unset.machineId = '' }
+    const next = await c.findOneAndUpdate({ _id }, { $set: set, ...(Object.keys(unset).length ? { $unset: unset } : {}) }, { returnDocument: 'after' })
     if (set.date && set.date !== cur.date) await logSchedule(cur.orderId, req.user, { from: cur.date, to: set.date })
     res.json(next)
   } catch (e) { fail(res, e) }

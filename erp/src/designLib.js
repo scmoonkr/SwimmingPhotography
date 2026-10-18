@@ -27,7 +27,7 @@ export async function designDetails(orders) {
         version: l.version, status: v?.status || (d ? '' : '삭제됨'),
         latestVersion: latest?.no ?? null, latestStatus: latest?.status || '',
         preview: v?.previewImage || '', files: (v?.files || []).map((f) => ({ name: f.name, path: f.path, ext: f.ext })),
-        colors: v?.colors || [], variants: v?.variants || [], baseName: v?.baseName || '기본', widthMm: v?.widthMm ?? null, heightMm: v?.heightMm ?? null, stitches: v?.stitches ?? null,
+        colors: v?.colors || [], variants: v?.variants || [], baseName: v?.baseName || '기본', production: v?.production || null, widthMm: v?.widthMm ?? null, heightMm: v?.heightMm ?? null, stitches: v?.stitches ?? null,
       }
     }))
   }

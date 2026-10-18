@@ -22,6 +22,8 @@ const { default: filesRouter } = await import('./routes/files.js')
 const { default: scheduleRouter } = await import('./routes/schedule.js')
 const { default: settingsRouter } = await import('./routes/settings.js')
 const { default: designsRouter } = await import('./routes/designs.js')
+const { default: machinesRouter } = await import('./routes/machines.js')
+const { default: productionRouter } = await import('./routes/production.js')
 
 const app = express()
 
@@ -50,6 +52,8 @@ app.use('/api/files', filesRouter)
 app.use('/api/schedule', scheduleRouter)
 app.use('/api/settings', settingsRouter)
 app.use('/api/designs', designsRouter)
+app.use('/api/machines', machinesRouter)
+app.use('/api/production', productionRouter)
 app.use('/api/partners', crudRouter('partners',
   ['name', 'contactName', 'phone', 'email', 'address', 'bizNo', 'memo', 'tags'],
   { searchIn: ['name', 'contactName', 'phone', 'bizNo'] }))

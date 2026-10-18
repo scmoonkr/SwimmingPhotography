@@ -3,6 +3,7 @@ import { Router } from 'express'
 import { col } from '../db.js'
 import { requireCap } from '../auth.js'
 import { loadAppSettings, parseTypes } from '../settings.js'
+import { normProduction } from '../planner/config.js'
 
 const router = Router()
 
@@ -20,6 +21,12 @@ router.put('/', requireCap('settings'), async (req, res) => {
       if (!(n >= 1 && n <= 10000)) return res.status(400).json({ error: '기본 하루 배정 수량은 1~10000 사이입니다.' })
       set.planDaily = n
     }
+    if ('swapMinutes' in b) {        // 자수기 실 하나를 바꾸는 데 걸리는 시간(분)
+      const n = Number(b.swapMinutes)
+      if (!(n > 0 && n <= 240)) return res.status(400).json({ error: '실 교체 시간은 0 초과 240분 이하입니다.' })
+      set.swapMinutes = Math.round(n * 10) / 10
+    }
+    if ('production' in b) set.production = normProduction({ ...(await loadAppSettings()).production, ...(b.production || {}) })     // 보낸 항목만 바꾼다
     if ('capKeyword' in b) {
       const k = String(b.capKeyword ?? '').trim()
       if (!k || k.length > 20) return res.status(400).json({ error: '재고 차감 대상 물품 키워드는 1~20자입니다.' })

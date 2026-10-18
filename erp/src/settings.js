@@ -5,8 +5,9 @@
 //   capKeyword : 작업 완료 시 재고를 차감할 물품을 찾는 이름 글자 (이름에 이 글자가 들어간 물품, 예: '수모')
 // 하루 처리 한도(가동 대수 등)는 일정과 함께 쓰이므로 schedule 라우터의 /capacity 에 있다.
 import { col } from './db.js'
+import { normProduction } from './planner/config.js'
 
-export const APP_DEFAULTS = { planDaily: 60, capKeyword: '수모', threadKeyword: '자수사', productTypes: [] }
+export const APP_DEFAULTS = { planDaily: 60, capKeyword: '수모', threadKeyword: '자수사', productTypes: [], swapMinutes: 1.5 }
 
 // "수모, 후드티 ,맨투맨" 또는 배열 → ['수모','후드티','맨투맨'] (공백 제거 · 중복 제거 · 30자·50개 제한)
 export function parseTypes(v) {
@@ -24,8 +25,10 @@ export async function loadAppSettings() {
   const d = await (await col('settings')).findOne({ _id: 'app' })
   return {
     planDaily: Number.isInteger(d?.planDaily) && d.planDaily > 0 ? d.planDaily : APP_DEFAULTS.planDaily,
+    swapMinutes: Number.isFinite(d?.swapMinutes) && d.swapMinutes > 0 ? d.swapMinutes : APP_DEFAULTS.swapMinutes,
     capKeyword: String(d?.capKeyword || '').trim() || APP_DEFAULTS.capKeyword,
     threadKeyword: String(d?.threadKeyword || '').trim() || APP_DEFAULTS.threadKeyword,
     productTypes: parseTypes(d?.productTypes),
+    production: normProduction(d?.production),               // 생산 계획(근무시간·작업자·수모 교체 시간 …)
   }
 }
