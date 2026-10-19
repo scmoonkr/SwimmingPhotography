@@ -4,8 +4,6 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { normArticle, catKo, articleDate, imgUrl, PUBLIC_TYPES } from '~/utils/articleList'
 
-const { isEN, t } = useLang()
-
 // 이미지 URL 정규화 (검색 페이지와 공유 — utils/articleList)
 const cloudBase = (useRuntimeConfig().public.cloudPublicUrl as string) || ''
 const img = (p: string) => imgUrl(p, cloudBase)
@@ -14,11 +12,7 @@ const img = (p: string) => imgUrl(p, cloudBase)
 useHead({ title: 'Swimming Photography', bodyAttrs: { class: 'view-grid' } })
 
 // ── 분야 필터 ──
-const cats = [
-  { k: '대회', en: 'Meets' },
-  { k: '현장', en: 'On Site' },
-  { k: '인물', en: 'Athlete' },
-]
+const cats = [{ k: '대회' }, { k: '현장' }, { k: '인물' }]
 const curCat = ref('대회')
 
 // ── 검색 ──
@@ -38,30 +32,18 @@ const onSearchEnter = () => {
 }
 
 // ── 포맷 헬퍼 (원문 로직 이식) ──
-const EN = () => isEN.value
-const MONTHS_EN = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 const ymOf = (a: any) => (a.date || '').slice(0, 7)
 const labelOf = (ym: string) => {
   const q = ym.split('-')
-  return EN() ? MONTHS_EN[(+q[1]) - 1] + ' ' + q[0] : q[0] + '년 ' + (+q[1]) + '월'
+  return q[0] + '년 ' + (+q[1]) + '월'
 }
 const fmtDate = (iso: string) => {
   const m = (iso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/)
   if (!m) return iso || ''
-  return EN() ? m[3] + '-' + m[2] + '-' + m[1] : m[1] + '년 ' + (+m[2]) + '월 ' + (+m[3]) + '일'
+  return m[1] + '년 ' + (+m[2]) + '월 ' + (+m[3]) + '일'
 }
-const fmtRecord = (r: string) => {
-  if (!r) return ''
-  if (!EN()) return r
-  const mm = String(r).match(/(?:(\d+)\s*분)?\s*(\d+)\s*초\s*(\d+)/)
-  if (!mm) return r
-  const sec = ('0' + mm[2]).slice(-2), hun = (mm[3] + '00').slice(0, 2)
-  return mm[1] ? mm[1] + ':' + sec + '.' + hun : (+mm[2]) + '.' + hun
-}
-const pick = (a: any, f: string) => {
-  const v = EN() ? a[f + 'ENG'] : a[f]
-  return (v == null || v === '') ? (a[f] || '') : v
-}
+const fmtRecord = (r: string) => r || ''
+const pick = (a: any, f: string) => a[f] || ''
 const metaLine = (a: any) => [fmtDate(a.date), fmtRecord(a.record), pick(a, 'event'), pick(a, 'athlete')].filter(Boolean).join(' | ')
 
 // ── 대회 ── 홈은 '한 대회'만 보여준다.
@@ -171,20 +153,18 @@ const feat = computed(() => (featData.value || []).filter((d: any) => d.slug && 
   slug: d.slug,
   img: featImg(d),
   cat: catKo(d.translations?.ko?.categories),
-  catEN: (d.translations?.en?.categories || [])[0] || '',
   title: d.translations?.ko?.title || '',
-  titleEN: d.translations?.en?.title || '',
   date: articleDate(d),
   big: i === 0,
 })))
-const featCat = (f: any) => (isEN.value ? (f.catEN || f.cat) : f.cat)
-const featTitle = (f: any) => (isEN.value ? (f.titleEN || f.title) : f.title)
+const featCat = (f: any) => f.cat
+const featTitle = (f: any) => f.title
 // featured 로 위에 크게 실린 기사는 아래 그리드에서 뺀다(리스트에는 그대로 다 보인다).
 const featSlugs = computed(() => new Set(feat.value.map((f) => f.slug)))
 
 // ── 속보 박스 (메뉴 바로 밑, 높이 = 그리드 썸네일과 동일 · 그리드·리스트 공통) ──
 const { items: bkItems, hasItems: hasBreaking, load: loadBreaking, pick: bkPick, open: bkOpen } = useBreaking()
-const bkFlag = computed(() => (isEN.value ? '[Breaking]' : '[속보]'))
+const bkFlag = '[속보]'
 const topBreaking = computed(() => bkItems.value.slice(0, 3))   // 속보 3줄 고정
 const bbBox = ref<HTMLElement | null>(null)
 const bbList = ref<HTMLElement | null>(null)
@@ -196,13 +176,12 @@ function humanTime(s: string) {
   const sec = Math.max(0, (Date.now() - new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]).getTime()) / 1000)
   const mn = Math.floor(sec / 60), hr = Math.floor(mn / 60), dy = Math.floor(hr / 24)
   const wk = Math.floor(dy / 7), mo = Math.floor(dy / 30), yr = Math.floor(dy / 365)
-  const en = isEN.value
-  if (mn < 60)  return en ? mn + ' min ago' : mn + '분 전'
-  if (hr < 24)  return en ? hr + (hr === 1 ? ' hour' : ' hours') + ' ago' : hr + '시간 전'
-  if (dy < 7)   return en ? dy + (dy === 1 ? ' day' : ' days') + ' ago' : dy + '일 전'
-  if (dy < 30)  return en ? wk + (wk === 1 ? ' week' : ' weeks') + ' ago' : wk + '주 전'
-  if (dy < 365) return en ? mo + (mo === 1 ? ' month' : ' months') + ' ago' : mo + '달 전'
-  return en ? yr + (yr === 1 ? ' year' : ' years') + ' ago' : yr + '년 전'
+  if (mn < 60)  return mn + '분 전'
+  if (hr < 24)  return hr + '시간 전'
+  if (dy < 7)   return dy + '일 전'
+  if (dy < 30)  return wk + '주 전'
+  if (dy < 365) return mo + '달 전'
+  return yr + '년 전'
 }
 
 // 높이 = 그리드 썸네일(4:3) 높이 + 4줄(속보 3 + 링크 1)이 flex로 균등하게 꽉 채움.
@@ -211,7 +190,7 @@ function humanTime(s: string) {
 // 전체폭 썸네일 높이(수백px)가 박제되는 버그를 막는다. (minmax(190px,1fr)·gap 20 / 모바일 2열·gap 14)
 function syncBBHeight() {
   const box = bbBox.value, list = bbList.value
-  if (!box || !list || !hasBreaking.value || isEN.value) return   // 영문에서는 박스를 감추므로 계산도 하지 않는다
+  if (!box || !list || !hasBreaking.value) return
   const itemsEl = document.getElementById('items')
   const w = (itemsEl && itemsEl.clientWidth) || box.clientWidth
   if (w) {
@@ -231,8 +210,8 @@ onMounted(async () => {
   window.addEventListener('resize', syncBBHeight)
 })
 onBeforeUnmount(() => { if (import.meta.client) window.removeEventListener('resize', syncBBHeight) })
-// 목록 변화·뷰 전환·언어 전환 시 높이 재동기
-watch([bkItems, isEN], () => nextTick().then(syncBBHeight))
+// 목록 변화·뷰 전환 시 높이 재동기
+watch(bkItems, () => nextTick().then(syncBBHeight))
 </script>
 
 <template>
@@ -243,24 +222,24 @@ watch([bkItems, isEN], () => nextTick().then(syncBBHeight))
         <button
           v-for="c in cats" :key="c.k" class="chip"
           :class="{ active: curCat === c.k }" @click="curCat = c.k"
-        >{{ t(c.k, c.en) }}</button>
-        <button class="chip chip-search" type="button" @click="openSearch">{{ t('검색', 'Search') }}</button>
+        >{{ c.k }}</button>
+        <button class="chip chip-search" type="button" @click="openSearch">검색</button>
       </div>
     </div>
 
     <!-- 검색 패널 -->
     <div v-show="showSearch" class="search-panel">
-      <div class="search-heading">{{ t('도시, 대회, 종목, 선수, 제목 검색', 'Search by city, meet, event, athlete, or title') }}</div>
+      <div class="search-heading">도시, 대회, 종목, 선수, 제목 검색</div>
       <input
         ref="searchInput"
         v-model="searchQ" type="search" class="search-input" aria-label="검색"
-        :placeholder="t('검색어를 입력한 후 엔터를 눌러주세요.', 'Type your search, then press Enter.')"
+        placeholder="검색어를 입력한 후 엔터를 눌러주세요."
         @keydown.enter="onSearchEnter" @keydown.esc="showSearch = false" @blur="showSearch = false"
       >
     </div>
 
     <!-- 속보 박스 (그리드·리스트 공통 · 메뉴 바로 밑 · 높이 = 그리드 썸네일과 동일 · 헤드 없음) -->
-    <div v-show="hasBreaking && !isEN" ref="bbBox" class="breaking-box">
+    <div v-show="hasBreaking" ref="bbBox" class="breaking-box">
       <div ref="bbList" class="bb-list">
         <button
           v-for="it in topBreaking" :key="it.id" type="button" class="bb-item"
@@ -268,14 +247,14 @@ watch([bkItems, isEN], () => nextTick().then(syncBBHeight))
         >
           <span class="bb-line"><span class="flag">{{ bkFlag }}</span>{{ bkPick(it, 'title') }}<span v-if="humanTime(it.publishedAt)" class="tm">{{ humanTime(it.publishedAt) }}</span></span>
         </button>
-        <NuxtLink class="bb-item bb-more-row" to="/breakingnews"><span class="bb-line">{{ t('속보 전체 보기', 'All breaking news') }}</span></NuxtLink>
+        <NuxtLink class="bb-item bb-more-row" to="/breakingnews"><span class="bb-line">속보 전체 보기</span></NuxtLink>
       </div>
     </div>
 
     <!-- 대회명 + 대회 목록 (사진이 시작되기 바로 앞줄) · 글꼴은 메뉴(.chip)와 동일 -->
     <div class="comp-bar">
       <span v-if="compName" class="comp-name">{{ compName }}</span>
-      <NuxtLink class="chip comp-more" to="/competitions">{{ t('대회 목록', 'All meets') }}</NuxtLink>
+      <NuxtLink class="chip comp-more" to="/competitions">대회 목록</NuxtLink>
     </div>
 
     <!-- featured (그리드 전용) · visibility.isFeatured 기사 최신순 · 없으면 숨김 -->
@@ -301,7 +280,7 @@ watch([bkItems, isEN], () => nextTick().then(syncBBHeight))
       <!-- 인스타 프로모 (그리드 전용) -->
       <a class="row promo-row" href="https://instagram.com/medalbankaquatics" target="_blank" rel="noopener">
         <span class="thumb promo-thumb" aria-hidden="true"><img :src="'/images/logo_medalbankaquatics_black.png'" alt="메달뱅크 아쿠아틱스"></span>
-        <span class="c-title"><span class="c-cat">{{ t('안내', 'Notice') }}</span><span class="c-bar"> | </span>{{ t('또 다른 수영 이야기가 모여있는 곳', 'Where more swimming stories gather') }}</span>
+        <span class="c-title"><span class="c-cat">안내</span><span class="c-bar"> | </span>또 다른 수영 이야기가 모여있는 곳</span>
         <span class="c-meta" /><span class="c-date" /><span class="c-athlete" /><span class="c-event" /><span class="c-record" />
       </a>
 
@@ -337,7 +316,7 @@ watch([bkItems, isEN], () => nextTick().then(syncBBHeight))
         </template>
       </template>
 
-      <p v-if="!groups.length" class="empty">{{ t('해당하는 기사가 없습니다.', 'No matching articles.') }}</p>
+      <p v-if="!groups.length" class="empty">해당하는 기사가 없습니다.</p>
     </div>
   </div>
 </template>

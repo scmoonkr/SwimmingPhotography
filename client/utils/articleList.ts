@@ -1,6 +1,6 @@
 // DB 기사 문서(JSON) → 목록·검색 카드용 flat 형태.
 // index.vue(홈 목록)·search.vue(검색)가 공유. 문서의 중첩 구조(translations/payload/media)에서
-// 카드 렌더에 필요한 값만 평탄화한다. ENG 값이 없으면 '' → 화면에서 한글로 폴백.
+// 카드 렌더에 필요한 값만 평탄화한다.
 
 // 공개 사이트가 보여주는 기사 유형(type1) — 속보(breaking_news)만 뺀 전부.
 // 서버는 쉼표 목록을 $in 으로 받는다.
@@ -10,14 +10,14 @@ export interface ArticleCard {
   slug: string
   name: string          // 선수명 — 홈 목록 정렬 기준
   hasVideo: boolean     // 본문에 유튜브 video 블록이 있는가
-  cat: string; catENG: string
-  title: string; titleENG: string
+  cat: string
+  title: string
   thumb: string
   date: string          // YYYY-MM-DD (publishedAt 기준)
-  region: string; regionENG: string
-  competition: string; competitionENG: string
-  athlete: string; athleteENG: string
-  event: string; eventENG: string
+  region: string
+  competition: string
+  athlete: string
+  event: string
   record: string
 }
 
@@ -55,21 +55,18 @@ export function articleDate(d: any): string {
 
 export function normArticle(d: any): ArticleCard {
   const ko = d?.translations?.ko || {}
-  const en = d?.translations?.en || {}
   return {
     slug: d?.slug || '',
     name: d?.name || '',
     hasVideo: ((d?.translations?.ko?.content?.blocks) || []).some((b: any) => b?.type === 'video'),
     cat: catKo(ko.categories),
-    catENG: (en.categories || [])[0] || '',
     title: ko.title || '',
-    titleENG: en.title || '',
     thumb: d?.media?.thumb || d?.media?.coverImage || (d?.media?.images && d.media.images[0]?.url) || '',
     date: articleDate(d),   // 발행일(publishedAt) 우선, 없으면 생성일 폴백
-    region: '', regionENG: '',
-    competition: '', competitionENG: '',
-    athlete: '', athleteENG: '',
-    event: '', eventENG: '',
+    region: '',
+    competition: '',
+    athlete: '',
+    event: '',
     record: '',
   }
 }

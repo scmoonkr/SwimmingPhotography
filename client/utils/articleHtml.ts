@@ -4,9 +4,6 @@
 // 반환값은 <div class="layout"> … </div> (기사 본문 + 사이드바) — article/[slug].vue 가 v-html 로 렌더.
 import { catKo } from './articleList'
 
-// 한글 분야 → 영문. 문서에 en.categories 가 없을 때 쓰는 폴백.
-const CAT_EN: Record<string, string> = { 대회: 'Meet', 현장: 'On-site', 인물: 'Athlete' }
-
 const esc = (s: any) => String(s ?? '')
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 const escA = (s: any) => esc(s).replace(/"/g, '&quot;')
@@ -23,25 +20,13 @@ const koInput = (iso: string) => {
   const t = parseDT(iso); if (!t) return ''
   return `입력 ${t.y}년 ${t.mo}월 ${t.d}일 ${pad2(t.h)}시 ${pad2(t.mi)}분`
 }
-const enInput = (iso: string) => {
-  const t = parseDT(iso); if (!t) return ''
-  return `Filed ${pad2(t.d)}-${pad2(t.mo)}-${t.y} ${pad2(t.h)}:${pad2(t.mi)}`
-}
 const koUpdated = (iso: string) => {
   const t = parseDT(iso); if (!t) return ''
   return `수정 ${t.y}년 ${t.mo}월 ${t.d}일 ${pad2(t.h)}시 ${pad2(t.mi)}분`
 }
-const enUpdated = (iso: string) => {
-  const t = parseDT(iso); if (!t) return ''
-  return `Updated ${pad2(t.d)}-${pad2(t.mo)}-${t.y} ${pad2(t.h)}:${pad2(t.mi)}`
-}
 const koStamp = (iso: string) => {
   const t = parseDT(iso); if (!t) return ''
   return `${t.y}년 ${t.mo}월 ${t.d}일 ${pad2(t.h)}시 ${pad2(t.mi)}분 ${pad2(t.s)}초`
-}
-const enStamp = (iso: string) => {
-  const t = parseDT(iso); if (!t) return ''
-  return `${pad2(t.d)}-${pad2(t.mo)}-${t.y} ${pad2(t.h)}:${pad2(t.mi)}:${pad2(t.s)}`
 }
 const koDayLabel = (dateStr: string) => {
   const t = parseDT(dateStr) || parseDT(dateStr + 'T00:00'); if (!t) return ''
@@ -51,10 +36,6 @@ const koDayLabel = (dateStr: string) => {
 const koDate = (iso: string) => {
   const t = parseDT(iso) || parseDT(iso + 'T00:00'); if (!t) return ''
   return `${t.y}년 ${t.mo}월 ${t.d}일`
-}
-const enDate = (iso: string) => {
-  const t = parseDT(iso) || parseDT(iso + 'T00:00'); if (!t) return ''
-  return `${pad2(t.d)}-${pad2(t.mo)}-${t.y}`
 }
 
 // 사이드바 기록 표기: 끝 두 자리(센티초)의 앞 0 제거 — "32초 01" → "32초 1"
@@ -82,15 +63,12 @@ const ytId = (url: any) => {
   return m ? m[1] : ''
 }
 
-// data-en 은 값이 있을 때만 부여 (없으면 EN 모드에서 한글이 그대로 노출되도록)
-const attrEn = (en: string) => (en ? ` data-en="${escA(en)}"` : '')
-
 // 유튜브 영상 — 클릭 후 로드(facade). 검증된 ID만 임베드, 아니면 링크 폴백. 둘 다 아니면 ''.
-const videoHtml = (url: any, caption: any, captionEn: any) => {
+const videoHtml = (url: any, caption: any) => {
   const id = ytId(url)
   if (id) {
     const cap = caption
-      ? `<figcaption class="art-caption"${attrEn(captionEn || '')}>${esc(caption)}</figcaption>`
+      ? `<figcaption class="art-caption">${esc(caption)}</figcaption>`
       : ''
     return `<figure class="art-video">
           <div class="yt-frame">
@@ -192,53 +170,12 @@ const mdToHtml = (src: string) => {
   return out.join('')
 }
 
-// 영문 본문은 통째로 바꿔야 하므로 data-en-html 을 쓴다(applyI18n 이 innerHTML 을 갈아끼운다).
-const attrEnHtml = (html: string) => (html ? ` data-en-html="${escA(html)}"` : '')
-
-
-// 기록표 '구분' 열의 영문 약어. 문서의 en.rows[].segment 는 "World Record" 처럼 길어
-// 표가 넓어지므로 약어를 우선 쓴다. 공백은 무시하고 맞춘다("이번 대회" = "이번대회").
-const RECORD_SEG_EN: Record<string, string> = {
-  이번대회: 'GR',
-  세계기록: 'WR',
-  올림픽기록: 'OR',
-  '한국기록(여)': 'KR(W)',
-  '한국기록(남)': 'KR(M)',
-  세계마스터즈기록: 'WMR',
-  한국마스터즈기록: 'KMR',
-}
-// 약어에 없으면 문서의 영문 segment 로, 그것도 없으면 한글 그대로(=data-en 미부여)
-const segEn = (koSeg: string, enSeg: string) =>
-  RECORD_SEG_EN[String(koSeg || '').replace(/\s+/g, '')] || enSeg || ''
-
-// 정정·수정 이력의 사유 — 자주 쓰는 값만 영문으로. 그 밖의 문구는 한글 그대로 둔다.
-const CORR_NOTE_EN: Record<string, string> = {
-  발행: 'Published',
-  수정: 'Updated',
-  정정: 'Corrected',
-  '오탈자 수정': 'Typo fixed',
-}
-const corrNoteEn = (note: string) => CORR_NOTE_EN[String(note || '').trim()] || ''
-
-// 기자명 — 기본값(편집부)일 때만 영문으로. 실제 이름이면 그대로 둔다.
+// 기자명 — 비어 있으면 편집부
 const reporterName = (n: string) => n || '편집부'
-const reporterNameEn = (n: string) => (!n || n === '편집부' ? 'Editorial Team' : '')
-
-// 소제목 영문 폴백 — 문서에 en.title 이 없을 때 흔한 한글 패턴만 옮긴다.
-//   "수력발전소, 메달 4개" → "수력발전소, 4 medals"
-const blockTitleEn = (koTitle: string, enTitle: string) => {
-  if (enTitle) return enTitle
-  const s = String(koTitle || '')
-  const m = s.match(/메달\s*(\d+)\s*개/)
-  return m ? s.replace(m[0], `${m[1]} medal${m[1] === '1' ? '' : 's'}`) : ''
-}
-
 export interface RelatedItem {
   slug: string
   category?: string
-  categoryEn?: string
   title: string
-  titleEn?: string
   region?: string
   date?: string   // ISO or YYYY-MM-DD
   thumb?: string  // 카드 썸네일 (media.thumb 등)
@@ -254,15 +191,11 @@ export interface BuildOpts {
 export function buildArticleLayout(doc: any, opts: BuildOpts = {}): string {
   CLOUD_BASE = opts.cloudPublicUrl || ''
   const ko = doc?.translations?.ko || {}
-  const en = doc?.translations?.en || {}
   // 부제 — 문서마다 subtitle / subTitle 로 키가 섞여 있어 둘 다 받는다.
-  // (영문은 subTitle 로 저장돼 있어 EN 모드에서 한글 부제가 그대로 보였다.)
   const koSub = ko.subtitle || ko.subTitle || ''
-  const enSub = en.subtitle || en.subTitle || ''
   // 분야 — ko.categories 에 'meet' 처럼 영문 슬러그가 들어 있는 문서가 있어 한글 라벨로 정규화한다.
   // (홈·검색 필터가 한글 기준이라 /search?cat= 링크도 한글이어야 맞다.)
   const cat = catKo(ko.categories)
-  const catEn = (en.categories && en.categories[0]) || CAT_EN[cat] || ''
   const images: any[] = (doc?.media?.images) || []
   const blocks: any[] = (ko.content && ko.content.blocks) || []
   const tags: string[] = ko.tags || []
@@ -272,13 +205,13 @@ export function buildArticleLayout(doc: any, opts: BuildOpts = {}): string {
 
   // ── 브레드크럼 ──
   const crumb: string[] = []
-  crumb.push(`<a href="/" data-en="Swimming">수영</a>`)
-  crumb.push(`<a href="/search?cat=${encodeURIComponent(cat)}"${attrEn(catEn)}>${esc(cat)}</a>`)
+  crumb.push(`<a href="/">수영</a>`)
+  crumb.push(`<a href="/search?cat=${encodeURIComponent(cat)}">${esc(cat)}</a>`)
   const breadcrumb = `<nav class="breadcrumb" aria-label="위치">${crumb.join('<span class="sep">›</span>')}</nav>`
 
   // ── 메타(입력/수정) ──
-  let metaDates = `<time datetime="${escA(doc.publishedAt)}"${attrEn(enInput(doc.publishedAt))}>${esc(koInput(doc.publishedAt))}</time>`
-  if (doc.updatedAt) metaDates += `<a class="revised" href="#corrections"><time datetime="${escA(doc.updatedAt)}"${attrEn(enUpdated(doc.updatedAt))}>${esc(koUpdated(doc.updatedAt))}</time></a>`
+  let metaDates = `<time datetime="${escA(doc.publishedAt)}">${esc(koInput(doc.publishedAt))}</time>`
+  if (doc.updatedAt) metaDates += `<a class="revised" href="#corrections"><time datetime="${escA(doc.updatedAt)}">${esc(koUpdated(doc.updatedAt))}</time></a>`
 
   // ── 갤러리 ── media.images 가 있으면 항상 lead 앞에 슬라이드로 보인다.
   // 본문 image 블록 중 슬라이드와 같은 사진은 아래에서 건너뛴다(중복 방지).
@@ -287,9 +220,7 @@ export function buildArticleLayout(doc: any, opts: BuildOpts = {}): string {
   if (images.length) {
     const slides = images.map((im) => {
       const cko = (im.translations && im.translations.ko && im.translations.ko.caption) || ''
-      const cen = (im.translations && im.translations.en && im.translations.en.caption) || ''
-      const capEn = cen ? ` data-caption-en="${escA(cen)}"` : ''
-      return `<div class="slide-photo" data-caption="${escA(cko)}"${capEn}><img src="${escA(imgUrl(im.url))}" alt=""></div>`
+      return `<div class="slide-photo" data-caption="${escA(cko)}"><img src="${escA(imgUrl(im.url))}" alt=""></div>`
     }).join('')
     const dots = images.map((_, i) => `<button class="dot" type="button" aria-label="${i + 1}번째 사진"></button>`).join('')
     gallery = `
@@ -304,51 +235,39 @@ export function buildArticleLayout(doc: any, opts: BuildOpts = {}): string {
       </div>`
   }
 
-  // ── 본문 블록 (data-en/​data-en-html 로 영문 병기 — en.content 있으면 언어 전환 시 표시) ──
-  const enBlocks: any[] = (en.content && en.content.blocks) || []
+  // ── 본문 블록 ──
   let recordUsed = false
   const bodyParts: string[] = []
   if (ko.content && ko.content.lead) {
-    bodyParts.push(`<p class="lead"${attrEn((en.content && en.content.lead) || '')}>${esc(ko.content.lead)}</p>`)
+    bodyParts.push(`<p class="lead">${esc(ko.content.lead)}</p>`)
   }
-  blocks.forEach((b, i) => {
+  blocks.forEach((b) => {
     if (!b || !b.type) return
-    const eb = (enBlocks[i] && enBlocks[i].type === b.type) ? enBlocks[i] : null
     if (b.type === 'heading') {
-      bodyParts.push(`<h2${attrEn(eb ? (eb.text || eb.title || '') : '')}>${esc(b.text || b.title || '')}</h2>`)
+      bodyParts.push(`<h2>${esc(b.text || b.title || '')}</h2>`)
     } else if (b.type === 'paragraph') {
-      if (b.title) bodyParts.push(`<h2${attrEn(blockTitleEn(b.title, eb ? (eb.title || '') : ''))}>${esc(b.title)}</h2>`)
-      bodyParts.push(`<p${attrEn(eb ? (eb.text || '') : '')}>${esc(b.text || '')}</p>`)
+      if (b.title) bodyParts.push(`<h2>${esc(b.title)}</h2>`)
+      bodyParts.push(`<p>${esc(b.text || '')}</p>`)
     } else if (b.type === 'quote') {
       const cite = b.speaker ? `<cite>${esc(b.speaker)}${b.speaker.endsWith('선수') ? '' : ' 선수'}</cite>` : ''
-      // cite 자식이 있어 텍스트만 바꾸면 깨지므로 data-en-html 로 통째 치환
-      if (eb && (eb.text || eb.speaker)) {
-        const enSpeaker = eb.speaker || b.speaker || ''
-        const enCite = enSpeaker ? `<cite>${esc(enSpeaker)}</cite>` : ''
-        bodyParts.push(`<blockquote data-en-html="${escA(esc(eb.text || b.text || '') + enCite)}">${esc(b.text || '')}${cite}</blockquote>`)
-      } else {
-        bodyParts.push(`<blockquote>${esc(b.text || '')}${cite}</blockquote>`)
-      }
+      bodyParts.push(`<blockquote>${esc(b.text || '')}${cite}</blockquote>`)
     } else if (b.type === 'recordTable') {
       const idAttr = recordUsed ? '' : ' id="sec-record"'
       recordUsed = true
-      const erows: any[] = (eb && eb.rows) || []
-      const rows = (b.rows || []).map((r: any, j: number) => {
-        const er = erows[j] || {}
-        return `<tr><td${attrEn(segEn(r.segment, er.segment || ''))}>${esc(r.segment)}</td><td${attrEn(er.record || '')}>${esc(r.record)}</td><td${attrEn(er.note || '')}>${esc(r.note || '')}</td></tr>`
+      const rows = (b.rows || []).map((r: any) => {
+        return `<tr><td>${esc(r.segment)}</td><td>${esc(r.record)}</td><td>${esc(r.note || '')}</td></tr>`
       }).join('')
       bodyParts.push(`<table class="record-table"${idAttr}>
-          <caption${attrEn((eb && eb.caption) || '')}>${esc(b.caption || '')}</caption>
-          <thead><tr><th data-en="Category">구분</th><th data-en="Time">기록</th><th data-en="Note">비고</th></tr></thead>
+          <caption>${esc(b.caption || '')}</caption>
+          <thead><tr><th>구분</th><th>기록</th><th>비고</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>`)
     } else if (b.type === 'markdown') {
-      // 읽을거리 본문 — 마크다운 한 덩어리. 영문은 같은 자리 블록의 text 를 쓴다.
+      // 읽을거리 본문 — 마크다운 한 덩어리.
       const html = mdToHtml(b.text || '')
-      const enHtml = eb ? mdToHtml(eb.text || '') : ''
-      if (html || enHtml) bodyParts.push(`<div class="art-md"${attrEnHtml(enHtml)}>${html}</div>`)
+      if (html) bodyParts.push(`<div class="art-md">${html}</div>`)
     } else if (b.type === 'video') {
-      const v = videoHtml(b.url, b.caption, b.captionEn)
+      const v = videoHtml(b.url, b.caption)
       if (v) bodyParts.push(v)
     } else if (b.type === 'highlight' || /^note/.test(String(b.type))) {
       // 콜아웃(인용/인터뷰와 같은 좌측 보더 형식, 색만 구별) — highlight=강조, note=편집자 주
@@ -356,11 +275,10 @@ export function buildArticleLayout(doc: any, opts: BuildOpts = {}): string {
       const isNote = /^note/.test(String(b.type))
       const tag = isNote ? (b.noteType === 'fact_check' ? 'FACT NOTE' : 'NOTE') : 'HIGHLIGHT'
       const label = b.label || b.title || (isNote ? '편집자 주' : '현장 인상')
-      const enLabel = eb ? (eb.label || eb.title || '') : ''
-      const labelSpan = label ? `<span class="co-label"${attrEn(enLabel)}>${esc(label)}</span>` : ''
+      const labelSpan = label ? `<span class="co-label">${esc(label)}</span>` : ''
       bodyParts.push(`<aside class="art-callout ${isNote ? 'art-note' : 'art-highlight'}">
           <p class="co-kicker">${labelSpan}<span class="co-tag">${tag}</span></p>
-          <p class="co-text"${attrEn(eb ? (eb.text || '') : '')}>${esc(b.text || '')}</p>
+          <p class="co-text">${esc(b.text || '')}</p>
         </aside>`)
     } else if (b.type === 'stat') {
       // 공식 기록(결과 카드) — 큰 기록 + 설명. value/description 형(스키마) 과
@@ -373,35 +291,35 @@ export function buildArticleLayout(doc: any, opts: BuildOpts = {}): string {
         value = (hit && hit.value) || b.items[0].value || ''
         if (!desc) desc = b.items.filter((it: any) => it.value && it.value !== value).map((it: any) => it.value).join(' · ')
       }
-      const labelSpan = label ? `<span${attrEn(eb ? (eb.label || eb.title || '') : '')}>${esc(label)}</span> · ` : ''
+      const labelSpan = label ? `<span>${esc(label)}</span> · ` : ''
       bodyParts.push(`<div class="art-stat">
           <p class="stat-label">${labelSpan}OFFICIAL RESULT</p>
           <p class="stat-value">${esc(value)}</p>
-          ${desc ? `<p class="stat-desc"${attrEn(eb ? (eb.description || '') : '')}>${esc(desc)}</p>` : ''}
+          ${desc ? `<p class="stat-desc">${esc(desc)}</p>` : ''}
         </div>`)
     } else if (b.type === 'image') {
       // 본문 인라인 사진 — url(R2 상대경로/절대) → imgUrl 로 정규화, 캡션 병기
       const u = imgUrl(b.url || (b.image && b.image.url) || '')
       if (u && !slideUrls.has(u)) {
         const cap = b.caption
-          ? `<figcaption class="art-caption"${attrEn(b.captionEn || '')}>${esc(b.caption)}</figcaption>`
+          ? `<figcaption class="art-caption">${esc(b.caption)}</figcaption>`
           : ''
         bodyParts.push(`<figure class="art-figure"><img src="${escA(u)}" alt="${escA(b.alt || '')}" loading="lazy">${cap}</figure>`)
       }
     } else {
       // 기타 블록(result·eventSummary 등) — title/text 있으면 표시 (버려지지 않도록)
-      if (b.title) bodyParts.push(`<h2${attrEn(blockTitleEn(b.title, eb ? (eb.title || '') : ''))}>${esc(b.title)}</h2>`)
-      if (b.text) bodyParts.push(`<p${attrEn(eb ? (eb.text || '') : '')}>${esc(b.text)}</p>`)
+      if (b.title) bodyParts.push(`<h2>${esc(b.title)}</h2>`)
+      if (b.text) bodyParts.push(`<p>${esc(b.text)}</p>`)
     }
     // 문서의 youtube { url, caption } — 경기 요약(event/summary) 블록 바로 다음에 표시
     if (b.type === 'event' && b.source === 'summary' && doc?.youtube) {
-      const v = videoHtml(doc.youtube.url, doc.youtube.caption, doc.youtube.captionEn)
+      const v = videoHtml(doc.youtube.url, doc.youtube.caption)
       if (v) bodyParts.push(v)
     }
   })
   // 맺음말 — content.conclusion(문자열)을 본문 맨 끝에 표시
   if (ko.content && ko.content.conclusion) {
-    bodyParts.push(`<p class="art-conclusion"${attrEn((en.content && en.content.conclusion) || '')}>${esc(ko.content.conclusion)}</p>`)
+    bodyParts.push(`<p class="art-conclusion">${esc(ko.content.conclusion)}</p>`)
   }
   const bodyHtml = `<div class="art-body" id="sec-body">${bodyParts.join('\n')}</div>`
 
@@ -411,47 +329,47 @@ export function buildArticleLayout(doc: any, opts: BuildOpts = {}): string {
     : ''
 
   // ── 바이라인 ──
-  const byline = `<p class="art-byline" id="sec-reporter"><strong><button type="button" class="byline-name" id="bylineName"${attrEn(reporterNameEn(reporter.name))}>${esc(reporterName(reporter.name))}</button></strong> / ${esc(reporter.email || 'press@medalbank.com')}</p>`
+  const byline = `<p class="art-byline" id="sec-reporter"><strong><button type="button" class="byline-name" id="bylineName">${esc(reporterName(reporter.name))}</button></strong> / ${esc(reporter.email || 'press@medalbank.com')}</p>`
 
   // ── 저작권·등록 ──
-  const legal = `<div class="art-legal"><span class="copy" data-en="ⓒ Swimming Photography. All rights reserved. Unauthorized reproduction and redistribution prohibited.">ⓒ Swimming Photography. 무단 전재 및 재배포 금지.</span></div>`
+  const legal = `<div class="art-legal"><span class="copy">ⓒ Swimming Photography. 무단 전재 및 재배포 금지.</span></div>`
 
   // ── 기자 명함/제보 박스 ──
   const actions = `
       <div class="art-actions" hidden>
         <div class="namecard">
           <div class="nc-press">Swimming Photography<span class="nc-org">수영 전문 일간지</span></div>
-          <div class="nc-name"${attrEn(reporterNameEn(reporter.name))}>${esc(reporterName(reporter.name))}</div>
+          <div class="nc-name">${esc(reporterName(reporter.name))}</div>
           <div class="nc-contact">${esc(reporter.email || 'press@medalbank.com')}</div>
         </div>
         <div class="action-box">
           <div class="reporter-part">
-            <div class="rb-label" data-en="Who wrote this">이 기사를 쓴 기자</div>
+            <div class="rb-label">이 기사를 쓴 기자</div>
             <div class="rb-head">
               <div class="rb-avatar">${esc((reporter.name || '편')[0])}</div>
               <div>
-                <div class="rb-name"${attrEn(reporterNameEn(reporter.name))}>${esc(reporterName(reporter.name))}</div>
-                <div class="rb-field"><span class="field"${attrEn(catEn)}>${esc(cat)}</span></div>
+                <div class="rb-name">${esc(reporterName(reporter.name))}</div>
+                <div class="rb-field"><span class="field">${esc(cat)}</span></div>
               </div>
             </div>
           </div>
           <div class="tip-part">
             <div class="tip-label">Have your say?</div>
-            <p data-en="Your tips can become the starting point for our follow-up reporting.">제보해주시는 내용은 후속 취재의 출발점이 될 수 있습니다.</p>
-            <a href="#" class="btn" data-form="제보-폼-URL" data-en="Share your story">이야기 제보하기</a>
+            <p>제보해주시는 내용은 후속 취재의 출발점이 될 수 있습니다.</p>
+            <a href="#" class="btn" data-form="제보-폼-URL">이야기 제보하기</a>
           </div>
         </div>
       </div>`
 
   // ── 정정·수정 이력 ──
   const corrItems = (corrections.length ? corrections : [{ timestamp: doc.publishedAt, note: '발행' }])
-    .map((c: any) => `<li><span class="ts"${attrEn(enStamp(c.timestamp))}>${esc(koStamp(c.timestamp))}</span> — <span${attrEn(c.noteEn || corrNoteEn(c.note))}>${esc(c.note || '')}</span></li>`).join('')
+    .map((c: any) => `<li><span class="ts">${esc(koStamp(c.timestamp))}</span> — <span>${esc(c.note || '')}</span></li>`).join('')
   const correctionsHtml = `
       <section class="corrections" id="corrections">
-        <h3 data-en="Corrections &amp; Updates">정정·수정 이력</h3>
+        <h3>정정·수정 이력</h3>
         <div class="corrections-box">
           <ul>${corrItems}</ul>
-          <p class="note" data-en="We record and fully disclose every correction.">모든 정정 내역을 표기하며, 전체 공개합니다.</p>
+          <p class="note">모든 정정 내역을 표기하며, 전체 공개합니다.</p>
         </div>
       </section>`
 
@@ -463,15 +381,15 @@ export function buildArticleLayout(doc: any, opts: BuildOpts = {}): string {
       const thumbStyle = r.thumb ? ` style="background-image:url('${escA(imgUrl(r.thumb))}')"` : ''
       return `<a class="lg-card" href="/article/${escA(r.slug)}">
           <span class="lg-thumb"${thumbStyle}></span>
-          <span class="lg-title"><span class="lg-cat"${attrEn(r.categoryEn || '')}>${esc(r.category || '대회')}</span><span${attrEn(r.titleEn || '')}>${esc(r.title)}</span></span>
-          <span class="lg-date"${attrEn(r.date ? enDate(r.date) : '')}>${esc(koDate(r.date || ''))}</span>
+          <span class="lg-title"><span class="lg-cat">${esc(r.category || '대회')}</span><span>${esc(r.title)}</span></span>
+          <span class="lg-date">${esc(koDate(r.date || ''))}</span>
         </a>`
     }).join('')
     relatedHtml = `
       <section class="listing" id="sec-related">
         <div class="listing-head">
-          <h2 data-en="More from this meet">${esc(opts.relatedHeading || '같은 대회 최근 기사')}</h2>
-          ${opts.moreHref ? `<a class="listing-more" href="${escA(opts.moreHref)}" data-en="See more">더 보기</a>` : ''}
+          <h2>${esc(opts.relatedHeading || '같은 대회 최근 기사')}</h2>
+          ${opts.moreHref ? `<a class="listing-more" href="${escA(opts.moreHref)}">더 보기</a>` : ''}
         </div>
         <div class="listing-grid">${cards}</div>
       </section>`
@@ -479,7 +397,7 @@ export function buildArticleLayout(doc: any, opts: BuildOpts = {}): string {
 
   const ad = `
       <section class="ad-section" aria-label="광고">
-        <h3 class="ad-heading" data-en="Advertisement">광고</h3>
+        <h3 class="ad-heading">광고</h3>
         <div class="ad-slot">ㅍㅇ ㅎㅇㅌ</div>
       </section>`
 
@@ -489,11 +407,11 @@ export function buildArticleLayout(doc: any, opts: BuildOpts = {}): string {
       <div class="ov" data-close></div>
       <div class="box">
         <div class="modal-head">
-          <h3 data-en="About tips">제보 안내</h3>
+          <h3>제보 안내</h3>
           <button type="button" class="x" data-close aria-label="닫기">×</button>
         </div>
-        <p data-en="We are not accepting tips at this time. All tip-related channels are currently closed, and we operate solely through the editorial team.">현재는 제보를 받지 않고 있습니다. 모든 제보와 관련된 트랙을 제한한 상태로, 편집부의 역량으로만 운영하고 있습니다.</p>
-        <p data-en="We'll let you know when the tip channel reopens. We cheer for Korean swimming.">추후 제보 채널이 다시 열리면 안내드리겠습니다. 대한민국 수영을 응원합니다.</p>
+        <p>현재는 제보를 받지 않고 있습니다. 모든 제보와 관련된 트랙을 제한한 상태로, 편집부의 역량으로만 운영하고 있습니다.</p>
+        <p>추후 제보 채널이 다시 열리면 안내드리겠습니다. 대한민국 수영을 응원합니다.</p>
       </div>
     </div>`
 
@@ -503,14 +421,13 @@ export function buildArticleLayout(doc: any, opts: BuildOpts = {}): string {
   // ── 사이드바: 같은 날의 다른 기사 ──
   let sideLatest = ''
   if (related.length) {
-    // 날짜·분야·제목 모두 data-en 부여 (아래 '최근 기사' 목록과 동일 기준)
     const lis = related.slice(0, 4).map((r) =>
-      `<li><a href="/article/${escA(r.slug)}"><span class="d"${attrEn(r.date ? enDate(r.date) : '')}>${esc(koDate(r.date || ''))}</span>`
-      + `<span class="t"><span class="s-cat"${attrEn(r.categoryEn || '')}>${esc(r.category || '대회')}</span>`
-      + `<span${attrEn(r.titleEn || '')}>${esc(r.title)}</span></span></a></li>`).join('')
+      `<li><a href="/article/${escA(r.slug)}"><span class="d">${esc(koDate(r.date || ''))}</span>`
+      + `<span class="t"><span class="s-cat">${esc(r.category || '대회')}</span>`
+      + `<span>${esc(r.title)}</span></span></a></li>`).join('')
     sideLatest = `
       <div class="side-module mobile-hide">
-        <h3 data-en="More from this day">같은 날의 다른 기사</h3>
+        <h3>같은 날의 다른 기사</h3>
         <ul class="side-latest">${lis}</ul>
       </div>`
   }
@@ -518,29 +435,29 @@ export function buildArticleLayout(doc: any, opts: BuildOpts = {}): string {
   const sidebar = `
     <aside class="sidebar">
       <div class="side-module mobile-hide">
-        <h3 data-en="In this article">자세히 보기</h3>
+        <h3>자세히 보기</h3>
         <nav class="mini-nav" id="miniNav" aria-label="기사 내비게이션"></nav>
       </div>
       ${sideRecord}
       ${sideLatest}
       <div class="side-module mobile-hide">
-        <h3 data-en="Browse by category">분야 바로가기</h3>
+        <h3>분야 바로가기</h3>
         <div class="side-chips">
-          <a href="/?cat=%EB%8C%80%ED%9A%8C" data-en="Meets">대회</a>
-          <a href="/?cat=%EC%9D%B8%EB%AC%BC" data-en="Athlete">인물</a>
-          <a href="/?cat=%ED%98%84%EC%9E%A5" data-en="On Site">현장</a>
-          <a class="ko-only" href="/breakingnews" data-en="Breaking">속보</a>
+          <a href="/?cat=%EB%8C%80%ED%9A%8C">대회</a>
+          <a href="/?cat=%EC%9D%B8%EB%AC%BC">인물</a>
+          <a href="/?cat=%ED%98%84%EC%9E%A5">현장</a>
+          <a href="/breakingnews">속보</a>
         </div>
       </div>
       <div class="side-module mobile-hide">
-        <h3 data-en="Search articles">기사 찾아보기</h3>
+        <h3>기사 찾아보기</h3>
         <form class="side-search" id="sideSearch" role="search">
           <input type="search" class="side-search-input" id="sideSearchInput"
-                 placeholder="도시·대회·종목·선수·제목 검색" data-en-ph="Search city, meet, event, athlete, title" aria-label="검색">
+                 placeholder="도시·대회·종목·선수·제목 검색" aria-label="검색">
         </form>
       </div>
       <div class="side-module">
-        <h3 data-en="Explore Korean swimming records">우리나라 수영 기록 둘러보기</h3>
+        <h3>우리나라 수영 기록 둘러보기</h3>
         <a class="side-records" href="https://medalbank.com" target="_blank" rel="noopener">
           <img src="/images/logo_medalbank.png" alt="메달뱅크" class="sr-logo">
         </a>
@@ -556,20 +473,20 @@ export function buildArticleLayout(doc: any, opts: BuildOpts = {}): string {
   return `<div class="layout">
     <article class="article">
       ${breadcrumb}
-      <span class="art-cat"${attrEn(catEn)}>${esc(cat)}</span>
-      <h1 class="art-title" id="sec-title"${attrEn(en.title || '')}>${esc(ko.title || '')}</h1>
-      ${koSub ? `<p class="art-sub"${attrEn(enSub)}>${esc(koSub)}</p>` : ''}
+      <span class="art-cat">${esc(cat)}</span>
+      <h1 class="art-title" id="sec-title">${esc(ko.title || '')}</h1>
+      ${koSub ? `<p class="art-sub">${esc(koSub)}</p>` : ''}
       <div class="art-meta">
         <div class="meta-dates">${metaDates}</div>
         <div class="tools" role="group" aria-label="기사 도구">
           <span class="tools-left">
-            <button type="button" data-pdf data-en="Save PDF">PDF 저장</button>
-            <button type="button" data-img data-en="Save IMG">IMG 저장</button>
-            <button type="button" data-copy data-en="Copy URL">URL 복사하기</button>
+            <button type="button" data-pdf>PDF 저장</button>
+            <button type="button" data-img>IMG 저장</button>
+            <button type="button" data-copy>URL 복사하기</button>
           </span>
           <span class="tools-right">
-            <button type="button" class="fs" data-fs="down" aria-label="글자 작게" data-en="A−">가−</button>
-            <button type="button" class="fs" data-fs="up" aria-label="글자 크게" data-en="A＋">가＋</button>
+            <button type="button" class="fs" data-fs="down" aria-label="글자 작게">가−</button>
+            <button type="button" class="fs" data-fs="up" aria-label="글자 크게">가＋</button>
           </span>
         </div>
       </div>

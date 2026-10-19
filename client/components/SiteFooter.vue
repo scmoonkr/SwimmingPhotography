@@ -2,7 +2,6 @@
 // 공용 푸터 — 하단 티커는 안내 문구(테스트 안내)를 표시.
 import { computed, onMounted, ref } from 'vue'
 
-const { t, isEN } = useLang()
 const modalOpen = ref(false)
 
 // 관리자(대시보드) URL — 환경별(runtimeConfig). dev: localhost:6642 / prod: admin.swimmingphotography.com
@@ -26,13 +25,10 @@ const onLogout = async () => {
   }
 }
 
-const NOTICE = () => t(
-  '본 웹사이트는 현재 테스트 과정 중에 있으며 실제로 운영중이지 않습니다.',
-  'This website is currently in testing and is not yet in official operation.',
-)
+const NOTICE = () => '본 웹사이트는 현재 테스트 과정 중에 있으며 실제로 운영중이지 않습니다.'
 
 // ── 하단 티커: 안내 문구 (테스트 안내) ──
-const marqueeLabel = computed(() => t('안내', 'NOTICE'))
+const marqueeLabel = computed(() => '안내')
 const marqueeItems = computed(() => [NOTICE()])
 </script>
 
@@ -46,25 +42,19 @@ const marqueeItems = computed(() => [NOTICE()])
       </div>
 
       <nav class="foot-nav" aria-label="하위 메뉴">
-        <NuxtLink to="/introduction">{{ t('소개', 'About') }}</NuxtLink>
-        <NuxtLink to="/agreement">{{ t('규약', 'Guidelines') }}</NuxtLink>
-        <NuxtLink to="/submission">{{ t('제보', 'Submit') }}</NuxtLink>
-        <a class="fn-admin" :href="adminUrl">{{ t('관리자', 'Admin') }}</a>
+        <NuxtLink to="/introduction">소개</NuxtLink>
+        <NuxtLink to="/agreement">규약</NuxtLink>
+        <NuxtLink to="/submission">제보</NuxtLink>
+        <a class="fn-admin" :href="adminUrl">관리자</a>
         <!-- 로그인 중이면 로그아웃 -->
-        <button v-if="user" class="fn-logout" type="button" :disabled="loggingOut" :title="user.name || user.username" @click="onLogout">{{ t('로그아웃', 'Log out') }}</button>
+        <button v-if="user" class="fn-logout" type="button" :disabled="loggingOut" :title="user.name || user.username" @click="onLogout">로그아웃</button>
       </nav>
 
-      <p class="promise">{{ t(
-        '수영사진(Swimming Photography)의 모든 컨텐츠는 직접 취재하거나 또는 신뢰할 수 있는 기관을 통해 본인 인증이 완료된 수영인의 제보를 기반으로 합니다. 제보자가 원치 않는 경우, 신원은 보증하지만 익명으로 처리 할 수 있습니다. 본 프로젝트는 메달뱅크아쿠아틱스 매거진과는 별개로 병행하여 운영됩니다.',
-        'All content on Swimming Photography comes from our own on-site reporting or from tips by swimmers whose identity has been verified through trusted institutions. If a source prefers, we vouch for their identity while keeping them anonymous. This project runs in parallel with, but separately from, Medalbank Aquatics, the swimming magazine.',
-      ) }}</p>
+      <p class="promise">수영사진(Swimming Photography)의 모든 컨텐츠는 직접 취재하거나 또는 신뢰할 수 있는 기관을 통해 본인 인증이 완료된 수영인의 제보를 기반으로 합니다. 제보자가 원치 않는 경우, 신원은 보증하지만 익명으로 처리 할 수 있습니다. 본 프로젝트는 메달뱅크아쿠아틱스 매거진과는 별개로 병행하여 운영됩니다.</p>
 
       <p class="legal">
-        <span>{{ t('수영사진 · Swimming Photography · ⓒ 2026 무단 전재 및 재배포 금지', 'Swimming Photography · ⓒ 2026 All rights reserved.') }}</span>
-        <!-- <span class="reg-detail">{{ t(
-          ' · 정기간행물 등록번호 인천,아 33333호 · 등록연월일 2026년 6월 28일 · 발행·편집인 문성중 · 발행소 인천광역시 · 전화 333-333-3333',
-          ' · Periodical Reg. No. Incheon,A 33333 · Registered Jun 28, 2026 · Publisher·Editor Seongjung MOON · Published in Incheon · Tel 333-333-3333',
-        ) }}</span> -->
+        <span>수영사진 · Swimming Photography · ⓒ 2026 무단 전재 및 재배포 금지</span>
+        <!-- <span class="reg-detail"> · 정기간행물 등록번호 인천,아 33333호 · 등록연월일 2026년 6월 28일 · 발행·편집인 문성중 · 발행소 인천광역시 · 전화 333-333-3333</span> -->
         <!-- <button type="button" class="foot-info" aria-label="연락처 안내" title="연락처 안내" @click="modalOpen = true">i</button> -->
       </p>
     </div>
@@ -94,21 +84,15 @@ const marqueeItems = computed(() => [NOTICE()])
     <div class="ov" @click="modalOpen = false" />
     <div class="box">
       <div class="modal-head">
-        <h3>{{ t('연락처 안내', 'Contact') }}</h3>
+        <h3>연락처 안내</h3>
         <button type="button" class="x" aria-label="닫기" @click="modalOpen = false">×</button>
       </div>
       <p>
-        <template v-if="!isEN">
-          실제 운영되는 운영소의 연락처이지만 타업무 또는 현장 취재로 인한 부재로 연결이 원활하지 않을 수 있습니다. 최대한 빠르게 답장할 수 있는 채널은 인스타그램 DM
-          <a class="ig" href="https://instagram.com/medalbankaquatics" target="_blank" rel="noopener">@medalbankaquatics</a> 입니다.
-        </template>
-        <template v-else>
-          This is a working contact line, but we may be away on other assignments or on-site reporting, so calls may not always connect. The fastest way to reach us is an Instagram DM:
-          <a class="ig" href="https://instagram.com/medalbankaquatics" target="_blank" rel="noopener">@medalbankaquatics</a>.
-        </template>
+        실제 운영되는 운영소의 연락처이지만 타업무 또는 현장 취재로 인한 부재로 연결이 원활하지 않을 수 있습니다. 최대한 빠르게 답장할 수 있는 채널은 인스타그램 DM
+        <a class="ig" href="https://instagram.com/medalbankaquatics" target="_blank" rel="noopener">@medalbankaquatics</a> 입니다.
       </p>
-      <p>{{ t("전달사항이 있으실 경우, 편하게 메세지 주세요. 최대한 신속히 처리하겠습니다.", "If you have anything to share, feel free to message us. We'll get back to you as quickly as we can.") }}</p>
-      <p class="cheer">{{ t('대한민국 수영을 응원합니다.', 'We cheer for Korean swimming.') }}</p>
+      <p>전달사항이 있으실 경우, 편하게 메세지 주세요. 최대한 신속히 처리하겠습니다.</p>
+      <p class="cheer">대한민국 수영을 응원합니다.</p>
     </div>
   </div>
 </template>

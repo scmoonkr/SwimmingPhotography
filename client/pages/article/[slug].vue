@@ -7,7 +7,6 @@ import { buildArticleLayout, type RelatedItem } from '~/utils/articleHtml'
 import { catKo, articleDate, PUBLIC_TYPES } from '~/utils/articleList'
 import { wireArticleInteractions, type ArticleWiring } from '~/utils/articleInteractions'
 
-const { isEN } = useLang()
 const route = useRoute()
 const slug = computed(() => String(route.params.slug || ''))
 
@@ -28,9 +27,7 @@ const { data, error } = await useAsyncData(
         .map((d) => ({
           slug: d.slug,
           category: catKo(d.translations?.ko?.categories),
-          categoryEn: (d.translations?.en?.categories || [])[0] || '',
           title: d.translations?.ko?.title || '',
-          titleEn: d.translations?.en?.title || '',
           region: '',
           date: articleDate(d),
           thumb: d?.media?.thumb || d?.media?.coverImage || (d?.media?.images && d.media.images[0]?.url) || '',
@@ -91,9 +88,7 @@ const wire = async () => {
   await nextTick()
   if (!root.value || !html.value) return
   teardown()
-  applyI18n(root.value, isEN.value)
-  root.value.classList.toggle('is-en', isEN.value)
-  wiring = wireArticleInteractions(root.value, { en: () => isEN.value })
+  wiring = wireArticleInteractions(root.value)
   scrollToArticleTop()
 }
 
@@ -102,22 +97,14 @@ const wire = async () => {
 //  변하지 않아 재실행되지 않으므로 onMounted 로 초기 wiring 을 보장한다.)
 onMounted(wire)
 watch(html, wire)
-// 언어 전환 시 정적 라벨(i18n) + JS 채운 요소 갱신
-watch(isEN, () => {
-  if (root.value) {
-    applyI18n(root.value, isEN.value)
-    root.value.classList.toggle('is-en', isEN.value)   // 국문 전용 요소(속보) 표시 전환
-  }
-  wiring?.refreshLang()
-})
 onBeforeUnmount(teardown)
 </script>
 
 <template>
   <div v-if="doc" ref="root" class="article-page" v-html="html" />
   <div v-else class="article-missing">
-    <p>{{ isEN ? 'Article not found.' : '기사를 찾을 수 없습니다.' }}</p>
-    <NuxtLink to="/">{{ isEN ? 'Back to home' : '홈으로' }}</NuxtLink>
+    <p>기사를 찾을 수 없습니다.</p>
+    <NuxtLink to="/">홈으로</NuxtLink>
   </div>
 </template>
 

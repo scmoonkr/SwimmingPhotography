@@ -11,14 +11,10 @@ export interface BreakingItem {
   publishedAt: string
   title: string
   subtitle?: string
-  titleENG?: string
-  subtitleENG?: string
   [k: string]: any
 }
 
 export const useBreaking = () => {
-  const { isEN } = useLang()
-
   // useState: SSR/CSR 공유 + 앱 전역 단일 상태
   const items = useState<BreakingItem[]>('breaking_items', () => [])
   const loaded = useState<boolean>('breaking_loaded', () => false)
@@ -36,17 +32,14 @@ export const useBreaking = () => {
     return p?.text || ''
   }
 
-  // MongoDB article 문서 → BreakingItem (한글/영문 translations 매핑)
+  // MongoDB article 문서 → BreakingItem
   const fromDoc = (d: any): BreakingItem => {
     const ko = d?.translations?.ko || {}
-    const en = d?.translations?.en || {}
     return {
       id: String(d?._id ?? d?.id ?? ''),
       publishedAt: d?.publishedAt || '',
       title: ko.title || '',
       subtitle: ko.subtitle || ko.excerpt || firstParagraph(ko),
-      titleENG: en.title || '',
-      subtitleENG: en.subtitle || en.excerpt || firstParagraph(en),
     }
   }
 
@@ -68,19 +61,13 @@ export const useBreaking = () => {
     loaded.value = true
   }
 
-  // 현재 언어에 맞는 필드 (EN 모드면 <field>ENG, 없으면 원문 폴백)
-  const pick = (it: BreakingItem, f: string) => {
-    const v = isEN.value ? it[f + 'ENG'] : it[f]
-    return (v == null || v === '') ? (it[f] || '') : v
-  }
+  const pick = (it: BreakingItem, f: string) => it[f] || ''
 
-  // 일시 포맷: KO "2026년 5월 22일 09시 33분" / EN "22-05-2026 09:33"
+  // 일시 포맷: "2026년 5월 22일 09시 33분"
   const fmtDT = (s: string) => {
     const m = (s || '').match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/)
     if (!m) return s || ''
-    return isEN.value
-      ? m[3] + '-' + m[2] + '-' + m[1] + ' ' + m[4] + ':' + m[5]
-      : m[1] + '년 ' + (+m[2]) + '월 ' + (+m[3]) + '일 ' + m[4] + '시 ' + m[5] + '분'
+    return m[1] + '년 ' + (+m[2]) + '월 ' + (+m[3]) + '일 ' + m[4] + '시 ' + m[5] + '분'
   }
 
   const open = (it: BreakingItem) => { openItem.value = it }

@@ -1,6 +1,6 @@
 // 기사 상세 상호작용 — docs/html/article.html 스크립트 이식.
 // 글자 크기(가−/가＋)·PDF/IMG 저장·URL 복사·사진 갤러리(캡션)·기사 내비게이션(앵커)·바이라인 토글.
-// v-html 로 렌더된 rootEl 위에서 1회 wiring 하고, 언어 전환용 refreshLang / 정리용 cleanup 을 돌려준다.
+// v-html 로 렌더된 rootEl 위에서 1회 wiring 하고, 정리용 cleanup 을 돌려준다.
 
 // html2canvas 를 필요 시 CDN 에서 1회 로드 (IMG 저장용)
 let html2canvasPromise: Promise<any> | null = null
@@ -17,11 +17,9 @@ const loadHtml2Canvas = (): Promise<any> => {
   return html2canvasPromise
 }
 
-export interface ArticleWiring { cleanup: () => void; refreshLang: () => void }
+export interface ArticleWiring { cleanup: () => void }
 
-export function wireArticleInteractions(el: HTMLElement, opts: { en: () => boolean }): ArticleWiring {
-  const EN = opts.en
-  const langRefreshers: Array<() => void> = []
+export function wireArticleInteractions(el: HTMLElement): ArticleWiring {
   const cleanups: Array<() => void> = []
 
   // ── 글자 크기 (가− / 가＋) : --read-fs 조절 (0.85 ~ 1.3) ──
@@ -42,7 +40,7 @@ export function wireArticleInteractions(el: HTMLElement, opts: { en: () => boole
   const imgBtn = el.querySelector<HTMLButtonElement>('[data-img]')
   imgBtn?.addEventListener('click', async () => {
     const prev = imgBtn.textContent
-    imgBtn.textContent = EN() ? 'Saving…' : '저장 중…'
+    imgBtn.textContent = '저장 중…'
     imgBtn.disabled = true
     const savedScroll = window.scrollY
     try {
@@ -58,7 +56,7 @@ export function wireArticleInteractions(el: HTMLElement, opts: { en: () => boole
       a.href = canvas.toDataURL('image/png')
       a.click()
     } catch (e) {
-      alert(EN() ? 'Image save failed.' : '이미지 저장에 실패했습니다.')
+      alert('이미지 저장에 실패했습니다.')
     }
     window.scrollTo(0, savedScroll)
     imgBtn.textContent = prev
@@ -85,12 +83,10 @@ export function wireArticleInteractions(el: HTMLElement, opts: { en: () => boole
     if (ok) {
       const prev = copyBtn.textContent
       const isMobile = window.matchMedia('(max-width: 640px)').matches
-      copyBtn.textContent = EN()
-        ? (isMobile ? 'Copied. Paste it anywhere.' : 'Copied to clipboard. Paste it wherever you like.')
-        : (isMobile ? '복사 완료. 붙여넣기 해주세요.' : '클립보드 복사 완료. 원하시는 곳에 붙여넣기 해주세요.')
+      copyBtn.textContent = isMobile ? '복사 완료. 붙여넣기 해주세요.' : '클립보드 복사 완료. 원하시는 곳에 붙여넣기 해주세요.'
       setTimeout(() => { copyBtn.textContent = prev }, 1800)
     } else {
-      window.prompt(EN() ? "This article's URL" : '이 기사의 주소', url)
+      window.prompt('이 기사의 주소', url)
     }
   })
 
@@ -105,9 +101,7 @@ export function wireArticleInteractions(el: HTMLElement, opts: { en: () => boole
     if (n <= 1) g.classList.add('single')
     const setCap = () => {
       if (!cap || !slides[idx]) return
-      cap.textContent = (EN() && slides[idx].dataset.captionEn)
-        ? slides[idx].dataset.captionEn!
-        : (slides[idx].getAttribute('data-caption') || '')
+      cap.textContent = slides[idx].getAttribute('data-caption') || ''
     }
     const go = (k: number) => {
       idx = (k + n) % n
@@ -115,7 +109,6 @@ export function wireArticleInteractions(el: HTMLElement, opts: { en: () => boole
       setCap()
       dots.forEach((d, j) => d.classList.toggle('active', j === idx))
     }
-    langRefreshers.push(setCap)
 
     // ── 자동 재생(autoplay) : 5초 간격 순환 · 조작/호버/포커스 시 정지 · 1장이거나 모션 최소화면 비활성 ──
     const AUTOPLAY_MS = 5000
@@ -185,12 +178,12 @@ export function wireArticleInteractions(el: HTMLElement, opts: { en: () => boole
     const nav = el.querySelector<HTMLElement>('#miniNav')
     if (!nav) return
     const defs = [
-      { id: 'sec-title', label: '제목', en: 'Title' },
-      { id: 'sec-photo', label: '사진', en: 'Photos' },
-      { id: 'sec-body', label: '기사', en: 'Article' },
-      { id: 'sec-record', label: '기록', en: 'Splits' },
-      { id: 'sec-reporter', label: '기자', en: 'Reporter' },
-      { id: 'sec-related', label: '읽을거리', en: 'Read more' },
+      { id: 'sec-title', label: '제목' },
+      { id: 'sec-photo', label: '사진' },
+      { id: 'sec-body', label: '기사' },
+      { id: 'sec-record', label: '기록' },
+      { id: 'sec-reporter', label: '기자' },
+      { id: 'sec-related', label: '읽을거리' },
     ]
     const items = defs
       .map((d) => ({ d, el: el.querySelector<HTMLElement>('#' + d.id), link: null as HTMLAnchorElement | null }))
@@ -203,7 +196,7 @@ export function wireArticleInteractions(el: HTMLElement, opts: { en: () => boole
       const li = document.createElement('li')
       const a = document.createElement('a')
       a.href = '#' + x.d.id
-      a.textContent = EN() ? x.d.en : x.d.label
+      a.textContent = x.d.label
       a.addEventListener('click', (e) => {
         e.preventDefault()
         x.el!.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -241,7 +234,6 @@ export function wireArticleInteractions(el: HTMLElement, opts: { en: () => boole
     window.addEventListener('scroll', update, { passive: true })
     window.addEventListener('resize', update)
     cleanups.push(() => { window.removeEventListener('scroll', update); window.removeEventListener('resize', update) })
-    langRefreshers.push(() => items.forEach((x) => { x.link!.textContent = EN() ? x.d.en : x.d.label }))
   })()
 
   // ── 바이라인 이름 클릭 → 명함 + 제보/기자 카드 토글(평소 숨김) ──
@@ -291,6 +283,5 @@ export function wireArticleInteractions(el: HTMLElement, opts: { en: () => boole
 
   return {
     cleanup: () => cleanups.forEach((fn) => fn()),
-    refreshLang: () => langRefreshers.forEach((fn) => fn()),
   }
 }

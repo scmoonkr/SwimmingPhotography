@@ -5,7 +5,6 @@
 import { computed, nextTick, onMounted, ref } from 'vue'
 import { normArticle, imgUrl, PUBLIC_TYPES } from '~/utils/articleList'
 
-const { isEN, t } = useLang()
 const route = useRoute()
 
 // 이미지 URL 정규화 (홈과 공유) — R2 상대경로에 스토리지 공개 베이스를 붙인다.
@@ -30,7 +29,7 @@ const vtPreview = ref<'grid' | 'list' | null>(null)
 const vtInner = ref<HTMLElement | null>(null)
 let vtAnim: Animation | null = null
 const shownView = () => vtPreview.value ?? view.value
-const vLabel = (v: 'grid' | 'list') => (isEN.value ? (v === 'grid' ? 'Grid' : 'List') : (v === 'grid' ? '그리드' : '리스트'))
+const vLabel = (v: 'grid' | 'list') => (v === 'grid' ? '그리드' : '리스트')
 const vtCur = computed(() => vLabel(shownView()))
 const vtDim = computed(() => vLabel(shownView() === 'grid' ? 'list' : 'grid'))
 const rm = () => import.meta.client && window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -72,24 +71,15 @@ const openSearch = async () => {
 const onSearchEnter = () => { const q = searchQ.value.trim(); if (q) navigateTo({ path: '/search', query: { q } }) }
 
 // ── 포맷 헬퍼 (index와 동일) ──
-const EN = () => isEN.value
-const MONTHS_EN = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 const ymOf = (a: any) => (a.date || '').slice(0, 7)
-const labelOf = (ym: string) => { const q = ym.split('-'); return EN() ? MONTHS_EN[(+q[1]) - 1] + ' ' + q[0] : q[0] + '년 ' + (+q[1]) + '월' }
+const labelOf = (ym: string) => { const q = ym.split('-'); return q[0] + '년 ' + (+q[1]) + '월' }
 const fmtDate = (iso: string) => {
   const m = (iso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/)
   if (!m) return iso || ''
-  return EN() ? m[3] + '-' + m[2] + '-' + m[1] : m[1] + '년 ' + (+m[2]) + '월 ' + (+m[3]) + '일'
+  return m[1] + '년 ' + (+m[2]) + '월 ' + (+m[3]) + '일'
 }
-const fmtRecord = (r: string) => {
-  if (!r) return ''
-  if (!EN()) return r
-  const mm = String(r).match(/(?:(\d+)\s*분)?\s*(\d+)\s*초\s*(\d+)/)
-  if (!mm) return r
-  const sec = ('0' + mm[2]).slice(-2), hun = (mm[3] + '00').slice(0, 2)
-  return mm[1] ? mm[1] + ':' + sec + '.' + hun : (+mm[2]) + '.' + hun
-}
-const pick = (a: any, f: string) => { const v = EN() ? a[f + 'ENG'] : a[f]; return (v == null || v === '') ? (a[f] || '') : v }
+const fmtRecord = (r: string) => r || ''
+const pick = (a: any, f: string) => a[f] || ''
 const metaLine = (a: any) => [fmtDate(a.date), fmtRecord(a.record), pick(a, 'event'), pick(a, 'athlete')].filter(Boolean).join(' | ')
 
 // ── 쿼리 파싱 & 필터 ──
@@ -127,18 +117,12 @@ const groups = computed(() => {
 })
 
 // 결과 타이틀
-const FIELD_ENG: Record<string, string> = { cat: 'catENG', city: 'regionENG', competition: 'competitionENG', event: 'eventENG', athlete: 'athleteENG' }
-const termLabel = () => {
-  const { field, term } = query.value
-  if (!EN()) return term
-  const k = field ? FIELD_ENG[field] : ''
-  return (k && results.value[0] && results.value[0][k]) ? results.value[0][k] : term
-}
+const termLabel = () => query.value.term
 const resultTitle = computed(() => {
   const { field, term } = query.value
   const n = results.value.length
   if (field === 'competition' && term) {
-    const region = EN() ? (results.value[0]?.regionENG || '') : (results.value[0]?.region || '')
+    const region = results.value[0]?.region || ''
     const dates = results.value.map((a) => a.date).filter(Boolean).sort()
     let dateLabel = ''
     if (dates.length) {
@@ -147,16 +131,14 @@ const resultTitle = computed(() => {
     }
     return { html: [region ? esc(region) : null, '<strong>' + esc(termLabel()) + '</strong>', dateLabel ? esc(dateLabel) : null].filter(Boolean).join(' | ') }
   }
-  if (!term) return { html: EN() ? 'All articles.' : '전체 게시글입니다.' }
+  if (!term) return { html: '전체 게시글입니다.' }
   return {
-    html: EN()
-      ? esc(n.toLocaleString()) + ' article' + (n === 1 ? '' : 's') + ' found for &lsquo;<strong>' + esc(termLabel()) + '</strong>&rsquo;.'
-      : '‘<strong>' + esc(term) + '</strong>’(으)로 검색된 기사 총 ' + n.toLocaleString() + '건.',
+    html: '‘<strong>' + esc(term) + '</strong>’(으)로 검색된 기사 총 ' + n.toLocaleString() + '건.',
   }
 })
 function esc(s: any) { return (s == null ? '' : String(s)).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' } as any)[c]) }
 
-useHead({ title: computed(() => (isEN.value ? 'Search — Swimming Photography' : '검색 — Swimming Photography')) })
+useHead({ title: '검색 — Swimming Photography' })
 </script>
 
 <template>
@@ -166,8 +148,8 @@ useHead({ title: computed(() => (isEN.value ? 'Search — Swimming Photography' 
       <div v-show="!showSearch" class="result-head">
         <!-- eslint-disable-next-line vue/no-v-html -->
         <h1 class="result-title" v-html="resultTitle.html" />
-        <button class="research-link" type="button" @click="openSearch">{{ t('다른 내용 찾아보기', 'Search for something else') }}</button>
-        <NuxtLink class="research-link" to="/">{{ t('전체 기사 보기', 'All articles') }}</NuxtLink>
+        <button class="research-link" type="button" @click="openSearch">다른 내용 찾아보기</button>
+        <NuxtLink class="research-link" to="/">전체 기사 보기</NuxtLink>
       </div>
       <button
         v-show="!showSearch" class="view-toggle" type="button" aria-label="그리드/리스트 보기 전환"
@@ -179,11 +161,11 @@ useHead({ title: computed(() => (isEN.value ? 'Search — Swimming Photography' 
 
     <!-- 재검색 패널 -->
     <div v-show="showSearch" class="search-panel">
-      <div class="search-heading">{{ t('도시, 대회, 종목, 선수, 제목 검색', 'Search by city, meet, event, athlete, or title') }}</div>
+      <div class="search-heading">도시, 대회, 종목, 선수, 제목 검색</div>
       <input
         ref="searchInput"
         v-model="searchQ" type="search" class="search-input" aria-label="검색"
-        :placeholder="t('검색어를 입력한 후 엔터를 눌러주세요.', 'Type your search, then press Enter.')"
+        placeholder="검색어를 입력한 후 엔터를 눌러주세요."
         @keydown.enter="onSearchEnter" @keydown.esc="showSearch = false" @blur="showSearch = false"
       >
     </div>
@@ -207,7 +189,7 @@ useHead({ title: computed(() => (isEN.value ? 'Search — Swimming Photography' 
       </template>
     </div>
 
-    <p v-if="!results.length" class="empty">{{ t('찾으시는 내용에 해당하는 기사가 없습니다.', 'No articles match your search.') }}</p>
+    <p v-if="!results.length" class="empty">찾으시는 내용에 해당하는 기사가 없습니다.</p>
   </div>
 </template>
 

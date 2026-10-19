@@ -3,8 +3,7 @@
 // 고르면 홈(/)으로 competitionID 를 달고 간다 → 홈이 그 대회의 기사만 보여준다.
 import { computed } from 'vue'
 
-const { isEN, t } = useLang()
-useHead({ title: computed(() => (isEN.value ? 'Meets — Swimming Photography' : '대회 목록 — Swimming Photography')) })
+useHead({ title: '대회 목록 — Swimming Photography' })
 
 // fields=list — images 배열을 뺀 가벼운 응답. sort=date — 대회일자 최신순.
 const { data } = await useAsyncData('meets:list', () =>
@@ -19,8 +18,7 @@ const { data: statData } = await useAsyncData('meets:stats', () =>
   $fetch<any>('/api/competitions/stats').catch(() => ({ stats: {} })),
 )
 const DISC_KO: Record<string, string> = { FR: '자유형', BA: '배영', BR: '평영', FL: '접영', IM: '개인혼영', FRR: '계영', MR: '혼계영' }
-const DISC_EN: Record<string, string> = { FR: 'Free', BA: 'Back', BR: 'Breast', FL: 'Fly', IM: 'IM', FRR: 'Free Relay', MR: 'Medley Relay' }
-const discLabel = (d: string) => (isEN.value ? (DISC_EN[d] || d) : (DISC_KO[d] || d)) || ''
+const discLabel = (d: string) => DISC_KO[d] || d || ''
 const distLabel = (v: string) => String(v || '').toUpperCase()   // 50M 처럼 M 을 붙인 채로
 const statsOf = (cid: number) => ((statData.value?.stats || {})[String(cid)] || []) as any[]
 // 소수 첫째 자리 고정 — 23% 와 23.0% 가 섞이지 않게
@@ -47,17 +45,16 @@ const statLines = (cid: number) => {
 }
 
 // ── 날짜 ──
-const MONTHS_EN = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 const fmtDate = (iso: string) => {
   const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/)
   if (!m) return iso || ''
-  return isEN.value ? `${m[3]}-${m[2]}-${m[1]}` : `${m[1]}년 ${+m[2]}월 ${+m[3]}일`
+  return `${m[1]}년 ${+m[2]}월 ${+m[3]}일`
 }
 const ymOf = (c: any) => String(c?.datetime || '').slice(0, 7)
 const monthLabel = (ym: string) => {
   const q = ym.split('-')
   if (q.length < 2) return ym
-  return isEN.value ? `${MONTHS_EN[(+q[1]) - 1]} ${q[0]}` : `${q[0]}년 ${+q[1]}월`
+  return `${q[0]}년 ${+q[1]}월`
 }
 // 월별 묶음 — 이미 일자 최신순이라 순서대로 훑으며 끊는다
 const groups = computed(() => {
@@ -83,7 +80,7 @@ const groups = computed(() => {
         <span class="mt-date">{{ fmtDate(c.datetime) }}</span>
         <span class="mt-main">
           <span class="mt-title">
-            <span class="mt-cat">{{ t('대회', 'Meet') }}</span>{{ c.competitionName || '' }}<template v-if="c.pool"> | {{ c.pool }}</template>
+            <span class="mt-cat">대회</span>{{ c.competitionName || '' }}<template v-if="c.pool"> | {{ c.pool }}</template>
           </span>
           <span v-if="statsOf(c.competitionID).length" class="mt-stats">
             <!-- 거리마다 한 줄 · 줄 안은 ' | ' 로 나눈다 -->
@@ -97,7 +94,7 @@ const groups = computed(() => {
         </span>
       </NuxtLink>
     </template>
-    <p v-if="!rows.length" class="mt-empty">{{ t('대회가 없습니다.', 'No meets.') }}</p>
+    <p v-if="!rows.length" class="mt-empty">대회가 없습니다.</p>
   </div>
 </template>
 

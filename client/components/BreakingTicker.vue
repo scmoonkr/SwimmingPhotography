@@ -4,17 +4,14 @@
 // ② 속보 표준 모달 (max-width · 데스크탑 4:3, 모바일 9:16) — useBreaking().open(item) 으로 열림
 import { computed, onBeforeUnmount, onMounted } from 'vue'
 
-const { isEN, t } = useLang()
 const { items, hasItems, openItem, load, pick, fmtDT, close } = useBreaking()
 
 onMounted(load)
 
-const flag = computed(() => (isEN.value ? '[Breaking]' : '[속보]'))
+const flag = '[속보]'
 
 // 모달 본문
-const noteText = computed(() => (isEN.value
-  ? 'This bulletin is a first report issued for timeliness. Full details will follow in subsequent coverage.'
-  : '본 속보는 신속한 전달을 위한 1보입니다. 자세한 내용은 후속 기사를 통해 보도됩니다.'))
+const noteText = '본 속보는 신속한 전달을 위한 1보입니다. 자세한 내용은 후속 기사를 통해 보도됩니다.'
 
 // ESC 로 닫기
 const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close() }
@@ -24,10 +21,9 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKey))
 
 <template>
   <!-- 상단 티커 (전체가 하나의 링크 → /breakingnews) -->
-  <!-- 속보는 국문 독자용 — 영문에서는 티커를 띄우지 않는다 (홈 필터 칩·속보 박스와 같은 규칙) -->
-  <NuxtLink v-show="hasItems && !isEN" class="bk-ticker" to="/breakingnews" aria-label="속보 전체 보기">
+  <NuxtLink v-show="hasItems" class="bk-ticker" to="/breakingnews" aria-label="속보 전체 보기">
     <div class="bk-ticker-inner">
-      <span class="bk-ticker-label">{{ t('속보', 'Breaking') }}</span>
+      <span class="bk-ticker-label">속보</span>
       <div class="bk-ticker-viewport">
         <!-- 끊김 없는 무한 스크롤: 트랙 2벌(-50% 루프) -->
         <div class="bk-ticker-track">
@@ -50,7 +46,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKey))
       <div class="modal-head">
         <span><span class="bk-badge">{{ flag }}</span><span class="bk-when">{{ fmtDT(openItem.publishedAt) }}</span></span>
         <span class="bk-head-right">
-          <NuxtLink class="bk-all" to="/breakingnews" @click="close">{{ t('이 시간 속보 전체 보기', 'All breaking news') }}</NuxtLink>
+          <NuxtLink class="bk-all" to="/breakingnews" @click="close">이 시간 속보 전체 보기</NuxtLink>
           <button type="button" class="x" aria-label="닫기" @click="close">×</button>
         </span>
       </div>
