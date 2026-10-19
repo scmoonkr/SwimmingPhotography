@@ -5,7 +5,7 @@
 // 내부 작업용 화면이라 메뉴에 걸지 않고 검색 노출도 막는다.
 import { computed, onMounted, ref, watch } from 'vue'
 
-// 로그인한 사람만 — 아니면 /login 으로 보낸다 (middleware/auth.ts)
+// 로그인한 사람만 — 아니면 /signin 으로 보낸다 (middleware/auth.ts)
 definePageMeta({ middleware: 'auth' })
 useHead({ title: '이미지 선택 — Swimming Photography', meta: [{ name: 'robots', content: 'noindex, nofollow' }] })
 

@@ -20,8 +20,8 @@ export function useAuth() {
   // 한 번 확인했으면 그 상태를 쓴다
   const ensure = async () => (checked.value ? user.value : await refresh())
 
-  const login = async (username: string, password: string) => {
-    const r: any = await $fetch('/api/auth/login', { method: 'POST', body: { username, password } })
+  const signin = async (username: string, password: string) => {
+    const r: any = await $fetch('/api/auth/signin', { method: 'POST', body: { username, password } })
     user.value = r?.user ?? null
     checked.value = true
     return user.value
@@ -34,5 +34,5 @@ export function useAuth() {
     checked.value = true
   }
 
-  return { user, ensure, refresh, login, logout }
+  return { user, ensure, refresh, signin, logout }
 }

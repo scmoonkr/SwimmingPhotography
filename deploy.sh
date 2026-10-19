@@ -6,7 +6,7 @@ PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 echo "=== [1/6] git pull ==="
 cd "$PROJECT_DIR"
 # 자동 배포 시 주석 해제 (워킹트리가 깨끗해야 함 — untracked/로컬수정 있으면 실패)
-# git pull origin main
+git pull origin main
 
 echo "=== [2/6] 패키지 설치 (workspaces: server + client + dashboard) ==="
 cd "$PROJECT_DIR"

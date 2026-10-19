@@ -5,7 +5,7 @@
 // 성공하면 원래 가려던 경로(?r=)로 돌아간다.
 useHead({ title: '로그인 — Swimming Photography', meta: [{ name: 'robots', content: 'noindex, nofollow' }] })
 
-const { login, ensure } = useAuth()
+const { signin, ensure } = useAuth()
 const route = useRoute()
 // 외부 주소로 튕기지 않게 내부 경로만 허용 ('//host' 꼴도 막는다)
 const back = computed(() => {
@@ -39,7 +39,7 @@ const onSubmit = async () => {
   if (!username.value.trim() || !password.value) { msg.value = '아이디와 비밀번호를 입력하세요.'; return }
   busy.value = true; msg.value = ''
   try {
-    await login(username.value.trim(), password.value)
+    await signin(username.value.trim(), password.value)
     await navigateTo(back.value)
   } catch (err: any) {
     const e = err?.data?.error

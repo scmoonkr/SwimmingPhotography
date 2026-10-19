@@ -55,7 +55,7 @@ async function api(path, { method = 'GET', body } = {}) {
     body: body ? JSON.stringify(body) : undefined,
   })
   const j = await r.json().catch(() => ({}))
-  if (r.status === 401 && path !== '/auth/login') { me = null; render(); throw new Error('로그인이 필요합니다.') }
+  if (r.status === 401 && path !== '/auth/signin') { me = null; render(); throw new Error('로그인이 필요합니다.') }
   if (!r.ok) throw new Error(j.error || r.statusText)
   return j
 }
@@ -192,7 +192,7 @@ function render() {
     $('#lf').onsubmit = async (e) => {
       e.preventDefault()
       const f = new FormData(e.target)
-      try { me = (await api('/auth/login', { method: 'POST', body: { username: f.get('u'), password: f.get('p') } })).user; render() }
+      try { me = (await api('/auth/signin', { method: 'POST', body: { username: f.get('u'), password: f.get('p') } })).user; render() }
       catch (x) { $('#le').textContent = x.message }
     }
     return

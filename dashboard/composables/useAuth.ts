@@ -36,8 +36,8 @@ export function useAuth() {
   // 라우트마다 다시 묻지 않는다 — 한 번 확인했으면 그 상태를 쓴다.
   const ensure = async () => (checked.value ? user.value : await refresh())
 
-  const login = async (username: string, password: string) => {
-    const r: any = await $fetch(api('/login'), { method: 'POST', body: { username, password } })
+  const signin = async (username: string, password: string) => {
+    const r: any = await $fetch(api('/signin'), { method: 'POST', body: { username, password } })
     user.value = r?.user ?? null
     checked.value = true
     return user.value
@@ -47,7 +47,7 @@ export function useAuth() {
     try { await $fetch(api('/logout'), { method: 'POST' }) } catch { /* 이미 끊겼어도 화면은 로그아웃 */ }
     user.value = null
     checked.value = true
-    await navigateTo('/login')
+    await navigateTo('/signin')
   }
 
   const changePassword = (current: string, next: string) =>
@@ -67,5 +67,5 @@ export function useAuth() {
   // 로그인 직후·권한 없는 경로에서 보낼 곳 — 그 계정이 실제로 쓸 수 있는 첫 화면.
   const homePath = () => (can('data') ? '/' : can('breaking') ? '/breaking-news' : can('articles') ? '/meets' : '/')
 
-  return { user, checked, isAdmin, can, homePath, refresh, ensure, login, logout, changePassword, changeName, api }
+  return { user, checked, isAdmin, can, homePath, refresh, ensure, signin, logout, changePassword, changeName, api }
 }

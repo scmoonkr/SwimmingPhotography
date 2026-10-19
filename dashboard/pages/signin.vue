@@ -3,7 +3,7 @@
 definePageMeta({ layout: 'auth' })
 useHead({ title: '로그인 · Swimming Photography Dashboard' })
 
-const { login, homePath } = useAuth()
+const { signin, homePath } = useAuth()
 const route = useRoute()
 
 const username = ref('')
@@ -16,7 +16,7 @@ const onSubmit = async () => {
   if (!username.value.trim() || !password.value) { msg.value = '아이디와 비밀번호를 입력하세요.'; return }
   busy.value = true; msg.value = ''
   try {
-    await login(username.value.trim(), password.value)
+    await signin(username.value.trim(), password.value)
     // 외부 주소로 튕기지 않게 내부 경로만 허용. 원래 가려던 곳이 없으면 그 계정이 쓸 수 있는 첫 화면으로.
     const back = String(route.query.r || '')
     await navigateTo(back.startsWith('/') ? back : homePath())
@@ -30,7 +30,7 @@ const onSubmit = async () => {
 </script>
 
 <template>
-  <div class="login-card">
+  <div class="signin-card">
     <div class="lg-brand">
       <div class="bk">Swimming Photography<span>.</span></div>
       <div class="bs">Dashboard</div>
@@ -56,7 +56,7 @@ const onSubmit = async () => {
 </template>
 
 <style scoped>
-.login-card {
+.signin-card {
   width: min(380px, 100%); background: var(--paper); border: 1px solid var(--line);
   border-radius: 12px; padding: 34px 32px 26px; box-shadow: 0 18px 44px rgba(26, 26, 26, .10);
 }

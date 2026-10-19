@@ -15,7 +15,7 @@ const publicUser = (u) => {
 }
 
 // 로그인 — 아이디·비밀번호. 실패 사유(없는 아이디/틀린 비번)는 구분해 알려주지 않는다.
-router.post('/login', async (req, res) => {
+router.post('/signin', async (req, res) => {
   try {
     await ensureSeedUser()
     const username = String(req.body?.username || '').trim()
@@ -50,7 +50,7 @@ const naverConf = () => ({
 })
 // 로그인 뒤 돌아갈 곳 — 사이트 안의 경로만('//host' 꼴 차단)
 const safePath = (v) => { const s = String(v || ''); return s.startsWith('/') && !s.startsWith('//') ? s : '/videos' }
-const loginError = (res, code) => res.redirect(`/login?e=${code}`)
+const signinError = (res, code) => res.redirect(`/signin?e=${code}`)
 const cookieOf = (req, name) => {
   for (const part of String(req.headers?.cookie || '').split(';')) {
     const i = part.indexOf('=')
@@ -61,7 +61,7 @@ const cookieOf = (req, name) => {
 
 router.get('/naver', (req, res) => {
   const { id, callback } = naverConf()
-  if (!id) return loginError(res, 'naver_config')
+  if (!id) return signinError(res, 'naver_config')
   // state — 다른 사이트가 이 로그인을 대신 끝내지 못하게 하는 일회용 값. 돌아갈 경로와 함께 쿠키에 잠깐 둔다.
   const state = crypto.randomBytes(16).toString('hex')
   res.cookie(NAVER_STATE_COOKIE, `${state}|${safePath(req.query.r)}`, {
@@ -76,18 +76,18 @@ router.get('/naver/callback', async (req, res) => {
     const { id, secret, callback } = naverConf()
     const [state, back] = cookieOf(req, NAVER_STATE_COOKIE).split('|')
     res.clearCookie(NAVER_STATE_COOKIE, { path: '/api/auth' })
-    if (!id || !secret) return loginError(res, 'naver_config')
-    if (req.query.error) return loginError(res, 'naver_denied')            // 동의 화면에서 취소
+    if (!id || !secret) return signinError(res, 'naver_config')
+    if (req.query.error) return signinError(res, 'naver_denied')            // 동의 화면에서 취소
     const code = String(req.query.code || '')
-    if (!code || !state || state !== String(req.query.state || '')) return loginError(res, 'naver_state')
+    if (!code || !state || state !== String(req.query.state || '')) return signinError(res, 'naver_state')
 
     // 인가 코드 → 접근 토큰 → 프로필
     const tq = new URLSearchParams({ grant_type: 'authorization_code', client_id: id, client_secret: secret, code, state, redirect_uri: callback })
     const tok = await (await fetch(`https://nid.naver.com/oauth2.0/token?${tq}`)).json().catch(() => null)
-    if (!tok?.access_token) return loginError(res, 'naver_token')
+    if (!tok?.access_token) return signinError(res, 'naver_token')
     const me = await (await fetch('https://openapi.naver.com/v1/nid/me', { headers: { Authorization: `Bearer ${tok.access_token}` } })).json().catch(() => null)
     const prof = me?.response
-    if (!prof?.id) return loginError(res, 'naver_profile')
+    if (!prof?.id) return signinError(res, 'naver_profile')
 
     // 계정 찾기(네이버 고유 id) — 없으면 회원으로 만든다. 비밀번호는 없다(아이디·비밀번호 로그인은 안 된다).
     const c = await users()
@@ -103,14 +103,14 @@ router.get('/naver/callback', async (req, res) => {
       }
       await c.insertOne(u)
     } else {
-      if (u.disabled) return loginError(res, 'disabled')
+      if (u.disabled) return signinError(res, 'disabled')
       await c.updateOne({ _id: u._id }, { $set: { lastLoginAt: now } })
     }
     setSessionCookie(res, await createSession(u.username, req))
     res.redirect(safePath(back))
   } catch (e) {
     console.error('[auth] naver callback:', e.message)
-    loginError(res, 'naver_error')
+    signinError(res, 'naver_error')
   }
 })
 
