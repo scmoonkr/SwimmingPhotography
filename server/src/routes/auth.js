@@ -93,12 +93,17 @@ router.get('/naver/callback', async (req, res) => {
     const c = await users()
     const now = new Date()
     let u = await c.findOne({ provider: 'naver', providerId: String(prof.id) })
+    let first = false
     if (!u) {
+      first = true
+      // 네이버가 넘겨 준 정보를 그대로 담는다. 이름 · 생년월일 · 성별은 네이버 값이라 나중에 고칠 수 없다(고칠 수 있는 것은 이메일 · 휴대폰 · 별명).
       u = {
         username: `naver_${crypto.createHash('sha256').update(String(prof.id)).digest('hex').slice(0, 16)}`,
         name: String(prof.name || prof.nickname || '네이버 회원').trim().slice(0, 40),
         email: String(prof.email || ''), role: 'member',
         provider: 'naver', providerId: String(prof.id),
+        nickname: String(prof.nickname || '').trim().slice(0, 40), mobile: String(prof.mobile || '').trim().slice(0, 20),
+        gender: ['M', 'F'].includes(prof.gender) ? prof.gender : '', birthyear: String(prof.birthyear || '').slice(0, 4), birthday: String(prof.birthday || '').slice(0, 5),
         createdAt: now, updatedAt: now, lastLoginAt: now,
       }
       await c.insertOne(u)
@@ -107,7 +112,7 @@ router.get('/naver/callback', async (req, res) => {
       await c.updateOne({ _id: u._id }, { $set: { lastLoginAt: now } })
     }
     setSessionCookie(res, await createSession(u.username, req))
-    res.redirect(safePath(back))
+    res.redirect(first ? '/my/page?first=1' : safePath(back))          // 처음 로그인이면 내 정보 화면으로
   } catch (e) {
     console.error('[auth] naver callback:', e.message)
     signinError(res, 'naver_error')
@@ -154,13 +159,48 @@ router.post('/password', requireAuth, async (req, res) => {
   }
 })
 
-// 이름 변경 — 표시 이름만.
+// 내 정보 — 네이버 회원: 네이버가 넘겨 준 정보를 보여 준다(이름 · 생년월일 · 성별은 수정 불가).
+router.get('/mypage', requireAuth, async (req, res) => {
+  try {
+    const u = await (await users()).findOne({ username: req.user.username })
+    if (!u) return res.status(404).json({ error: '없는 계정입니다.' })
+    const naver = u.provider === 'naver'
+    res.json({
+      username: u.username, provider: u.provider || '', name: u.name || '', nickname: u.nickname || '', email: u.email || '', mobile: u.mobile || '',
+      gender: u.gender || '', birthyear: u.birthyear || '', birthday: u.birthday || '', createdAt: u.createdAt || null,
+      locked: naver ? ['name', 'birthyear', 'birthday', 'gender'] : [],
+    })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// 내 정보 수정 — 네이버 회원은 별명 · 이메일 · 휴대폰만(이름 · 생년월일 · 성별은 네이버 값 그대로). 다른 계정은 표시 이름만.
 router.post('/profile', requireAuth, async (req, res) => {
   try {
-    const name = String(req.body?.name || '').trim()
-    if (!name) return res.status(400).json({ error: '이름을 입력하세요.' })
-    await (await users()).updateOne({ username: req.user.username }, { $set: { name, updatedAt: new Date() } })
-    res.json({ ok: true, user: { ...req.user, name } })
+    const b = req.body || {}
+    const u = await (await users()).findOne({ username: req.user.username })
+    if (!u) return res.status(404).json({ error: '없는 계정입니다.' })
+    const set = { updatedAt: new Date() }
+    if (u.provider === 'naver') {
+      if ('nickname' in b) set.nickname = String(b.nickname ?? '').trim().slice(0, 40)
+      if ('email' in b) {
+        const email = String(b.email ?? '').trim().slice(0, 100)
+        if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: '이메일 형식이 올바르지 않습니다.' })
+        set.email = email
+      }
+      if ('mobile' in b) {
+        const mobile = String(b.mobile ?? '').trim().slice(0, 20)
+        if (mobile && !/^[0-9+\-\s]{7,20}$/.test(mobile)) return res.status(400).json({ error: '휴대폰 번호 형식이 올바르지 않습니다.' })
+        set.mobile = mobile
+      }
+    } else {
+      const name = String(b.name || '').trim()
+      if (!name) return res.status(400).json({ error: '이름을 입력하세요.' })
+      set.name = name
+    }
+    await (await users()).updateOne({ username: u.username }, { $set: set })
+    res.json({ ok: true, user: { ...req.user, name: set.name || req.user.name } })
   } catch (e) {
     res.status(500).json({ error: e.message })
   }
