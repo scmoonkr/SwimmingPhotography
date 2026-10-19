@@ -10,7 +10,9 @@ import path from 'node:path'
 import { col, nextSeq } from '../db.js'
 import { requireCap } from '../auth.js'
 import { oid, escRe } from '../crud.js'
-import { saveBuffer, removeRel, IMG_EXT, DESIGN_EXT, safeName } from '../files.js'
+import fsp from 'node:fs/promises'
+import { saveBuffer, removeRel, resolveRel, IMG_EXT, DESIGN_EXT, safeName } from '../files.js'
+import { parseEmb, matchThread, MAX_EMB_BYTES } from '../embLib.js'
 import { flatItems } from '../stockLib.js'
 import { loadAppSettings } from '../settings.js'
 import { latestOf, latestConfirmed, versionOf } from '../designLib.js'
@@ -26,11 +28,14 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 
 const normColors = (list) => {
   const out = (Array.isArray(list) ? list : []).slice(0, 30).map((x) => ({
     code: str(x?.code, 40), no: str(x?.no, 20), size: str(x?.size, 20), label: str(x?.label, 80), part: str(x?.part, 40),
+    // .emb 에서 읽은 색 — 원본 RGB, 추천 번호와의 색 차이(de), 추천 여부(auto: 사람이 고치면 false), 그 색의 스티치 수(es)
+    ...(x?.rgb ? { rgb: str(x.rgb, 16), de: Number.isFinite(Number(x.de)) ? Number(x.de) : null, auto: !!x.auto, es: Math.max(0, Math.round(Number(x.es) || 0)) } : {}),
   }))
   while (out.length && !out[out.length - 1].code && !out[out.length - 1].label && !out[out.length - 1].no) out.pop()
   return out
 }
 const hasColor = (x) => !!(x && (x.code || x.label || x.no))
+
 
 const newVersion = (no, by, from) => ({
   no, status: '디자인 중', createdAt: new Date(), createdBy: by, note: '',
@@ -194,6 +199,53 @@ router.patch('/:id/versions/:no', requireCap('design'), async (req, res) => {
         return { name, caps, colors: normColors(x?.colors) }
       }).filter((x) => { if (!x.name || seen.has(x.name)) return false; seen.add(x.name); return true })
     }
+    await c.updateOne({ _id }, { $set: set }, { arrayFilters: [{ 'v.no': no }] })
+    res.json(versionOf(await c.findOne({ _id }), no))
+  } catch (e) { fail(res, e) }
+})
+
+// .emb 변환 — 디자인 화면의 [변환] 버튼. 버전의 가장 나중에 올린 .emb 를 읽어 채운다 (저장할 때는 읽지 않는다).
+//   · 디자인 중  : 자수 디자인 시안(JPEG) + 스티치 수 + 색상(기본 세트: RGB → 가장 가까운 자수사 번호, 기존 색상은 덮어쓴다)
+//   · 확정된 버전: 자수 디자인 시안(JPEG)만 갱신한다 — 스티치 수와 색상은 바꾸지 않는다.
+//   시안 이미지(previewImage)는 어느 경우에도 건드리지 않는다 (.emb 미리보기는 embPreview 에 따로 저장).
+router.post('/:id/versions/:no/convert-emb', requireCap('design'), async (req, res) => {
+  try {
+    const _id = oid(req.params.id)
+    const no = Number(req.params.no)
+    const c = await col('designs')
+    const d = _id && await c.findOne({ _id })
+    const v = d && versionOf(d, no)
+    if (!v) return bad(res, '없는 버전입니다.', 404)
+    const emb = (v.files || []).filter((f) => String(f.ext || '').toLowerCase() === 'emb').pop()
+    if (!emb) return bad(res, '자수 파일에 .emb 가 없습니다. 먼저 .emb 를 올리세요.')
+    const full = v.status !== '확정'
+    const P = 'versions.$[v].'
+    const set = { updatedAt: new Date() }
+    let info
+    try {
+      const abs = resolveRel(emb.path)
+      if (!abs) throw new Error('파일 경로가 올바르지 않습니다.')
+      if ((await fsp.stat(abs)).size > MAX_EMB_BYTES) throw new Error('파일이 너무 큽니다.')
+      info = parseEmb(await fsp.readFile(abs))
+    } catch (e) {
+      await c.updateOne({ _id }, { $set: { [`${P}embParsed`]: { path: emb.path, name: emb.name, at: new Date(), error: String(e.message || e).slice(0, 120) }, updatedAt: new Date() } }, { arrayFilters: [{ 'v.no': no }] })
+      return bad(res, `.emb 를 읽지 못했습니다: ${e.message}`)
+    }
+    if (info.jpg) {
+      const rel = await saveBuffer(`designs/${d.code}/v${no}`, 'emb-preview.jpg', info.jpg)
+      if (v.embPreview) await removeRel(v.embPreview)
+      set[`${P}embPreview`] = rel
+    }
+    if (full) {
+      if (info.stitches > 0) set[`${P}stitches`] = Math.round(info.stitches)
+      if (info.colors.length) {
+        set[`${P}colors`] = normColors(info.colors.map((col) => {
+          const m = matchThread([col.r, col.g, col.b])
+          return { no: m?.no || '', label: m ? `자수사 ${m.no}` : '', rgb: `${col.r},${col.g},${col.b}`, de: m?.de ?? null, auto: true, es: col.stitches }
+        }))
+      }
+    }
+    set[`${P}embParsed`] = { path: emb.path, name: emb.name, at: new Date(), by: req.user.username, full, stitches: info.stitches, colors: info.colors.length, colorChanges: info.colorChanges, trims: info.trims, machine: info.machine, preview: !!info.jpg }
     await c.updateOne({ _id }, { $set: set }, { arrayFilters: [{ 'v.no': no }] })
     res.json(versionOf(await c.findOne({ _id }), no))
   } catch (e) { fail(res, e) }

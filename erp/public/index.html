@@ -158,7 +158,6 @@ const MENU = [
     ['assign', '작업배정', '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 17.5h7M17.5 14v7"/>'],
     ['schedule', '작업현황', '<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4M8 14h3M13 14h3M8 18h3"/>'],
     ['worksheets', '작업지시서', '<path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6M9 13h6M9 17h6"/>'],
-    ['machines', '자수기', '<rect x="3" y="7" width="18" height="10" rx="2"/><path d="M7 7V4M12 7V4M17 7V4M7 17v3M12 17v3M17 17v3"/>'],
   ]],
   ['재고관리', [
     ['stock', '재고현황', '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 4v16"/>'],
@@ -604,7 +603,9 @@ function wirePieces(initial, canW, opt = {}) {
   let list = initial.map((p) => ({ ...p }))
   // opt.designs: [{ code, label }] — 있으면 장마다 쓸 디자인을 고르는 열을 더한다 (디자인 매핑)
   // 디자인 매핑에서는 디자인·세트 열을 비고 앞에 둔다 (비고가 맨 뒤)
-  const cols = opt.designs ? [...PC_COLS.filter((c) => c[0] !== 'note'), ['design', '디자인', 190], ['variant', '컬러 세트', 150], ...PC_COLS.filter((c) => c[0] === 'note')] : [...PC_COLS.slice(0, 3), ['qty', '수량', 56], ...PC_COLS.slice(3)]   // 주문 화면: 사이즈 뒤에 수량 — 2 이상이면 저장할 때 그 수만큼 줄로 나뉜다
+  // 사이즈 뒤에 수량(기본 1) — 2 이상이면 저장할 때 그 수만큼 같은 내용의 줄로 나뉜다. 디자인 매핑에서는 디자인·세트 열을 비고 앞에 둔다.
+  const withQty = [...PC_COLS.slice(0, 3), ['qty', '수량', 56], ...PC_COLS.slice(3)]
+  const cols = opt.designs ? [...withQty.filter((c) => c[0] !== 'note'), ['design', '디자인', 190], ['variant', '컬러 세트', 150], ...withQty.filter((c) => c[0] === 'note')] : withQty
   const qtyOf = (p) => Math.max(1, Math.floor(Number(p.qty)) || 1)
   const box = $('#pc_box')
   const dis = canW ? '' : 'disabled'
@@ -1867,6 +1868,30 @@ async function viewDesigns() {
 // 컬러 세트 고르기 — 장의 수모 색(color)이 어느 세트의 '적용 수모'에 있으면 그 세트, 없으면 null(=기본 세트)
 const capKey = (v) => { const s = String(v ?? '').trim().toLowerCase().replace(/^caps/, ''); return /^\d+$/.test(s) ? String(Number(s)) : s }
 const variantFor = (variants, capColor) => (variants || []).find((x) => (x.caps || []).some((c) => capKey(c) === capKey(capColor)) && capKey(capColor) !== '') || null
+// 자수사 컬러표 — 도움말(?) 아이콘을 누르면 컬러표 이미지(public/images/color_table.png)를 모달로 보여 준다.
+function openColorTable() {
+  document.getElementById('th_modal')?.remove()
+  const dlg = document.createElement('dialog')
+  dlg.id = 'th_modal'; dlg.className = 'mdl'
+  dlg.innerHTML = `<div class="mdl-head"><h2>자수사 컬러표</h2><button type="button" class="drawer-x" id="th_x" aria-label="닫기">×</button></div>
+    <div class="mdl-body" style="display:block;text-align:center"><img src="/images/color_table.png" alt="자수사 컬러표" style="max-width:100%;height:auto;display:inline-block" onerror="this.outerHTML='<div class=&quot;sch-hint&quot;>컬러표 이미지(images/color_table.png)를 불러오지 못했습니다.</div>'"></div>`
+  document.body.appendChild(dlg)
+  dlg.showModal()
+  const close = () => { dlg.close(); dlg.remove() }
+  dlg.querySelector('#th_x').onclick = close
+  dlg.addEventListener('click', (ev) => { if (ev.target === dlg) close() })
+  dlg.addEventListener('cancel', () => setTimeout(() => dlg.remove(), 0))
+}
+
+// .emb 변환 상태 안내 (자수 디자인 시안 아래)
+const embHint = (v) => {
+  const p = v.embParsed
+  const hasEmb = (v.files || []).some((f) => String(f.ext).toLowerCase() === 'emb')
+  const rule = v.status === '확정' ? '확정된 버전은 자수 디자인 시안만 갱신합니다.' : '디자인 중이므로 시안 · 스티치 수 · 색상을 채웁니다.'
+  if (p?.error) return `⚠ .emb를 읽지 못했습니다: ${esc(p.error)}`
+  if (p) return `${esc(p.name || '.emb')} 변환함${p.full === false ? ' (시안만)' : ''} — 스티치 ${won(p.stitches || 0)} · 색 ${p.colors || 0}개${p.colorChanges != null ? ` · 색 교체 ${p.colorChanges}` : ''}${p.machine ? ` · ${esc(p.machine)}` : ''}`
+  return hasEmb ? `.emb 파일이 있습니다. "변환"을 누르면 읽어 채웁니다. ${rule}` : '.emb 파일을 올린 뒤 "변환"을 누르면 자동으로 채웁니다.'
+}
 const thColorImg = (no) => `<img src="/images/sewing/${encodeURIComponent(no)}.png" alt="" style="width:30px;height:30px;object-fit:cover;border-radius:4px;border:1px solid var(--line)" onerror="this.style.visibility='hidden'">`
 async function openDesign(id, done, prefill = {}, onCreated) {
   const canW = me.can.includes('design'), canD = me.can.includes('delete')
@@ -1929,6 +1954,11 @@ async function openDesign(id, done, prefill = {}, onCreated) {
           ${v.previewImage ? `<a href="${esc(fileUrl(v.previewImage))}" target="_blank" rel="noopener" class="field-hint">원본 열기</a>` : ''}
           ${ed ? `<input type="file" id="up_img" accept="image/png,image/jpeg,image/webp,image/gif">${v.previewImage ? '<button type="button" class="btn btn-ghost" id="rm_img" style="align-self:flex-start">시안 제거</button>' : ''}` : ''}
         </div></div></div>
+      <div class="field full"><div style="display:flex;justify-content:space-between;align-items:center"><span class="field-label">자수 디자인 시안 (.emb 미리보기)</span><span style="display:inline-flex;gap:8px;align-items:center">${canW ? '<button type="button" class="btn btn-ghost" id="emb_convert" style="padding:3px 12px" title="자수 파일(.emb)에서 읽어 채웁니다">변환</button>' : ''}<button type="button" class="help-btn" id="emb_help" title="자수사 컬러표 보기" aria-label="자수사 컬러표 보기">?</button></span></div>
+        <div class="img-field"><span>${thumb(v.embPreview)}</span><div class="img-side">
+          ${v.embPreview ? `<a href="${esc(fileUrl(v.embPreview))}" target="_blank" rel="noopener" class="field-hint">원본 열기</a>` : ''}
+          <span class="field-hint">${embHint(v)}</span>
+        </div></div></div>
       <div class="field full"><span class="field-label">자수 파일 (.dst .pes .jef .exp .emb … · 50MB 이하)</span>
         ${(v.files || []).length ? `<div>${v.files.map((f) => `<div class="cp-row"><a href="${esc(fileUrl(f.path))}" download>${esc(f.name)}</a>
           <span class="field-hint">${esc(f.ext)} · ${fmtSize(f.size || 0)}</span><span class="sp"></span>${ed ? `<button type="button" class="tb-logout" data-rmf="${esc(f.path)}">삭제</button>` : ''}</div>`).join('')}</div>`
@@ -1937,7 +1967,7 @@ async function openDesign(id, done, prefill = {}, onCreated) {
       </div>
       <div class="field full"><span class="field-label">침별 컬러 — 자수사 번호 (세트별 · 위에서부터 침 1~7)</span>
         <div id="d_matrix" class="cmx-wrap"></div>
-        <span class="field-hint">번호를 입력하면 컬러 이미지가 나옵니다. 세트는 "추가+"로 만들고, 적용 수모 번호에 해당하는 장에 그 세트가 쓰입니다.</span>
+        <span class="field-hint">번호를 입력하면 컬러 이미지가 나옵니다. 세트는 "추가+"로 만들고, 적용 수모 번호에 해당하는 장에 그 세트가 쓰입니다.${sets.some((s) => s.colors.some((c) => c.auto)) ? '<br><b>점선 칸</b>은 .emb의 색에서 가장 가까운 자수사 번호를 추천한 것입니다. 오른쪽 위의 작은 점이 .emb 원본 색이니 비교해서 고치세요(색 차이가 크면 붉은 점선).' : ''}</span>
       </div>
       ${fieldHtml('가로(mm)', `<input class="field-input" id="v_w" type="number" min="0" step="any" value="${v.widthMm ?? ''}" ${dis}>`)}
       ${fieldHtml('세로(mm)', `<input class="field-input" id="v_h" type="number" min="0" step="any" value="${v.heightMm ?? ''}" ${dis}>`)}
@@ -1955,6 +1985,7 @@ async function openDesign(id, done, prefill = {}, onCreated) {
 
   // 침별 컬러 표: 열 = 컬러 세트(기본 + 배리에이션), 행 = 침 1~7. 칸마다 번호를 입력하면 컬러 이미지(sewing/번호.png)가 옆에 나온다.
   const swatch = (no) => (/^\d+$/.test(String(no || '').trim()) ? thColorImg(String(no).trim()) : '')
+  const rgbDot = (c) => (c.rgb ? `<i class="cmx-rgb" style="background:rgb(${esc(c.rgb)})" title="emb 원본 색 rgb(${esc(c.rgb)})"></i>` : '')
   const paintMatrix = () => {
     const box = $('#d_matrix')
     if (!box) return
@@ -1968,7 +1999,7 @@ async function openDesign(id, done, prefill = {}, onCreated) {
       ? '<span class="field-hint">나머지 수모 전체</span>'
       : `<input class="cmx-in" data-sc="${si}" value="${esc((s.caps || []).join(', '))}" placeholder="적용 수모 (예: 08, 12)" ${ed ? '' : 'disabled'}>`}</td>`).join('') + (ed && sets.length < 11 ? '<td></td>' : '')
     const body = Array.from({ length: rows }, (_, r) => `<tr>${sets.map((s, si) => { const c = s.colors[r] || {}; const no = c.no || c.code || ''
-      return `<td class="cmx-no"><input class="cmx-in num" data-cs="${si}" data-cr="${r}" value="${esc(no)}" placeholder="${r + 1}" inputmode="numeric" ${ed ? '' : 'disabled'}></td><td class="cmx-sw" data-sw="${si}-${r}">${swatch(no)}</td>` }).join('')}${ed && sets.length < 11 ? '<td></td>' : ''}</tr>`).join('')
+      return `<td class="cmx-no"><input class="cmx-in num ${c.auto ? (c.de > 15 ? 'cmx-auto far' : 'cmx-auto') : ''}" data-cs="${si}" data-cr="${r}" value="${esc(no)}" title="${c.rgb ? `emb 원본 색 rgb(${c.rgb}) · ${c.es ? `${c.es}땀 · ` : ''}추천 색 차이 ${c.de ?? '-'}` : ''}" placeholder="${r + 1}" inputmode="numeric" ${ed ? '' : 'disabled'}></td><td class="cmx-sw" data-sw="${si}-${r}">${swatch(no)}${rgbDot(c)}</td>` }).join('')}${ed && sets.length < 11 ? '<td></td>' : ''}</tr>`).join('')
     box.innerHTML = `<div class="table-scroll"><table class="cmx"><thead><tr>${th}</tr><tr>${caps}</tr></thead><tbody>${body}</tbody></table></div>`
     box.querySelectorAll('[data-cs]').forEach((el) => {
       el.oninput = () => {
@@ -1976,10 +2007,11 @@ async function openDesign(id, done, prefill = {}, onCreated) {
         if (!v) { s.colors[r] = {} } else {
           // 재고에 등록된 자수사면 그 옵션과 연결한다 (번호가 같은 옵션이 하나일 때). 없어도 번호만으로 지정된다.
           const hits = threads.items.filter((x) => String(x.no || x.code) === v || x.code === v)
-          s.colors[r] = { ...(s.colors[r] || {}), code: hits.length === 1 ? hits[0].code : '', no: v, label: `${hits[0]?.name || threads.keyword} ${v}` }
+          s.colors[r] = { ...(s.colors[r] || {}), code: hits.length === 1 ? hits[0].code : '', no: v, label: `${hits[0]?.name || threads.keyword} ${v}`, auto: false }      // 사람이 고친 번호는 추천이 아님
         }
         const sw = box.querySelector(`[data-sw="${el.dataset.cs}-${r}"]`)
-        if (sw) sw.innerHTML = swatch(v)
+        if (sw) sw.innerHTML = swatch(v) + rgbDot(s.colors[r] || {})
+        el.classList.remove('cmx-auto', 'far')
       }
     })
     box.querySelectorAll('[data-sn]').forEach((el) => { el.oninput = () => { sets[Number(el.dataset.sn)].name = el.value.trim() } })
@@ -2039,6 +2071,17 @@ async function openDesign(id, done, prefill = {}, onCreated) {
     $('#d_confirm')?.addEventListener('click', async () => {
       try { await saveAll(); await api(`/designs/${id}/versions/${curNo}/confirm`, { method: 'POST' }); await reload(curNo); done && done() } catch (e) { setErr(e.message); alert(`확정하지 못했습니다.
 ${e.message}`) }
+    })
+    $('#emb_help')?.addEventListener('click', openColorTable)
+    // 변환: 디자인 중이면 시안 · 스티치 수 · 색상, 확정된 버전이면 자수 디자인 시안만 (서버 규칙). 입력 중이던 다른 값은 먼저 저장한다.
+    $('#emb_convert')?.addEventListener('click', async () => {
+      const btn = $('#emb_convert')
+      btn.disabled = true
+      try {
+        await saveAll()
+        await api(`/designs/${id}/versions/${curNo}/convert-emb`, { method: 'POST', body: {} })
+        await reload(curNo); done && done()
+      } catch (e) { btn.disabled = false; setErr(e.message); alert(e.message) }
     })
     $('#v_act_save')?.addEventListener('click', async () => {
       try {
