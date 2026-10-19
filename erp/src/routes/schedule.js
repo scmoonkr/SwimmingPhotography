@@ -249,9 +249,12 @@ async function applyMachine(cur) {
   const mc = await col('machines')
   const m = await mc.findOne({ _id: cur.machineId })
   if (!m) return
-  const o = await (await col('orders')).findOne({ _id: cur.orderId }, { projection: { designs: 1, 'pieces.design': 1, 'pieces.variant': 1, 'pieces.color': 1, 'pieces.initialColor': 1 } })
+  const o = await (await col('orders')).findOne({ _id: cur.orderId }, { projection: { designs: 1, 'pieces.no': 1, 'pieces.design': 1, 'pieces.variant': 1, 'pieces.color': 1, 'pieces.initialColor': 1 } })
   if (!o) return
-  const needs = threadNeeds(o.pieces, (await designDetails([o])).get(String(o._id)) || [], cur.task || '')
+  // 이 배정이 맡은 장(units)만 — 장 번호는 번호 순으로 정렬한 제작 명세의 위치다. 없으면 주문 전체.
+  const sorted = (o.pieces || []).slice().sort((a, b) => (a.no || 0) - (b.no || 0))
+  const mine = Array.isArray(cur.units) && cur.units.length ? cur.units.map((u) => sorted[u]).filter(Boolean) : o.pieces
+  const needs = threadNeeds(mine, (await designDetails([o])).get(String(o._id)) || [], cur.task || '')
   const { needles, swaps } = loadThreads(m.needles, needs)
   await mc.updateOne({ _id: m._id }, { $set: { needles, updatedAt: new Date(), lastJob: { orderNo: cur.orderNo, task: cur.task || '', swaps, at: new Date() } } })
 }

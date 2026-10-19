@@ -36,7 +36,8 @@ export const workVersion = async () => {
   return `${n}:${new Date(last?.updatedAt || last?.createdAt || 0).getTime()}`
 }
 
-export async function buildSnapshot({ now = Date.now(), startDate = '' } = {}) {
+// excludeIds: 이 주문들은 배정하지 않는다(체크 해제한 주문). sortMode: mix(우선순위→출고일→수량) | prio | due | qty — 배정 순서 기준.
+export async function buildSnapshot({ now = Date.now(), startDate = '', excludeIds = null, sortMode = 'mix' } = {}) {
   const settings = await loadAppSettings()
   const cfg = settings.production
   const threadSec = settings.swapMinutes * 60
@@ -44,13 +45,15 @@ export async function buildSnapshot({ now = Date.now(), startDate = '' } = {}) {
   const lookEnd = startMs + cfg.lookAheadDays * 86400e3          // 납기가 시작일 기준 참고 기간(기본 14일) 안인 주문까지
   const capc = await loadCapacity()                       // 작업 일정 · 하루 처리 한도: 자수기 1대의 하루 작업 수량(장) · 가동 대수 · 날짜별 지정
 
+  const startYmd = new Date(startMs + 9 * 3600e3).toISOString().slice(0, 10)
   const machines = (await (await col('machines')).find({ active: { $ne: false } }).sort({ order: 1, name: 1 }).toArray())
-    .map((m) => ({ id: String(m._id), name: m.name, needles: normNeedles(m.needles), freeAt: 0 }))
+    .map((m) => ({ id: String(m._id), name: m.name, needles: normNeedles(m.wsBase?.date && m.wsBase.date >= startYmd ? m.wsBase.before : m.needles), freeAt: 0 }))       // 지시서를 낸 날 이후의 계획은 그 날 시작 전 상태에서
   const known = new Set(machines.map((m) => m.id))
 
-  const orders = await (await col('orders')).find({ status: { $in: ACTIVE } }, {
+  const skip = Array.isArray(excludeIds) ? new Set(excludeIds.map(String)) : null
+  const orders = (await (await col('orders')).find({ status: { $in: ACTIVE } }, {
     projection: { orderNo: 1, title: 1, dueAt: 1, priority: 1, items: 1, pieceCount: 1, pieces: 1, designs: 1, status: 1, partnerId: 1 },
-  }).sort({ orderNo: 1 }).toArray()
+  }).sort({ orderNo: 1 }).toArray()).filter((o) => !skip || !skip.has(String(o._id)))
   const dd = await designDetails(orders)
   const entries = orders.length ? await (await col('workSchedules')).find({ orderId: { $in: orders.map((o) => o._id) } }).toArray() : []
   const byOrder = new Map()
@@ -78,7 +81,7 @@ export async function buildSnapshot({ now = Date.now(), startDate = '' } = {}) {
     const det = dd.get(oidS) || []
     const link = det[0] || null
     const verOf = (code) => det.find((x) => x.code === code) || link
-    if ((o.priority || 0) > 0) prio[oidS] = o.priority
+    if ((o.priority || 0) > 0 && (sortMode === 'mix' || sortMode === 'prio')) prio[oidS] = o.priority       // 출고일 · 수량 기준일 때는 priority 로 앞세우지 않는다
     info[oidS] = { orderNo: o.orderNo, title: o.title, priority: o.priority || 0, dueAt: o.dueAt || null, total, done, remaining: Math.max(0, remaining), status: o.status, noDesign: !det.length }
     if (dueMs != null) due[oidS] = dueMs
     if (!det.length) warnings.noDesign++
@@ -115,6 +118,6 @@ export async function buildSnapshot({ now = Date.now(), startDate = '' } = {}) {
     if (synth) add(null, synth)                                  // 제작 명세가 없는 장: 연결된 디자인의 기본 컬러로
     groups.push(...gmap.values())
   }
-  return { startMs, nowMs: now, cfg, threadSec, cap: { perMachine: capc.perMachine, machines: capc.machines, overrides: capc.overrides }, machines, groups, fixed, due, prio, orders: info, warnings, baseVersion: await workVersion() }
+  return { startMs, nowMs: now, cfg, threadSec, cap: { perMachine: capc.perMachine, machines: capc.machines, overrides: capc.overrides }, machines, groups, fixed, due, prio, orders: info, sortMode, warnings, baseVersion: await workVersion() }
 }
 

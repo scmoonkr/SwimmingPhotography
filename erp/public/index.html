@@ -631,7 +631,8 @@ function wirePieces(initial, canW, opt = {}) {
     renumber()
     box.innerHTML = `<div class="drawer-note" id="pc_sum" style="margin-bottom:8px"></div>${
       canW ? `<textarea class="field-input" id="pc_paste" placeholder="엑셀·구글시트·Notion 표를 복사해서 여기에 붙여넣으세요.&#10;첫 줄이 제목 행이면 열 이름(주문자, 색상, 사이즈, 위치, 이니셜, 이니셜색상, 비고 …)으로 자동 매핑합니다." style="min-height:72px"></textarea>
-        <div style="display:flex;gap:8px;margin:8px 0;flex-wrap:wrap"><button type="button" class="btn btn-ghost" id="pc_add">붙여넣은 표 추가</button><button type="button" class="btn btn-ghost" id="pc_rep">전체 바꾸기</button><button type="button" class="btn btn-ghost" id="pc_row">+ 줄 추가</button><span style="flex:1"></span>${opt.noItems ? '' : '<button type="button" class="btn btn-ghost" id="pc_items">품목 요약에 반영</button>'}</div>
+        <div style="display:flex;gap:8px;margin:8px 0;flex-wrap:wrap"><button type="button" class="btn btn-ghost" id="pc_add">붙여넣은 표 추가</button><button type="button" class="btn btn-ghost" id="pc_rep">전체 바꾸기</button><button type="button" class="btn btn-ghost" id="pc_row">+ 줄 추가</button>${opt.designs && canW ? `<select class="field-input" id="pc_all_design" style="width:auto;min-width:200px" title="고르면 모든 줄의 디자인이 이 디자인으로 바뀝니다"><option value="">디자인 선택 (전체 적용)</option>${
+          [...new Set(opt.designs.map((d) => d.group || ''))].map((g) => { const body = opt.designs.filter((d) => (d.group || '') === g).map((d) => `<option value="${esc(d.code)}">${esc(d.label)}</option>`).join(''); return g ? `<optgroup label="${esc(g)}">${body}</optgroup>` : body }).join('')}</select>` : ''}<span style="flex:1"></span>${opt.noItems ? '' : '<button type="button" class="btn btn-ghost" id="pc_items">품목 요약에 반영</button>'}</div>
         <div class="field-hint" id="pc_info"></div>` : ''}
       ${list.length ? `<div class="table-scroll" style="max-height:420px;overflow:auto"><table class="data"><thead><tr><th class="num">#</th>${cols.map((c) => `<th>${c[1]}</th>`).join('')}<th></th></tr></thead><tbody>${
         list.map((p, i) => `<tr><td class="num">${p.no}</td>${cols.map(([k, , w]) => `<td>${k === 'design'
@@ -681,6 +682,13 @@ function wirePieces(initial, canW, opt = {}) {
         $('#pc_info').textContent = `${r.pieces.length}줄을 넣었습니다. ${r.format === 'free' ? '' : `인식한 열: ${mapped.join(', ') || '(순서대로)'}`}${(r.warnings || []).length ? ' ' + r.warnings.join(' ') : ''}`
       } catch (e) { setErr(e.message) }
     }
+    // 디자인을 고르면 모든 줄에 적용한다 (줄마다 정한 컬러 세트는 자동으로 돌아간다)
+    $('#pc_all_design')?.addEventListener('change', () => {
+      const code = $('#pc_all_design').value
+      if (!code || !list.length) { $('#pc_all_design').value = ''; return }
+      list.forEach((p) => { p.design = code; p.variant = '' })
+      paint()
+    })
     $('#pc_add')?.addEventListener('click', () => convert(false))
     $('#pc_rep')?.addEventListener('click', () => convert(true))
     $('#pc_row')?.addEventListener('click', () => { list.push({ no: 0, qty: 1, person: '', color: '', size: '', position: '', initials: '', initialsRight: '', initialColor: '', note: '', design: '' }); paint() })
@@ -1025,6 +1033,7 @@ async function viewSchedule() {
         <span class="sch-over" id="s_over"></span>
         <span class="sch-seg">${[['day', '일'], ['week', '주'], ['month', '월']].map(([k, l]) => `<button data-v="${k}">${l}</button>`).join('')}</span>
         <span style="flex:1"></span>
+        <button class="btn btn-ghost" id="s_ws" type="button" title="지금 보는 날짜의 작업지시서를 인쇄합니다">작업지시서</button>
         ${canW ? '<button class="btn btn-ghost" id="s_clear" title="아직 시작하지 않은 작업배정을 화면에서 모두 비웁니다 — [저장]을 눌러야 반영됩니다 (진행·완료·잠금 작업은 그대로)">배정 초기화</button>' : ''}
         ${canW ? '<button class="btn btn-ghost" id="s_auto" title="자수기가 배정되지 않은 작업을 실 교체가 가장 적게 드는 자수기에 배치합니다 (저장 전 초안)">자수기 자동 배치</button>' : ''}
         ${canW ? '<span class="sch-save"><span class="msg" id="s_msg"></span><button class="btn btn-ghost" id="s_cancel">변경 취소</button><button class="btn btn-primary" id="s_save">저장</button></span>' : ''}
@@ -1048,6 +1057,14 @@ async function viewSchedule() {
   $('#sq')?.addEventListener('input', debounce(() => { SCH.q = $('#sq').value; load() }))
 
   // 저장 / 변경 취소
+  // 작업지시서 — 작업지시서 화면의 [인쇄]와 같은 지시서. 일 보기에서만 보이며, 저장된 배정만 대상
+  $('#s_ws')?.addEventListener('click', () => {
+    if (draftCount()) { alert('저장하지 않은 배정 변경이 있습니다. 먼저 저장하거나 변경을 취소하세요.'); return }
+    const [rs, re] = schRange(), from = ymd(rs), to = ymd(re)
+    WS.rows = wsRowsFrom(SCH.entries.filter((e) => e.date >= from && e.date <= to), new Map(SCH.machines.map((m) => [String(m._id), m.name])), false)
+    WS.sel = new Set(WS.rows.map((r) => `${r.orderId}|${r.date}`))
+    makeWorksheets('print', $('#s_ws'))
+  })
   $('#s_cancel')?.addEventListener('click', () => { if (!draftCount() || confirm('저장하지 않은 변경을 모두 취소할까요?')) { draftReset(); load() } })
   $('#s_save')?.addEventListener('click', async () => {
     if (!draftCount()) return
@@ -1261,9 +1278,10 @@ function paintOrders(canW) {
 function lateInfo(en) {
   if (!en || en.status === '완료' || !en.order?.dueAt) return null
   const due = new Date(en.order.dueAt).toISOString().slice(0, 10)
-  const md = (d) => d.slice(5).replace('-', '/')
-  if (en.date > due) return `작업일(${md(en.date)})이 납기(${md(due)})보다 늦습니다`
-  if (due < ymd(new Date())) return `납기(${md(due)})가 지났는데 아직 완료되지 않았습니다`
+  const days = (a, b) => Math.round((new Date(`${a}T12:00`) - new Date(`${b}T12:00`)) / 864e5)
+  if (en.date > due) return `${days(en.date, due)}일 지연`
+  const today = ymd(new Date())
+  if (due < today) return `${days(today, due)}일 지연`
   return null
 }
 
@@ -1271,6 +1289,7 @@ function paintCal(canW, repaint, canWork) {
   const cal = $('#sch_cal')
   $('#s_label').textContent = schLabel()
   document.querySelectorAll('.sch-seg button').forEach((b) => b.classList.toggle('on', b.dataset.v === SCH.view))
+  const wsb = $('#s_ws'); if (wsb) wsb.style.display = SCH.view === 'day' ? '' : 'none'          // 작업지시서는 일 보기에서만
   const [s, e] = schRange()
   const today = ymd(new Date())
   const entries = currentEntries()
@@ -1320,20 +1339,27 @@ function paintCal(canW, repaint, canWork) {
     const dn = loadOf(list), dcap = SCH.cap[key]
     const head = dcap == null ? (dn ? `<div class="sch-dayhead over" style="color:var(--orange-deep);border-color:var(--orange)">휴무일 작업 ${won(dn)}장</div>` : '<div class="sch-dayhead">휴무일(주말)입니다. 필요하면 일정 계획에서 직접 배정하세요.</div>')
       : `<div class="sch-dayhead ${dn > dcap ? 'over' : ''}">합계 ${won(dn)} / 하루 한도 ${won(dcap)}장${dn > dcap ? ` — ⚠ ${won(dn - dcap)}장 초과, 재배정이 필요합니다` : ''}</div>`
-    cal.innerHTML = `<div class="sch-dayview" data-date="${key}">
-      ${head}
-      ${list.length ? list.map((en) => `<div class="sch-entry ${en._draft ? 'draft' : ''} ${lateInfo(en) ? 'late' : ''}" data-task="${esc(en.task || '')}" data-eid="${en._id}" ${canW ? 'draggable="true"' : ''}>
+    const entryHtml = (en) => `<div class="sch-entry ${en._draft ? 'draft' : ''} ${lateInfo(en) ? 'late' : ''}" data-task="${esc(en.task || '')}" data-eid="${en._id}" ${canW ? 'draggable="true"' : ''}>
         <div class="qty">${won(en.qty)}장${en.task ? `<div style="font-size:12px;font-weight:700">${esc(en.task)}</div>` : ''}</div>
         <div class="meta"><div class="t">#${en.orderNo} ${esc(en.order?.title || '')}</div>
           <div class="s">${esc(en.order?.partnerName || '')}${en.status !== '완료' && ['none', 'working'].includes(en.order?.designState) ? ` · <span class="late-txt" style="color:var(--orange-deep)">디자인 ${en.order.designState === 'none' ? '필요' : '작업 중'}</span>` : ''}${lateInfo(en) ? ` · <span class="late-txt">⚠ ${esc(lateInfo(en))}</span>` : ''}${en.note ? ` · ${esc(en.note)}` : ''}${en._draft ? ' · 저장 전' : ''}</div>
-          ${(en.order?.designs || []).filter((d) => !en.task || !d.role || d.role === en.task).map((d) => `<div class="sch-dz">${thumb(d.preview)}
-            <span><b>${esc(d.role || '디자인')}</b> ${esc(d.code)} v${d.version} ${esc(d.status)}${d.colors.some((c) => c.label || c.code || c.no) ? ` · 컬러 ${d.colors.filter((c) => c.label || c.code || c.no).map((c) => esc(c.label || c.code || c.no)).join(', ')}` : ''}</span>
-            ${d.files.map((f) => `<a href="${esc(fileUrl(f.path))}" download>${esc(f.ext)} 파일</a>`).join(' ')}</div>`).join('')}
           ${mcLine(en)}
           ${en.order?.totalQty ? `<div class="prog">${esc(en.task || '전체')} 공정 완료 ${won(en.order.taskDone?.[en.task || ''] || 0)} / ${won(en.order.totalQty)}장</div>` : ''}</div>
         ${badge(en.status, en.status === '완료' ? 'b-good' : en.status === '진행' ? 'b-info' : 'b-warn')}
-        ${canWork && !en._draft ? `<div class="sch-actions">${statusButtons(en)}</div>` : (canWork ? '<div class="sch-actions"><span class="field-hint">저장 후 처리 가능</span></div>' : '')}</div>`).join('')
-        : '<div class="sch-hint">이 날짜에 배정된 작업이 없습니다.<br>왼쪽 주문을 이곳으로 끌어다 놓으세요.</div>'}</div>`
+        ${canWork && !en._draft ? `<div class="sch-actions">${statusButtons(en)}</div>` : (canWork ? '<div class="sch-actions"><span class="field-hint">저장 후 처리 가능</span></div>' : '')}</div>`
+    // 자수기별 칸 — 한 줄에 6대씩. 자수기가 배정되지 않은 작업은 '미배정' 칸에 모은다.
+    const dayBody = () => {
+      const byM = new Map()
+      for (const en of list) { const k = mcOf(en.machineId) ? String(en.machineId) : ''; if (!byM.has(k)) byM.set(k, []); byM.get(k).push(en) }
+      const seqOf = (en) => (en.estStartAt ? new Date(en.estStartAt).getTime() : 0) || en.seq || 0
+      const cols = SCH.machines.map((m) => ({ id: String(m._id), name: m.name, items: byM.get(String(m._id)) || [] }))
+      if (byM.get('')) cols.push({ id: '', name: '자수기 미배정', items: byM.get('') })
+      if (!cols.length) return list.length ? list.map(entryHtml).join('') : '<div class="sch-hint">이 날짜에 배정된 작업이 없습니다.<br>왼쪽 주문을 이곳으로 끌어다 놓으세요.</div>'
+      return `<div class="sch-mgrid">${cols.map((c) => `<div class="sch-mcol ${c.id ? '' : 'none'}"><div class="sch-mhead"><b>${esc(c.name)}</b><span>${c.items.length ? `${won(loadOf(c.items))}장` : '쉬는 중'}</span></div>${c.items.sort((x, y) => seqOf(x) - seqOf(y)).map(entryHtml).join('') || '<div class="sch-mempty">작업 없음</div>'}</div>`).join('')}</div>${list.length ? '' : '<div class="sch-hint">이 날짜에 배정된 작업이 없습니다.<br>왼쪽 주문을 이곳으로 끌어다 놓으세요.</div>'}`
+    }
+    cal.innerHTML = `<div class="sch-dayview" data-date="${key}">
+      ${head}
+      ${dayBody()}</div>`
   } else {
     const days = []
     for (let d = new Date(s); d <= e; d = addDays(d, 1)) days.push(new Date(d))
@@ -1376,7 +1402,7 @@ function paintCal(canW, repaint, canWork) {
     b.addEventListener('click', (ev) => { ev.stopPropagation(); workAction(findEntry(b.dataset.eid), b.dataset.wk) })
     b.addEventListener('dragstart', (ev) => ev.preventDefault())
   })
-  cal.querySelectorAll('[data-eid]').forEach((el) => {
+  cal.querySelectorAll('[data-eid]:not([data-wkst]):not([data-wk])').forEach((el) => {       // 상태 버튼은 제외 — 눌러도 drawer 가 열리지 않게
     el.addEventListener('dragstart', (ev) => {
       ev.dataTransfer.setData('text/plain', JSON.stringify({ k: 'entry', id: el.dataset.eid }))
       ev.dataTransfer.effectAllowed = 'move'
@@ -1442,11 +1468,19 @@ function nextWorkDate(en) {
 //   · 계획보다 적게 → 남은 수량은 같은 날·같은 자수기의 지시로 남는다
 //   · 계획보다 많이 → 이 칸의 수량만 늘린다 (다른 배정의 수량은 다시 계산하지 않는다)
 function openComplete(en) {
-  const nextD = nextWorkDate(en)
-  const body = `<div class="drawer-note" style="grid-column:1/-1"><b>#${en.orderNo}</b> ${esc(en.order?.title || '')}${en.task ? ` · <b>${esc(en.task)}</b>` : ''} · ${esc(en.date)} · 계획 ${won(en.qty)}장</div>`
-    + fieldHtml('완료 수량(장)', `<input class="field-input" id="c_qty" type="number" min="1" value="${en.qty}" inputmode="numeric" style="font-size:20px;padding:14px">`, true)
-    + '<div id="c_more" style="grid-column:1/-1"></div>'
-  const dlg = shell(`완료 처리 · #${en.orderNo}`, body, closeFoot('<button type="button" class="btn btn-primary" id="c_ok">완료 처리</button>'))
+  document.getElementById('c_modal')?.remove()
+  const dlg = document.createElement('dialog')
+  dlg.id = 'c_modal'; dlg.className = 'mdl'; dlg.style.width = 'min(440px, 94vw)'
+  dlg.innerHTML = `<div class="mdl-head"><h2>완료 처리 · #${en.orderNo}</h2><button type="button" class="drawer-x" id="c_x" aria-label="닫기">×</button></div>
+    <div class="mdl-body" style="display:flex;flex-direction:column;gap:12px">
+      <div class="drawer-note"><b>#${en.orderNo}</b> ${esc(en.order?.title || '')}${en.task ? ` · <b>${esc(en.task)}</b>` : ''} · ${esc(en.date)} · 계획 ${won(en.qty)}장</div>
+      <label class="field"><span class="field-label">완료 수량(장)</span><input class="field-input" id="c_qty" type="number" min="1" value="${en.qty}" inputmode="numeric" style="font-size:20px;padding:14px"></label>
+      <div id="c_more"></div><div class="drawer-err" id="c_err"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end"><button type="button" class="btn btn-ghost" id="c_cancel">닫기</button><button type="button" class="btn btn-primary" id="c_ok">완료 처리</button></div>
+    </div>`
+  document.body.appendChild(dlg)
+  dlg.showModal()
+  const close = () => { dlg.close(); dlg.remove() }
   const more = () => {
     const n = Math.round(Number($('#c_qty').value))
     const box = $('#c_more')
@@ -1456,14 +1490,20 @@ function openComplete(en) {
       box.innerHTML = `<div class="drawer-note">계획(${won(en.qty)}장)보다 <b>${won(n - en.qty)}장</b> 더 했습니다. 이 칸의 수량만 늘어나고, 다른 배정의 수량은 바꾸지 않습니다.</div>`
     } else box.innerHTML = ''
   }
-  $('#c_qty').addEventListener('input', more)
-  $('#c_qty').select()
-  $('#c_ok').onclick = () => {
+  const ok = () => {
     const n = Math.round(Number($('#c_qty').value))
-    if (!(n > 0)) return setErr('완료 수량은 1 이상이어야 합니다.')
-    dlg.close()
+    if (!(n > 0)) { $('#c_err').textContent = '완료 수량은 1 이상이어야 합니다.'; return }
+    close()
     workAction(en, 'complete', n)
   }
+  $('#c_qty').addEventListener('input', more)
+  $('#c_qty').addEventListener('keydown', (ev) => { if (ev.key === 'Enter') ok() })
+  $('#c_qty').select()
+  $('#c_ok').onclick = ok
+  $('#c_x').onclick = close
+  $('#c_cancel').onclick = close
+  dlg.addEventListener('click', (ev) => { if (ev.target === dlg) close() })
+  dlg.addEventListener('cancel', () => setTimeout(() => dlg.remove(), 0))
 }
 
 // ── 디자인 라이브러리 ─────────────────────────────────────
@@ -1475,7 +1515,7 @@ const fmtSize = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)}MB` : `${Math
 
 // ── 작업배정 — 7일 생산 계획. 자동 배정안을 만들고(자수기·순서·수량 분할), 수동으로 고치며 지표를 비교한 뒤 확정한다. ──
 //   서버가 시간 계산(근무시간·작업자 1명·실 교체·수모 교체)을 하고, 이 화면은 결과를 간트로 보여 주며 변경 요청을 보낸다.
-const PLAN = { sc: null, win: 0, hl: null, zoom: 0, mode: 'gantt', day: 0 }       // mode: 'gantt'(7일 간트) | 'day'(일별 — 자수기 카드)
+const PLAN = { off: new Set(), sc: null, win: 0, hl: null, zoom: 0, mode: 'gantt', day: 0 }       // mode: 'gantt'(7일 간트) | 'day'(일별 — 자수기 카드)
 const kst = (ms) => new Date(ms + 9 * 3600e3).toISOString()
 const fmtT = (ms) => (ms == null ? '-' : `${Number(kst(ms).slice(5, 7))}/${Number(kst(ms).slice(8, 10))} ${kst(ms).slice(11, 16)}`)
 const fmtDur = (ms) => { const m = Math.round(ms / 60e3); return m >= 60 ? `${Math.floor(m / 60)}시간${m % 60 ? ` ${m % 60}분` : ''}` : `${m}분` }
@@ -1498,11 +1538,15 @@ async function viewAssign() {
     </div>
     <div class="plan-metrics" id="p_metrics"></div>
     <div class="plan-body">
-      <aside class="table-card plan-orders"><div class="table-tools"><b style="font-size:13px">주문 · 예상 완료</b><span class="field-hint" id="p_ocnt"></span></div><div class="plan-olist" id="p_olist"></div></aside>
+      <aside class="table-card plan-orders"><div class="table-tools"><b style="font-size:13px">주문 · 예상 완료</b><span class="field-hint" id="p_ocnt"></span><span style="flex:1"></span><button type="button" class="btn btn-ghost" id="p_osel" style="padding:3px 10px" title="보이는 주문을 모두 선택하거나 해제합니다 — 선택(체크)한 주문만 계획 만들기에 배정됩니다"></button></div>
+        <div class="table-tools" style="gap:6px;padding:8px 10px"><select class="field-input" id="p_ofilter" style="width:auto;flex:1;min-width:0;padding:6px 8px"><option value="all">전체</option><option value="mapped">디자인 매핑된 것</option><option value="open">주문 완료 안 된 것</option></select><select class="field-input" id="p_osort" style="width:auto;flex:1;min-width:0;padding:6px 8px"><option value="mix">조합 (우선순위 + 출고일 + 수량)</option><option value="prio">우선순위순</option><option value="due">출고일 빠른순</option><option value="qty">주문수량 많은순</option></select></div>
+        <div class="plan-olist" id="p_olist"></div></aside>
       <section class="table-card plan-gantt"><div class="plan-gscroll" id="p_gantt"></div></section>
     </div></div>`
 
   const sc = () => PLAN.sc
+  let ALL = []                    // 계획과 상관없이 접수·작업배정 주문 전부 (계획에 없는 주문도 목록에 보여준다)
+  try { ALL = (await api('/schedule/orders')).items || [] } catch { /* 목록만 못 채운다 */ }
   const busy = (on, label) => { document.querySelectorAll('#p_opt,#p_new,#p_ok').forEach((b) => { b.disabled = on }); if (label) $('#p_label').textContent = label }
 
   // ── 지표 카드 (자동안과 비교) ──
@@ -1533,18 +1577,43 @@ async function viewAssign() {
   const paintOrders2 = () => {
     const s = sc()
     const box = $('#p_olist')
-    if (!s) { box.innerHTML = ''; return }
-    $('#p_ocnt').textContent = `${s.orders.length}건`
-    const w = s.warnings || {}
+    const inPlan = new Set((s?.orders || []).map((o) => String(o.id)))
+    const extra = ALL.filter((o) => !inPlan.has(String(o._id))).map((o) => ({ id: o._id, orderNo: o.orderNo, title: o.title, priority: o.priority || 0, dueAt: o.dueAt, total: o.totalQty || 0, done: 0, remaining: o.totalQty || 0, noDesign: !o.designNotNeeded && !o.designCount, extra: true }))
+    const all = [...(s?.orders || []), ...extra]
+    const fv = PLAN.of || 'all', sv = PLAN.os || 'mix'
+    $('#p_ofilter').value = fv
+    $('#p_osort').value = sv
+    const dueOf = (o) => o.dueAt ? new Date(o.dueAt).getTime() : Infinity
+    const list = all.filter((o) => fv === 'mapped' ? !o.noDesign : fv === 'open' ? (o.total - (o.done || 0)) > 0 : true)
+      .sort((a, b) => sv === 'mix' ? ((b.priority || 0) - (a.priority || 0)) || dueOf(a) - dueOf(b) || (b.total || 0) - (a.total || 0) : sv === 'due' ? dueOf(a) - dueOf(b) : sv === 'qty' ? (b.total || 0) - (a.total || 0) : ((b.priority || 0) - (a.priority || 0)) || dueOf(a) - dueOf(b))
+    $('#p_ocnt').textContent = list.length === all.length ? `${all.length}건` : `${list.length} / ${all.length}건`
+    const w = s?.warnings || {}
     const skipped = [w.outOfRange ? `납기가 참고 기간 밖 ${w.outOfRange}건` : '', w.noDue ? `납기 없음·미배정 ${w.noDue}건` : ''].filter(Boolean).join(' · ')
-    box.innerHTML = s.orders.map((o) => `<div class="po ${o.lateMs ? 'late' : ''} ${PLAN.hl === o.id ? 'on' : ''}" data-poid="${o.id}">
-        ${canW ? `<div class="po-prio" title="priority 0~9 — 숫자가 큰 주문부터 배정합니다 (자동 개선·계획 만들기에 반영)"><span>priority</span><button type="button" data-pdec="${o.id}">−</button><input type="number" min="0" max="9" step="1" data-prio="${o.id}" value="${o.priority || 0}"><button type="button" data-pinc="${o.id}">+</button></div>` : (o.priority > 0 ? `<span class="po-prio on">priority ${o.priority}</span>` : '')}
+    box.innerHTML = list.map((o) => `<div class="po ${o.lateMs ? 'late' : ''} ${PLAN.hl === o.id ? 'on' : ''}" data-poid="${o.id}">
         <div><b>#${o.orderNo}</b> ${esc(o.title)}<span class="so-q" style="float:right" title="${o.done ? `전체 ${o.total}장 중 완료 ${o.done}장 · 남은 ${o.total - o.done}장` : ''}">${o.done ? `${Math.max(0, o.total - o.done)}/${o.done}` : `${o.remaining}장`}</span></div>
         <div class="po-s">${o.dueMs ? `납기 ${o.dueAt ? new Date(o.dueAt).toISOString().slice(5, 10).replace('-', '/') : ''} · 자수 목표 ${fmtT(o.dueMs)}` : '납기 없음'}</div>
-        <div class="po-s ${o.lateMs ? 'late-txt' : ''}">${o.endMs ? `예상 완료 ${fmtT(o.endMs)}${o.lateMs ? ` · ⚠ ${fmtDur(o.lateMs)} 지연` : ''}` : '<span class="late-txt">배정되지 않음</span>'}${o.noDesign ? ' · 디자인 미연결' : ''}</div></div>`).join('')
+        <div class="po-s ${o.lateMs ? 'late-txt' : ''}">${o.extra ? '<span class="field-hint">계획에 없음 — 계획 만들기로 배정</span>' : o.endMs ? `예상 완료 ${fmtT(o.endMs)}${o.lateMs ? ` · ⚠ ${fmtDur(o.lateMs)} 지연` : ''}` : '<span class="late-txt">배정되지 않음</span>'}${o.noDesign ? ' · 디자인 미연결' : ''}</div>
+        <div class="po-foot">${canW ? `<div class="po-prio" title="priority 0~9 — 숫자가 큰 주문부터 배정합니다 (조합·우선순위 정렬에 반영)"><span>priority</span><button type="button" data-pdec="${o.id}">−</button><input type="number" min="0" max="9" step="1" data-prio="${o.id}" value="${o.priority || 0}"><button type="button" data-pinc="${o.id}">+</button></div>` : `<span class="po-prio on">priority ${o.priority || 0}</span>`}
+          <label class="po-sel" title="체크한 주문만 계획 만들기에 배정합니다"><input type="checkbox" data-psel="${o.id}" ${PLAN.off.has(String(o.id)) ? '' : 'checked'} ${canW ? '' : 'disabled'}>배정</label></div></div>`).join('')
       + (skipped ? `<div class="field-hint" style="padding:8px">제외: ${skipped}</div>` : '')
+    $('#p_ofilter').onchange = () => { PLAN.of = $('#p_ofilter').value; paintOrders2() }
+    $('#p_osort').onchange = () => { PLAN.os = $('#p_osort').value; paintOrders2() }
     box.querySelectorAll('[data-poid]').forEach((el) => { el.onclick = () => { PLAN.hl = PLAN.hl === el.dataset.poid ? null : el.dataset.poid; paintOrders2(); paintGantt() } })
-    box.querySelectorAll('.po-prio').forEach((l) => l.addEventListener('click', (ev) => ev.stopPropagation()))
+    box.querySelectorAll('.po-foot').forEach((l) => l.addEventListener('click', (ev) => ev.stopPropagation()))
+    box.querySelectorAll('[data-psel]').forEach((c) => { c.onchange = () => { if (c.checked) PLAN.off.delete(c.dataset.psel); else PLAN.off.add(c.dataset.psel); selBtn() } })
+    const selBtn = () => {
+      const on = list.filter((o) => !PLAN.off.has(String(o.id))).length
+      const b = $('#p_osel')
+      b.textContent = on === list.length && list.length ? '전체 해제' : '전체 선택'
+      b.disabled = !canW || !list.length
+      b.title = `선택(체크)한 주문만 계획 만들기에 배정됩니다 — 지금 ${[...all].filter((o) => !PLAN.off.has(String(o.id))).length}/${all.length}건 선택`
+    }
+    selBtn()
+    $('#p_osel').onclick = () => {
+      const allOn = list.every((o) => !PLAN.off.has(String(o.id)))
+      list.forEach((o) => { if (allOn) PLAN.off.add(String(o.id)); else PLAN.off.delete(String(o.id)) })
+      paintOrders2()
+    }
     const clampP = (v) => Math.max(0, Math.min(9, Math.round(Number(v) || 0)))
     box.querySelectorAll('[data-prio]').forEach((inp) => { inp.onchange = () => setPrio(inp.dataset.prio, clampP(inp.value)) })
     box.querySelectorAll('[data-pinc]').forEach((b) => { b.onclick = () => { const inp = box.querySelector(`[data-prio="${b.dataset.pinc}"]`); setPrio(b.dataset.pinc, clampP(Number(inp.value) + 1)) } })
@@ -1684,8 +1753,12 @@ async function viewAssign() {
   // 우선 지정 — 주문의 우선순위를 바꾸고 계획에 반영(이미 짠 배정은 그대로, 다음 자동 개선·계획 만들기에서 먼저 배정)
   const setPrio = async (id, priority) => {
     try {
-      PLAN.sc = await api('/production/priority', { method: 'POST', body: { id, priority, scenarioId: sc()._id } })
+      const inPlan = sc() && sc().orders.some((o) => String(o.id) === String(id))
+      const r = await api('/production/priority', { method: 'POST', body: { id, priority, scenarioId: inPlan ? sc()._id : undefined } })
+      if (inPlan) PLAN.sc = r
+      const a = ALL.find((o) => String(o._id) === String(id)); if (a) a.priority = priority
       repaint()
+      if (!sc()) return
       $('#p_stale').textContent = sc().status === 'draft' ? 'priority가 바뀌었습니다 — "자동 개선"(또는 계획 만들기)을 누르면 숫자가 큰 주문부터 배정합니다' : 'priority가 바뀌었습니다 — "계획 만들기"를 누르면 숫자가 큰 주문부터 배정합니다'
       $('#p_stale').className = 'plan-stale warn'
     } catch (e) { alert(e.message); repaint() }
@@ -1723,7 +1796,7 @@ async function viewAssign() {
   $('#p_zoom').onclick = () => { PLAN.zoom = PLAN.zoom ? 0 : 1; $('#p_zoom').textContent = PLAN.zoom ? '맞춤' : '확대'; paintGantt() }
   $('#p_new')?.addEventListener('click', () => {
     if (sc()?.status === 'draft' && !confirm('지금의 초안을 버리고 새로 계산할까요? (수동으로 바꾼 내용은 사라집니다)')) return
-    run('계산 중…', () => api('/production/scenarios', { method: 'POST', body: { startDate: $('#p_start').value || undefined } }))
+    run('계산 중…', () => api('/production/scenarios', { method: 'POST', body: { startDate: $('#p_start').value || undefined, sort: PLAN.os || 'mix', excludeIds: [...PLAN.off] } }))
   })
   $('#p_opt')?.addEventListener('click', () => run('개선하는 중…', () => api(`/production/scenarios/${sc()._id}/optimize`, { method: 'POST', body: {} })))
   $('#p_ok')?.addEventListener('click', async () => {
@@ -2197,6 +2270,27 @@ const loadScript = (src) => new Promise((res, rej) => {
   document.head.appendChild(el)
 })
 
+// 배정(entries) → 작업지시서 행 (주문 × 작업일). 작업지시서 화면과 작업현황의 [작업지시서] 버튼이 함께 쓴다.
+function wsRowsFrom(entries, mname, skipDone) {
+  const map = new Map()
+  for (const e of entries) {
+    if (skipDone && e.status === '완료') continue
+    const k = `${e.orderId}|${e.date}`
+    if (!map.has(k)) map.set(k, { orderId: String(e.orderId), orderNo: e.orderNo, title: e.order?.title || '', partnerName: e.order?.partnerName || '', date: e.date, tasks: [], notes: [], statuses: [], machines: [], designState: e.order?.designState || 'none', total: e.order?.totalQty || 0, offset: e.offset || 0 })
+    const row = map.get(k)
+    row.offset = Math.min(row.offset, e.offset || 0)
+    const mn = e.machineId ? mname.get(String(e.machineId)) : ''
+    if (mn && !row.machines.includes(mn)) row.machines.push(mn)
+    ;(row.ents = row.ents || []).push({ m: mn || '', qty: e.qty, off: e.offset || 0, units: e.units || null, at: new Date(e.estStartAt || e.createdAt || 0).getTime(), seq: e.seq ?? 0, task: e.task || '' })
+    const t = row.tasks.find((x) => x.task === (e.task || ''))
+    if (t) t.qty += e.qty; else row.tasks.push({ task: e.task || '', qty: e.qty })
+    row.statuses.push(e.status)
+    if (e.note) row.notes.push(e.note)
+  }
+  return [...map.values()].map((r) => ({ ...r, status: r.statuses.every((s) => s === '완료') ? '완료' : r.statuses.some((s) => s !== '지시') ? '진행' : '지시' }))
+    .sort((a, b) => a.date.localeCompare(b.date) || a.orderNo - b.orderNo)
+}
+
 async function viewWorksheets() {
   if (!WS.date) WS.date = ymd(new Date())
   pageShell({
@@ -2243,23 +2337,7 @@ async function viewWorksheets() {
       const to = all ? ymd(addDays(new Date(), 30)) : WS.date
       const [r, mc] = await Promise.all([api(`/schedule?from=${from}&to=${to}`), api('/machines').catch(() => ({ items: [] }))])
       const mname = new Map(mc.items.map((m) => [String(m._id), m.name]))
-      const map = new Map()
-      for (const e of r.entries) {
-        if (all && e.status === '완료') continue
-        const k = `${e.orderId}|${e.date}`
-        if (!map.has(k)) map.set(k, { orderId: String(e.orderId), orderNo: e.orderNo, title: e.order?.title || '', partnerName: e.order?.partnerName || '', date: e.date, tasks: [], notes: [], statuses: [], machines: [], designState: e.order?.designState || 'none', total: e.order?.totalQty || 0, offset: e.offset || 0 })
-        const row = map.get(k)
-        row.offset = Math.min(row.offset, e.offset || 0)
-        const mn = e.machineId ? mname.get(String(e.machineId)) : ''
-        if (mn && !row.machines.includes(mn)) row.machines.push(mn)
-        ;(row.ents = row.ents || []).push({ m: mn || '', qty: e.qty, off: e.offset || 0, units: e.units || null, at: new Date(e.estStartAt || e.createdAt || 0).getTime(), seq: e.seq ?? 0, task: e.task || '' })
-        const t = row.tasks.find((x) => x.task === (e.task || ''))
-        if (t) t.qty += e.qty; else row.tasks.push({ task: e.task || '', qty: e.qty })
-        row.statuses.push(e.status)
-        if (e.note) row.notes.push(e.note)
-      }
-      WS.rows = [...map.values()].map((r) => ({ ...r, status: r.statuses.every((s) => s === '완료') ? '완료' : r.statuses.some((s) => s !== '지시') ? '진행' : '지시' }))
-        .sort((a, b) => a.date.localeCompare(b.date) || a.orderNo - b.orderNo)
+      WS.rows = wsRowsFrom(r.entries, mname, all)
       // 목록에서 사라진 행은 선택에서 뺀다
       const keys = new Set(WS.rows.map(keyOf))
       for (const k of [...WS.sel]) if (!keys.has(k)) WS.sel.delete(k)
@@ -2295,9 +2373,9 @@ const capCell = (v, big) => {
     : `<td class="cim"><div class="ws-ci"><span>${esc(c)}</span>${u ? `<img class="sm" src="${esc(u)}" alt="" onerror="this.style.visibility='hidden'">` : ''}</div></td>`
 }
 // 컬러코드 + 이미지(남는 칸을 가득) — 이니셜 컬러 칸용
-const codeImgCell = (v) => { const c = String(v ?? '').trim(); if (!c) return ''; const u = pcImg('initialColor', c); return `<div class="ws-ci"><span>${esc(c)}</span>${u ? `<img src="${esc(u)}" alt="" onerror="this.style.visibility='hidden'">` : ''}</div>` }
+const codeImgCell = (v, sw) => { const c = String(v ?? '').trim(); if (!c) return ''; const u = pcImg('initialColor', c); return `<div class="ws-ci"><span>${esc(c)}${sw && sw.has(c) ? ' <b class="ws-sw">교체</b>' : ''}</span>${u ? `<img src="${esc(u)}" alt="" onerror="this.style.visibility='hidden'">` : ''}</div>` }
 
-function wsSheet(row, o, pos) {
+function wsSheet(row, o, pos, probe) {
   const ps = o.pieces || []
   const grp = !!row.groupMode                                // 디자인·컬러 세트·이니셜이 같은 장을 묶은 시트
   const one = ps.length === 1 || (grp && ps.length) ? ps[0] : null
@@ -2321,6 +2399,16 @@ function wsSheet(row, o, pos) {
   })()
   const colors = dset ? (dset.colors || []) : (logo?.colors || [])
   const colorText = (c) => `${c.label || c.code}${c.part ? ` (${c.part})` : ''}`
+  if (probe) {                                              // 이 시트가 필요로 하는 실 번호 (자수기 실 교체 계산용)
+    const tk = (row.tasks || []).map((x) => x.task || '')
+    const out = []
+    const add = (v) => { const x = String(v ?? '').trim(); if (x && !out.includes(x)) out.push(x) }
+    if (!tk.length || tk.some((x) => x !== '이니셜')) colors.forEach((c) => add(c.no || c.code))
+    if (!tk.length || tk.some((x) => x !== '로고')) ps.forEach((p) => add(p.initialColor))
+    return out
+  }
+  const swapSet = row.swapNos || new Set()
+  const swTag = (v) => (swapSet.has(String(v ?? '').trim()) ? ' <b class="ws-sw">교체</b>' : '')
   const img = logo?.preview || initDesign?.preview || (o.attachments || [])[0] || ''
   const memo = [o.content, o.request, (row.pieceNote ?? one?.note) ? `비고: ${row.pieceNote ?? one.note}` : '', ...(row.notes || [])].filter((x) => x && String(x).trim()).join('\n')
   // 공정 · 매수: 묶은 장이 여러 장이면 "N매 작업", 한 장이면 비운다 ("전체 1장" 표기는 쓰지 않는다)
@@ -2333,13 +2421,13 @@ function wsSheet(row, o, pos) {
     + (groups.length > shown.length ? tr(['<td class="l"></td>', `<td colspan="2">외 ${groups.length - shown.length}종</td>`]) : '')
   const initRows = many
     ? tr(['<td class="l">좌측</td>', `<td colspan="2">개별 ${ps.length}건 — 별지 참조</td>`]) + tr(['<td class="l">우측</td>', '<td></td><td></td>'])
-    : tr(['<td class="l">좌측</td>', `<td>${esc(one?.initials || '')}</td>`, `<td class="cim">${codeImgCell(one?.initialColor)}</td>`])
-      + tr(['<td class="l">우측</td>', `<td>${esc(one?.initialsRight || '')}</td>`, `<td class="cim">${one?.initialsRight ? codeImgCell(one?.initialColor) : ''}</td>`])
+    : tr(['<td class="l">좌측</td>', `<td>${esc(one?.initials || '')}</td>`, `<td class="cim">${codeImgCell(one?.initialColor, swapSet)}</td>`])
+      + tr(['<td class="l">우측</td>', `<td>${esc(one?.initialsRight || '')}</td>`, `<td class="cim">${one?.initialsRight ? codeImgCell(one?.initialColor, swapSet) : ''}</td>`])
   // 로고: 침(1~7) · 컬러코드 · 컬러 이미지(칸을 가득 채움). 번호가 없는 옛 컬러는 이름 글자로 보여 준다.
   const logoRows = [0, 1, 2, 3, 4, 5, 6].map((i) => {
     const c = colors[i] && (colors[i].no || colors[i].code || colors[i].label) ? colors[i] : null
     const u = c?.no ? pcImg('initialColor', c.no) : ''
-    return tr([`<td class="n">${i + 1}</td>`, `<td class="cc">${c ? esc(c.no || c.code || c.label || '') : ''}</td>`,
+    return tr([`<td class="n">${i + 1}</td>`, `<td class="cc">${c ? esc(c.no || c.code || c.label || '') + swTag(c.no || c.code) : ''}</td>`,
       `<td class="cim">${u ? `<img src="${esc(u)}" alt="" onerror="this.style.visibility='hidden'">` : (c && !c.no ? esc(colorText(c)) : '')}</td>`])
   }).join('')
 
@@ -2365,10 +2453,10 @@ function wsSheet(row, o, pos) {
   </div>`
 }
 
-async function makeWorksheets(mode) {
+async function makeWorksheets(mode, btnEl) {
   const picked = WS.rows.filter((r) => WS.sel.has(`${r.orderId}|${r.date}`))
   if (!picked.length) return alert('작업지시서를 만들 주문을 체크하세요.')
-  const btn = $(mode === 'pdf' ? '#ws_pdf' : '#ws_print')
+  const btn = btnEl || $(mode === 'pdf' ? '#ws_pdf' : '#ws_print')
   const label = btn.textContent
   btn.disabled = true; btn.textContent = '준비 중…'
   try {
@@ -2377,13 +2465,13 @@ async function makeWorksheets(mode) {
     // 주문이 여러 장(제작 명세 2줄 이상)이면 장마다 한 장씩 만든다. 같은 디자인이어도 각각이며 1/7, 2/7 … 로 구분한다.
     //   주문 수량 N장이면 N장 각각: 이 작업일자에 배정된 장수만큼, 전체 번호(g/N)를 붙인다 (다른 날 배정분은 그 날짜의 작업지시서에서 이어서).
     //   제작 명세(장별 사양)가 N줄이면 한 줄씩, 줄 수가 N과 다르면 균등하게 나눠 대응시킨다.
-    const sheets = []
+    const specs = []                          // 시트 사양 [row, 주문 상세, 시각] — 자수기별 실 교체를 계산한 뒤 HTML 로 만든다
     const notes = []
     picked.forEach((r, i) => {
       const d = details[i], ps = d.pieces || []
       const count = Math.max(1, ...r.tasks.map((x) => x.qty))
       const total = Math.max(r.total || 0, r.offset + count, ps.length)
-      if (total <= 1 && count <= 1) { sheets.push(wsSheet({ ...r, mae: 1 }, d, '')); return }
+      if (total <= 1 && count <= 1) { specs.push([{ ...r, mae: 1 }, d, Math.min(...(r.ents || []).map((e) => e.at), Infinity)]); return }
       if (ps.length && ps.length !== total) notes.push(`#${r.orderNo}: 제작 명세 ${ps.length}줄 ≠ 주문 ${total}장 — 줄을 균등하게 나눠 ${total}장으로 만들었습니다`)
       // 이 날짜 작업분의 장마다 (사양, 자수기)를 정하고, 디자인·컬러 세트·이니셜(좌우·색)과 자수기가 같은 장은 한 시트로 묶는다.
       //   이니셜이 다르면 같은 디자인이어도 각각의 시트. 묶은 시트에는 "N매 작업"이 표시되고, 수모 색·사이즈는 ×장수로 나열된다.
@@ -2394,8 +2482,8 @@ async function makeWorksheets(mode) {
       const mainTask = [...byTask.entries()].sort((a, b) => b[1] - a[1])[0]?.[0]
       const slots = []
       for (const e of (r.ents || []).filter((x) => x.task === mainTask).sort((a, b) => a.at - b.at || a.seq - b.seq)) {
-        if (e.units && e.units.length) e.units.forEach((u) => slots.push({ g: u, m: e.m }))
-        else for (let i = 0; i < e.qty; i++) slots.push({ g: e.off + i, m: e.m })
+        if (e.units && e.units.length) e.units.forEach((u) => slots.push({ g: u, m: e.m, at: e.at }))
+        else for (let i = 0; i < e.qty; i++) slots.push({ g: e.off + i, m: e.m, at: e.at })
       }
       if (!slots.length) for (let k = 0; k < count; k++) slots.push({ g: r.offset + k, m: '' })
       slots.sort((a, b) => a.g - b.g)
@@ -2407,7 +2495,7 @@ async function makeWorksheets(mode) {
         const det = (d.designsState || []).find((x) => x.code === piece?.design)
         const setName = piece?.design ? (piece.variant || variantFor(det?.variants, piece.color)?.name || '기본') : ''
         const key = [piece?.design || '', setName, piece?.initials || '', piece?.initialsRight || '', piece?.initialColor || '', mach[0] || ''].join('\u0001')
-        if (!groups.has(key)) groups.set(key, { machines: mach, pcs: [] })
+        if (!groups.has(key)) groups.set(key, { machines: mach, pcs: [], at: slot.at ?? Infinity })
         groups.get(key).pcs.push(piece)
       }
       const list = [...groups.values()]
@@ -2416,15 +2504,40 @@ async function makeWorksheets(mode) {
         const persons = [...new Set(pcs.map((x) => x.person).filter(Boolean))]
         const noteList = [...new Set(pcs.map((x) => x.note).filter(Boolean))]
         const n = grp.pcs.length
-        sheets.push(wsSheet({
+        specs.push([{
           ...r, machines: grp.machines, groupMode: true, mae: n, tasks: r.tasks.map((x) => ({ ...x, qty: n })),
           seq: list.length > 1 ? `${si + 1}/${list.length}` : '',
           personText: persons.length > 1 ? `${persons[0]} 외 ${persons.length - 1}명` : persons[0] || '',
           pieceNote: noteList.join(' / '),
-        }, { ...d, pieces: pcs }, ''))
+        }, { ...d, pieces: pcs }, grp.at])
       })
     })
-    if (notes.length) alert(notes.join('\n'))
+    if (notes.length) console.info(notes.join(' / '))          // 확인 창은 띄우지 않는다
+    // 자수기별 실 교체: 그 자수기의 저장된 침 상태에서 시작해, 시각 순서대로 작업을 돌려 보며 새로 걸어야 하는 실을 찾는다.
+    //   같은 날짜를 다시 인쇄해도 같은 결과가 나오도록, 이전에 저장한 그 날의 '작업 전 상태'(wsBase)가 있으면 그것에서 시작한다.
+    //   인쇄한 뒤에는 그 날 작업을 마친 상태를 자수기에 저장해, 다음 날 계획·지시서가 이어받아 교체를 최소화한다.
+    const mcs = new Map(((await api('/machines').catch(() => ({ items: [] }))).items || []).map((m) => [m.name, m]))
+    const byMach = new Map()
+    specs.forEach((sp) => { const mn = (sp[0].machines || [])[0]; if (mn && mcs.has(mn)) { if (!byMach.has(mn)) byMach.set(mn, []); byMach.get(mn).push(sp) } })
+    const saves = []
+    const todayK = ymd(new Date())
+    for (const [mn, list] of byMach) {
+      const m = mcs.get(mn)
+      list.sort((a, b) => a[0].date.localeCompare(b[0].date) || a[2] - b[2])
+      const d0 = list[0][0].date
+      let state = m.wsBase?.date && m.wsBase.date >= d0 ? m.wsBase.before : (m.needles || [])
+      const before = state
+      let after = state
+      for (const sp of list) {
+        const needs = wsSheet(sp[0], sp[1], '', true)
+        sp[0].swapNos = new Set(needs.filter((x) => !state.includes(x)))
+        state = loadTh(state, needs)
+        if (sp[0].date === d0) after = state
+      }
+      if (d0 >= todayK) saves.push({ id: m._id, date: d0, before, after })
+    }
+    for (const d of [...new Set(saves.map((x) => x.date))]) await api('/machines/ws-state', { method: 'POST', body: { date: d, states: saves.filter((x) => x.date === d) } }).catch(() => {})
+    const sheets = specs.map((sp) => wsSheet(sp[0], sp[1], ''))
     const pages = []
     for (let i = 0; i < sheets.length; i += 2) {
       pages.push(`<div class="ws-page">${sheets[i].replace('class="ws-sheet "', 'class="ws-sheet top"')}${sheets[i + 1] ? sheets[i + 1].replace('class="ws-sheet "', 'class="ws-sheet bottom"') : ''}<div class="ws-cut"></div></div>`)

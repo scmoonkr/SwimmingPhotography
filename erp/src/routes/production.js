@@ -8,7 +8,8 @@ import { oid } from '../crud.js'
 import { buildSnapshot, workVersion } from '../planner/snapshot.js'
 import { greedy, improve, evaluate, mergeAdjacent, UNASSIGNED } from '../planner/optimize.js'
 import { WorkCal, ymdOf } from '../planner/calendar.js'
-import { syncStatus, syncProgress, syncConsumption } from './schedule.js'
+import { syncStatus, syncProgress, syncConsumption, loadCapacity } from './schedule.js'
+import { normNeedles } from '../machineLib.js'
 
 const router = Router()
 const fail = (res, e) => res.status(e.status || 500).json({ error: e.message })
@@ -114,10 +115,23 @@ router.post('/scenarios', CAN, async (req, res) => {
   try {
     const sd = String(req.body?.startDate || '').trim()
     if (sd && !/^\d{4}-\d{2}-\d{2}$/.test(sd)) throw bad('시작일은 YYYY-MM-DD 형식입니다.')
-    const snap = await buildSnapshot({ startDate: sd })
-    if (!snap.machines.length) throw bad('가동 중인 자수기가 없습니다. 작업 > 자수기에서 등록하세요.')
+    const sortMode = ['mix', 'prio', 'due', 'qty'].includes(req.body?.sort) ? req.body.sort : 'mix'
+    const excludeIds = Array.isArray(req.body?.excludeIds) ? req.body.excludeIds : null        // 체크 해제한 주문은 배정하지 않는다
+    // 등록된 자수기가 하나도 없으면 설정(작업 일정 · 하루 처리 한도)의 가동 자수기 수만큼 만들어 쓴다 — 대당 하루 처리량도 그 설정을 따른다
+    const mc = await col('machines')
+    if (!await mc.findOne({ active: { $ne: false } }, { projection: { _id: 1 } })) {
+      const n = Math.max(0, Math.min(30, Math.round((await loadCapacity()).machines) || 0))
+      let order = (await mc.find({}).sort({ order: -1 }).limit(1).next())?.order ?? 0
+      for (let i = 1; i <= n; i++) {
+        const name = `자수기 ${i}`
+        if (await mc.findOne({ name })) { await mc.updateOne({ name }, { $set: { active: true } }); continue }
+        await mc.insertOne({ name, needles: normNeedles([]), active: true, order: ++order, createdAt: new Date(), updatedAt: new Date() })
+      }
+    }
+    const snap = await buildSnapshot({ startDate: sd, excludeIds, sortMode })
+    if (!snap.machines.length) throw bad('가동 중인 자수기가 없습니다. 설정 > 작업 일정 · 하루 처리 한도의 가동 중인 자수기(대)를 1 이상으로 하세요.')
     let q = greedy(snap, snap.fixed)
-    if (req.body?.optimize !== false) q = improve(snap, q, { iterations: 400, timeMs: 3000, seed: 7 }).queues
+    if (req.body?.optimize !== false && sortMode !== 'qty') q = improve(snap, q, { iterations: 400, timeMs: 3000, seed: 7 }).queues
     const now = new Date()
     const doc = {
       name: String(req.body?.name || '').trim() || `${ymdOf(now.getTime())} 생산 계획`, status: 'draft', createdAt: now, createdBy: req.user.username,

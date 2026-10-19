@@ -51,6 +51,26 @@ router.post('/bulk', requireCap('work', 'settings'), async (req, res) => {
   } catch (e) { fail(res, e) }
 })
 
+// 작업지시서를 만들 때 자수기의 침 상태를 저장한다 — { date, states: [{ id, before, after }] }
+//   before : 그 날 첫 작업 전에 걸려 있던 실(같은 날 다시 인쇄해도 같은 '교체' 표시가 나오게),  after : 그 날 작업을 마친 뒤의 실(다음 날 계획·지시서의 시작 상태)
+//   그 날짜가 이미 저장된 날짜보다 이르면(지난 날짜 다시 인쇄) 저장하지 않는다.
+router.post('/ws-state', requireCap('work', 'orders', 'settings'), async (req, res) => {
+  try {
+    const date = str(req.body?.date, 10)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'date 는 YYYY-MM-DD 입니다.' })
+    const c = await col('machines')
+    let saved = 0
+    for (const s of Array.isArray(req.body?.states) ? req.body.states : []) {
+      const _id = oid(s?.id)
+      const m = _id && await c.findOne({ _id }, { projection: { wsBase: 1 } })
+      if (!m || (m.wsBase?.date && m.wsBase.date > date)) continue
+      await c.updateOne({ _id }, { $set: { needles: normNeedles(s.after), wsBase: { date, before: normNeedles(s.before), at: new Date() }, updatedAt: new Date() } })
+      saved++
+    }
+    res.json({ ok: true, saved })
+  } catch (e) { fail(res, e) }
+})
+
 router.patch('/:id', requireCap('work', 'settings'), async (req, res) => {
   try {
     const _id = oid(req.params.id)
@@ -64,7 +84,7 @@ router.patch('/:id', requireCap('work', 'settings'), async (req, res) => {
       if (await c.findOne({ name, _id: { $ne: _id } })) return res.status(409).json({ error: `이미 있는 이름입니다: ${name}` })
       set.name = name
     }
-    if ('needles' in b) set.needles = normNeedles(b.needles)
+    if ('needles' in b) { set.needles = normNeedles(b.needles); set.wsBase = null }          // 손으로 고치면 지시서 기준 상태는 버린다
     if ('active' in b) set.active = !!b.active
     if ('order' in b && Number.isFinite(Number(b.order))) set.order = Number(b.order)
     res.json(await c.findOneAndUpdate({ _id }, { $set: set }, { returnDocument: 'after' }))

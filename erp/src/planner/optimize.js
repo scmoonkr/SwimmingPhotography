@@ -60,7 +60,14 @@ export function greedy(snap, fixedQueues = {}) {
   if (!snap.machines.length) { queues[UNASSIGNED] = snap.groups.map((g, i) => ({ id: `j${i + 1}`, groupKey: g.key, orderId: g.orderId, count: g.count, secPerCap: g.secPerCap, threads: g.threads, source: g.source })); return queues }
   const pr = (g) => (snap.prio || {})[g.orderId] || 0
   // 우선 주문(체크한 주문)을 먼저 배정한다 — 우선순위가 높을수록 앞, 같으면 납기가 빠른 순
-  const groups = snap.groups.slice().sort((a, b) => pr(b) - pr(a) || (a.dueMs ?? Infinity) - (b.dueMs ?? Infinity) || b.count * b.secPerCap - a.count * a.secPerCap || a.orderId.localeCompare(b.orderId))
+  const dueOf = (g) => g.dueMs ?? Infinity
+  const qtyOf = (g) => snap.orders?.[g.orderId]?.total || g.count
+  const tie = (a, b) => b.count * b.secPerCap - a.count * a.secPerCap || a.orderId.localeCompare(b.orderId)
+  const mode = snap.sortMode || 'mix'
+  const groups = snap.groups.slice().sort(mode === 'due' ? (a, b) => dueOf(a) - dueOf(b) || tie(a, b)
+    : mode === 'qty' ? (a, b) => qtyOf(b) - qtyOf(a) || dueOf(a) - dueOf(b) || tie(a, b)
+    : mode === 'prio' ? (a, b) => pr(b) - pr(a) || tie(a, b)
+    : (a, b) => pr(b) - pr(a) || dueOf(a) - dueOf(b) || qtyOf(b) - qtyOf(a) || tie(a, b))
   let n = 0
   // 한 묶음은 가능하면 한 자수기에 통째로 넣는다(조각이 많을수록 실 교체가 늘어난다). 자수기 한 대의 평균 일량의 절반보다 길 때만 나눈다.
   const work = (g) => g.count * (g.secPerCap + cap)
