@@ -1,6 +1,8 @@
 // 인증 라우터 — 로그인 / 로그아웃 / 내 정보 / 비밀번호 변경 / 계정 관리(관리자).
 import { Router } from 'express'
 import crypto from 'node:crypto'
+import multer from 'multer'
+import { putObject, deleteObject } from '../r2.js'
 import {
   users, createSession, destroySession, destroyUserSessions, ensureSeedUser,
   hashPassword, verifyPassword, passwordProblem, readToken,
@@ -103,6 +105,7 @@ router.get('/naver/callback', async (req, res) => {
         email: String(prof.email || ''), role: 'member',
         provider: 'naver', providerId: String(prof.id),
         nickname: String(prof.nickname || '').trim().slice(0, 40), mobile: String(prof.mobile || '').trim().slice(0, 20),
+        image: String(prof.profile_image || '').slice(0, 500),          // 네이버 프로필 사진(주소) — 내 정보에서 바꿀 수 있다
         gender: ['M', 'F'].includes(prof.gender) ? prof.gender : '', birthyear: String(prof.birthyear || '').slice(0, 4), birthday: String(prof.birthday || '').slice(0, 5),
         createdAt: now, updatedAt: now, lastLoginAt: now,
       }
@@ -167,9 +170,34 @@ router.get('/mypage', requireAuth, async (req, res) => {
     const naver = u.provider === 'naver'
     res.json({
       username: u.username, provider: u.provider || '', name: u.name || '', nickname: u.nickname || '', email: u.email || '', mobile: u.mobile || '',
-      gender: u.gender || '', birthyear: u.birthyear || '', birthday: u.birthday || '', createdAt: u.createdAt || null,
+      image: u.image || '', gender: u.gender || '', birthyear: u.birthyear || '', birthday: u.birthday || '', createdAt: u.createdAt || null,
       locked: naver ? ['name', 'birthyear', 'birthday', 'gender'] : [],
     })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// 프로필 사진 — 이미지 한 장(2MB 이하)을 올려 바꾼다. 이전에 올린 사진은 지운다(네이버 사진 주소는 그대로 두고 덮어쓰기만).
+const avatarUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 2 * 1024 * 1024, files: 1 },
+  fileFilter: (req, file, cb) => cb(null, /^image\/(jpeg|png|webp|gif)$/.test(file.mimetype)),
+})
+router.post('/avatar', requireAuth, (req, res, next) => avatarUpload.single('file')(req, res, (err) => {
+  if (err) return res.status(400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? '사진은 2MB 이하로 올려 주세요.' : '사진을 올리지 못했습니다.' })
+  next()
+}), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'JPG · PNG · WEBP · GIF 이미지를 올려 주세요.' })
+    const u = await (await users()).findOne({ username: req.user.username })
+    if (!u) return res.status(404).json({ error: '없는 계정입니다.' })
+    const ext = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif' }[req.file.mimetype]
+    const key = `SP-profile/${u.username}/avatar-${Date.now()}.${ext}`
+    const { url } = await putObject(key, req.file.buffer, req.file.mimetype)
+    await (await users()).updateOne({ _id: u._id }, { $set: { image: url, imageKey: key, updatedAt: new Date() } })
+    if (u.imageKey) await deleteObject(u.imageKey).catch(() => {})
+    res.json({ ok: true, image: url })
   } catch (e) {
     res.status(500).json({ error: e.message })
   }

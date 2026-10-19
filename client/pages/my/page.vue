@@ -26,6 +26,43 @@ const birth = computed(() => {
   return [d.birthyear ? `${d.birthyear}년` : '', md ? `${md}일` : ''].filter(Boolean).join(' ')
 })
 
+// 프로필 사진 — 사진을 누르면 파일을 골라 바로 바꾼다. 정사각형(400px)으로 잘라 줄여서 올린다.
+const photo = ref<HTMLInputElement | null>(null)
+const photoBusy = ref(false)
+const photoMsg = ref('')
+const crop = (file: File): Promise<Blob> => new Promise((resolve, reject) => {
+  const url = URL.createObjectURL(file)
+  const img = new Image()
+  img.onload = () => {
+    const side = Math.min(img.width, img.height), S = 400
+    const cv = document.createElement('canvas'); cv.width = cv.height = S
+    cv.getContext('2d')!.drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, S, S)
+    URL.revokeObjectURL(url)
+    cv.toBlob((b) => (b ? resolve(b) : reject(new Error('x'))), 'image/jpeg', 0.9)
+  }
+  img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('x')) }
+  img.src = url
+})
+const pickPhoto = () => { if (!photoBusy.value) photo.value?.click() }
+const onPhoto = async (ev: Event) => {
+  const input = ev.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  photoBusy.value = true; photoMsg.value = ''
+  try {
+    const blob = await crop(file)
+    const fd = new FormData(); fd.append('file', blob, 'avatar.jpg')
+    const r: any = await $fetch('/api/auth/avatar', { method: 'POST', body: fd })
+    if (data.value) data.value.image = r.image
+  } catch (err: any) {
+    const e = err?.data?.error
+    photoMsg.value = typeof e === 'string' && e ? e : '사진을 올리지 못했습니다. 이미지 파일인지 확인해 주세요.'
+  } finally {
+    photoBusy.value = false
+  }
+}
+
 const busy = ref(false)
 const msg = ref('')
 const ok = ref(false)
@@ -51,6 +88,16 @@ const save = async () => {
       <h1 class="mp-title">내 정보</h1>
       <p v-if="first" class="mp-hello">가입을 환영합니다. 네이버에서 넘어온 정보를 확인하고, 필요하면 고쳐 주세요.</p>
       <p v-if="error" class="mp-msg bad">내 정보를 불러오지 못했습니다.</p>
+
+      <div v-if="data" class="mp-photo">
+        <button type="button" class="mp-av" :disabled="photoBusy" title="사진을 눌러 바꾸기" aria-label="프로필 사진 바꾸기" @click="pickPhoto">
+          <img v-if="data.image" :src="data.image" alt="프로필 사진" referrerpolicy="no-referrer">
+          <span v-else class="mp-ph">{{ (data.name || '?').slice(0, 1) }}</span>
+          <span class="mp-cam">{{ photoBusy ? '올리는 중…' : '사진 변경' }}</span>
+        </button>
+        <input ref="photo" type="file" accept="image/jpeg,image/png,image/webp,image/gif" hidden @change="onPhoto">
+        <p v-if="photoMsg" class="mp-msg bad">{{ photoMsg }}</p>
+      </div>
 
       <form v-if="data" class="mp-form" @submit.prevent="save">
         <label class="mp-fld">
@@ -91,6 +138,12 @@ const save = async () => {
 .mp-box { width: min(420px, 100%); display: flex; flex-direction: column; gap: 14px; }
 .mp-title { margin: 0 0 4px; font-family: var(--serif); font-size: 22px; font-weight: 700; color: var(--ink); }
 .mp-hello { margin: 0; font-size: 13px; color: var(--ink-mute); line-height: 1.6; }
+.mp-photo { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.mp-av { position: relative; width: 112px; height: 112px; padding: 0; border: 1px solid var(--line); border-radius: 50%; overflow: hidden; background: var(--paper); cursor: pointer; }
+.mp-av img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.mp-ph { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; font-family: var(--serif); font-size: 40px; color: var(--ink-light); }
+.mp-cam { position: absolute; left: 0; right: 0; bottom: 0; padding: 5px 0; font-size: 11px; color: #fff; background: rgba(0, 0, 0, .5); opacity: 0; transition: opacity .15s; }
+.mp-av:hover .mp-cam, .mp-av:focus-visible .mp-cam, .mp-av:disabled .mp-cam { opacity: 1; }
 .mp-form { display: flex; flex-direction: column; gap: 14px; }
 .mp-fld { display: flex; flex-direction: column; gap: 5px; }
 .mp-l { font-size: 12px; color: var(--ink-light); }
