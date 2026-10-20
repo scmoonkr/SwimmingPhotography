@@ -634,7 +634,7 @@ function wirePieces(initial, canW, opt = {}) {
         <div style="display:flex;gap:8px;margin:8px 0;flex-wrap:wrap"><button type="button" class="btn btn-ghost" id="pc_add">붙여넣은 표 추가</button><button type="button" class="btn btn-ghost" id="pc_rep">전체 바꾸기</button><button type="button" class="btn btn-ghost" id="pc_row">+ 줄 추가</button>${opt.designs && canW ? `<select class="field-input" id="pc_all_design" style="width:auto;min-width:200px" title="고르면 모든 줄의 디자인이 이 디자인으로 바뀝니다"><option value="">디자인 선택 (전체 적용)</option>${
           [...new Set(opt.designs.map((d) => d.group || ''))].map((g) => { const body = opt.designs.filter((d) => (d.group || '') === g).map((d) => `<option value="${esc(d.code)}">${esc(d.label)}</option>`).join(''); return g ? `<optgroup label="${esc(g)}">${body}</optgroup>` : body }).join('')}</select>` : ''}<span style="flex:1"></span>${opt.noItems ? '' : '<button type="button" class="btn btn-ghost" id="pc_items">품목 요약에 반영</button>'}</div>
         <div class="field-hint" id="pc_info"></div>` : ''}
-      ${list.length ? `<div class="table-scroll" style="max-height:420px;overflow:auto"><table class="data"><thead><tr><th class="num">#</th>${cols.map((c) => `<th>${c[1]}</th>`).join('')}<th></th></tr></thead><tbody>${
+      ${list.length ? `<div class="table-scroll" style="max-height:420px;overflow:auto"><table class="data"><thead><tr><th class="num">#</th>${cols.map((c) => `<th>${c[1]}${c[0] === 'color' ? ' <button type="button" class="help-btn" id="pc_cap_help" title="수모 색상표 보기" aria-label="수모 색상표 보기">?</button>' : ''}</th>`).join('')}<th></th></tr></thead><tbody>${
         list.map((p, i) => `<tr><td class="num">${p.no}</td>${cols.map(([k, , w]) => `<td>${k === 'design'
           ? `<select class="field-input" style="width:${w}px;padding:6px 8px" data-r="${i}" data-f="design" ${dis}><option value="">(미지정)</option>${
             [...new Set(opt.designs.map((d) => d.group || ''))].map((g) => { const body = opt.designs.filter((d) => (d.group || '') === g).map((d) => `<option value="${esc(d.code)}" ${d.code === p.design ? 'selected' : ''}>${esc(d.label)}</option>`).join(''); return g ? `<optgroup label="${esc(g)}">${body}</optgroup>` : body }).join('')}${
@@ -691,6 +691,7 @@ function wirePieces(initial, canW, opt = {}) {
     })
     $('#pc_add')?.addEventListener('click', () => convert(false))
     $('#pc_rep')?.addEventListener('click', () => convert(true))
+    $('#pc_cap_help')?.addEventListener('click', () => openColorTable('/images/caps_color.png', '수모 색상표'))
     $('#pc_row')?.addEventListener('click', () => { list.push({ no: 0, qty: 1, person: '', color: '', size: '', position: '', initials: '', initialsRight: '', initialColor: '', note: '', design: '' }); paint() })
     $('#pc_items')?.addEventListener('click', () => {
       const area = $('#f_items')
@@ -779,7 +780,15 @@ function wireAttachments(order, initial, canW) {
 // 되돌리기: 일정 칸을 좌측 목록으로 끌어다 놓거나 작업지시를 삭제하면, 그 주문의 배정이 모두 없어질 때 '접수'로 돌아간다.
 // 일정표에는 '#주문번호 수량장' 으로 보이고, 칸을 다른 날짜로 끌면 옮겨진다. 일/주/월 보기.
 const SCH = { view: 'month', cur: new Date(), q: '', orders: [], entries: [], dues: [], cap: {}, cfg: { machines: 8, perMachine: 10 }, leftTab: 'orders', machines: [], swapMin: 7, dq: [] }
-try { const v = localStorage.getItem('sch_view'); if (['day', 'week', 'month'].includes(v)) SCH.view = v } catch (e) { /* 저장소 사용 불가 */ }
+// 하루짜리 보기: 자수기별(mach) · 일(day, 자수기 구분 없이 한 줄씩)
+const isDayView = () => SCH.view === 'mach' || SCH.view === 'day'
+// 선택된 날짜 — 자수기별 · 일 보기는 보고 있는 날, 주 · 월 보기는 눌러서 고른 날(범위 밖이면 보고 있는 날). 왼쪽 주문을 더블클릭하면 이 날짜로 들어간다.
+function schSel() {
+  if (isDayView() || !SCH.sel) return ymd(SCH.cur)
+  const [s, e] = schRange()
+  return SCH.sel >= ymd(s) && SCH.sel <= ymd(e) ? SCH.sel : ymd(SCH.cur)
+}
+try { const v = localStorage.getItem('sch_view'); if (['mach', 'day', 'week', 'month'].includes(v)) SCH.view = v } catch (e) { /* 저장소 사용 불가 */ }
 // 저장 전 임시 변경 — adds: 새 배정, edits: 기존 배정의 변경본(전체 스냅샷), removes: 삭제할 배정(id → orderId)
 const DRAFT = { adds: [], edits: new Map(), removes: new Map(), noMerge: new Set(), cancelAll: new Set(), clearAll: false, seq: 0 }       // clearAll: 시작하지 않은 배정 전부 초기화(저장 때 반영)
 const draftCount = () => DRAFT.adds.length + DRAFT.edits.size + DRAFT.removes.size + DRAFT.cancelAll.size + (DRAFT.clearAll ? 1 : 0)
@@ -794,7 +803,7 @@ const WORK_ST = ['지시', '진행', '완료']
 
 function schRange() {
   const c = SCH.cur
-  if (SCH.view === 'day') return [c, c]
+  if (isDayView()) return [c, c]
   if (SCH.view === 'week') { const s = addDays(c, -c.getDay()); return [s, addDays(s, 6)] }
   const first = new Date(c.getFullYear(), c.getMonth(), 1, 12)
   const last = new Date(c.getFullYear(), c.getMonth() + 1, 0, 12)
@@ -803,7 +812,7 @@ function schRange() {
 function schLabel() {
   const c = SCH.cur
   if (SCH.view === 'month') return `${c.getFullYear()}년 ${c.getMonth() + 1}월`
-  if (SCH.view === 'day') return `${c.getMonth() + 1}월 ${c.getDate()}일 (${DOW[c.getDay()]})`
+  if (isDayView()) return `${c.getMonth() + 1}월 ${c.getDate()}일 (${DOW[c.getDay()]})`
   const [s, e] = schRange()
   return `${s.getMonth() + 1}/${s.getDate()} – ${e.getMonth() + 1}/${e.getDate()}`
 }
@@ -815,6 +824,18 @@ function stageAdd(order, date) {
     _id: `new-${++DRAFT.seq}`, orderId: order._id, orderNo: order.orderNo, date, qty: order.totalQty || 1, task: '', status: '지시', note: '',
     order: { orderNo: order.orderNo, title: order.title, partnerName: order.partnerName, dueAt: order.dueAt, totalQty: order.totalQty, status: order.status },
   })
+}
+// 일정 칸을 취소해 왼쪽 주문으로 되돌린다(접수로 복귀) — 왼쪽 목록으로 끌어다 놓기와 칸의 [×] 아이콘이 같이 쓴다.
+function cancelToLeft(id) {
+  const en = findEntry(id)
+  if (!en) return
+  if (multiTask(en.orderId)) {
+    // 로고·이니셜이 나뉜 주문은 한 칸만 빼면 다른 공정이 남아 주문이 계속 작업배정에 묶인다 — 전체를 되돌릴지 묻는다
+    if (confirm(`#${en.orderNo} 은(는) 로고·이니셜로 나뉘어 있습니다.
+주문의 배정을 모두 취소하고 접수 상태로 되돌릴까요?
+
+(이 칸만 취소하려면 칸을 눌러 "이 배정만 취소"를 사용하세요)`)) cancelOrderAll(en.orderId)
+  } else cancelEntry(id)
 }
 // ── 자수기: 침 7개에 걸린 실과 작업이 필요로 하는 실 (서버 machineLib.js 와 같은 규칙) ──
 const mcOf = (id) => SCH.machines.find((m) => String(m._id) === String(id))
@@ -1019,7 +1040,7 @@ async function viewSchedule() {
   const canDesign = me.can.includes('design')
   const hasLeft = canW                                    // 주문관리(배정) 담당만 왼쪽 목록을 쓴다 (디자인은 '디자인 매핑' 메뉴로 분리)
   SCH.leftTab = 'orders'
-  if (!canW && canWork && !canDesign && !SCH.workInit) { SCH.workInit = true; SCH.view = 'day'; SCH.cur = new Date() }    // 작업자는 오늘 할 일부터 본다
+  if (!canW && canWork && !canDesign && !SCH.workInit) { SCH.workInit = true; SCH.view = 'mach'; SCH.cur = new Date() }    // 작업자는 오늘 할 일부터 본다
   $('#main').innerHTML = `<div class="sch ${hasLeft ? '' : 'solo'}">
     ${hasLeft ? `<section class="table-card sch-left" id="sch_left">
       <div class="table-tools" style="flex-wrap:wrap"><span class="sch-seg"><button data-lt="orders">접수 주문</button></span>
@@ -1031,9 +1052,9 @@ async function viewSchedule() {
         <span class="sch-nav"><button id="s_prev" title="이전">‹</button><button id="s_today">오늘</button><button id="s_next" title="다음">›</button></span>
         <span class="sch-label" id="s_label"></span><span class="sch-wmsg" id="w_msg"></span>
         <span class="sch-over" id="s_over"></span>
-        <span class="sch-seg">${[['day', '일'], ['week', '주'], ['month', '월']].map(([k, l]) => `<button data-v="${k}">${l}</button>`).join('')}</span>
+        <span class="sch-seg">${[['mach', '자수기별'], ['day', '일'], ['week', '주'], ['month', '월']].map(([k, l]) => `<button data-v="${k}">${l}</button>`).join('')}</span>
         <span style="flex:1"></span>
-        <button class="btn btn-ghost" id="s_ws" type="button" title="지금 보는 날짜의 작업지시서를 인쇄합니다">작업지시서</button>
+        <button class="btn btn-ghost" id="s_ws" type="button" title="지금 보는 날짜의 작업지시서를 인쇄합니다 (자수기별 · 일 보기)">작업지시서</button>
         ${canW ? '<button class="btn btn-ghost" id="s_clear" title="아직 시작하지 않은 작업배정을 화면에서 모두 비웁니다 — [저장]을 눌러야 반영됩니다 (진행·완료·잠금 작업은 그대로)">배정 초기화</button>' : ''}
         ${canW ? '<button class="btn btn-ghost" id="s_auto" title="자수기가 배정되지 않은 작업을 실 교체가 가장 적게 드는 자수기에 배치합니다 (저장 전 초안)">자수기 자동 배치</button>' : ''}
         ${canW ? '<span class="sch-save"><span class="msg" id="s_msg"></span><button class="btn btn-ghost" id="s_cancel">변경 취소</button><button class="btn btn-primary" id="s_save">저장</button></span>' : ''}
@@ -1052,12 +1073,12 @@ async function viewSchedule() {
   $('#s_next').onclick = () => step(1)
   $('#s_today').onclick = () => { SCH.cur = new Date(); load() }
   document.querySelectorAll('.sch-seg button').forEach((b) => {
-    b.onclick = () => { SCH.view = b.dataset.v; try { localStorage.setItem('sch_view', SCH.view) } catch (e) { /* 무시 */ } load() }
+    b.onclick = () => { if (SCH.sel && (b.dataset.v === 'mach' || b.dataset.v === 'day')) SCH.cur = new Date(`${schSel()}T12:00:00`); SCH.view = b.dataset.v; try { localStorage.setItem('sch_view', SCH.view) } catch (e) { /* 무시 */ } load() }
   })
   $('#sq')?.addEventListener('input', debounce(() => { SCH.q = $('#sq').value; load() }))
 
   // 저장 / 변경 취소
-  // 작업지시서 — 작업지시서 화면의 [인쇄]와 같은 지시서. 일 보기에서만 보이며, 저장된 배정만 대상
+  // 작업지시서 — 작업지시서 화면의 [인쇄]와 같은 지시서. 자수기별·일 보기에서만 보이며, 저장된 배정만 대상
   $('#s_ws')?.addEventListener('click', () => {
     if (draftCount()) { alert('저장하지 않은 배정 변경이 있습니다. 먼저 저장하거나 변경을 취소하세요.'); return }
     const [rs, re] = schRange(), from = ymd(rs), to = ymd(re)
@@ -1094,18 +1115,12 @@ async function viewSchedule() {
       ev.preventDefault()
       left.classList.remove('over')
       const d = dragData(ev)
-      if (d?.k === 'entry' && SCH.leftTab === 'orders') {
-        const en = findEntry(d.id)
-        if (en && multiTask(en.orderId)) {
-          // 로고·이니셜이 나뉜 주문은 한 칸만 빼면 다른 공정이 남아 주문이 계속 작업배정에 묶인다 — 전체를 되돌릴지 묻는다
-          if (confirm(`#${en.orderNo} 은(는) 로고·이니셜로 나뉘어 있습니다.\n주문의 배정을 모두 취소하고 접수 상태로 되돌릴까요?\n\n(이 칸만 취소하려면 칸을 눌러 "이 배정만 취소"를 사용하세요)`)) cancelOrderAll(en.orderId)
-        } else cancelEntry(d.id)
-        paint()
-      }
+      if (d?.k === 'entry' && SCH.leftTab === 'orders') { cancelToLeft(d.id); paint() }
     })
   }
 
   const paint = () => { paintLeft(canW, canDesign || canW); paintCal(canW, paint, canWork); paintDirty() }
+  SCH.paint = paint
   document.querySelectorAll('[data-lt]').forEach((b) => { b.onclick = () => { SCH.leftTab = b.dataset.lt; paint() } })
   const load = async () => {
     try {
@@ -1259,7 +1274,7 @@ function paintOrders(canW) {
       <div class="so-top"><b>#${o.orderNo}</b>${badge(o.status, ORDER_BADGE[o.status] || 'b-warn')}${overdue ? '<span class="so-late">납기 초과</span>' : ''}<span class="so-q">${o.totalQty ? `${won(o.totalQty)}장` : '수량 ?'}</span></div>
       <div class="so-title">${esc(o.title)}</div>
       <div class="so-design ${o.designState || 'none'}">${{ none: '디자인 연결 없음', working: `디자인 작업 중 (${o.designCount}건)`, ready: `✓ 디자인 확정 (${o.designCount}건)` }[o.designState || 'none']}</div>
-      <div class="so-sub ${diff !== null && diff < 0 ? 'late' : diff !== null && diff <= 3 ? 'soon' : ''}">${dueTxt}${o.partnerName ? ` · ${esc(o.partnerName)}` : ''}</div>${canW && o.totalQty >= dayLimit ? `<div class="so-actions"><button type="button" class="btn btn-ghost" data-plan="${o._id}" title="하루 수량을 정해 여러 날에 한 번에 배정">기간 배정</button></div>` : ''}</div>`
+      <div class="so-sub so-due ${diff !== null && diff < 0 ? 'late' : diff !== null && diff <= 3 ? 'soon' : ''}"><span>${dueTxt}${o.partnerName ? ` · ${esc(o.partnerName)}` : ''}</span>${canW ? '<button type="button" class="so-add" data-addday title="선택한 날짜에 배정 (저장 전)" aria-label="선택한 날짜에 배정">+</button>' : ''}</div>${canW && o.totalQty >= dayLimit ? `<div class="so-actions"><button type="button" class="btn btn-ghost" data-plan="${o._id}" title="하루 수량을 정해 여러 날에 한 번에 배정">기간 배정</button></div>` : ''}</div>`
   }).join('') : `<div class="sch-hint">${SCH.q ? '검색 결과가 없습니다.' : '작업배정을 기다리는 접수 주문이 없습니다.'}</div>`
   box.querySelectorAll('.sch-order').forEach((el) => {
     el.addEventListener('dragstart', (ev) => {
@@ -1269,6 +1284,17 @@ function paintOrders(canW) {
     })
     el.addEventListener('dragend', () => el.classList.remove('dragging'))
     el.addEventListener('click', () => openForm(ENT.orders, { _id: el.dataset.oid }, SCH.reload))
+    // [+] — 선택된 날짜로 배정(저장 전). 주문 정보 창은 열지 않는다.
+    el.querySelector('[data-addday]')?.addEventListener('click', (ev) => {
+      ev.stopPropagation()
+      const o = SCH.orders.find((x) => String(x._id) === el.dataset.oid)
+      if (!o) return
+      const d = schSel()
+      stageAdd(o, d)
+      SCH.paint?.()
+      workMsg(`#${o.orderNo} ${won(o.totalQty || 1)}장을 ${mdText(d)}에 배정했습니다 (저장 전)`)
+    })
+    el.querySelector('[data-addday]')?.addEventListener('dragstart', (ev) => ev.preventDefault())
   })
 
   box.querySelectorAll('[data-plan]').forEach((b) => b.addEventListener('click', (ev) => { ev.stopPropagation(); openPlan(b.dataset.plan) }))
@@ -1289,7 +1315,7 @@ function paintCal(canW, repaint, canWork) {
   const cal = $('#sch_cal')
   $('#s_label').textContent = schLabel()
   document.querySelectorAll('.sch-seg button').forEach((b) => b.classList.toggle('on', b.dataset.v === SCH.view))
-  const wsb = $('#s_ws'); if (wsb) wsb.style.display = SCH.view === 'day' ? '' : 'none'          // 작업지시서는 일 보기에서만
+  const wsb = $('#s_ws'); if (wsb) wsb.style.display = isDayView() ? '' : 'none'          // 작업지시서는 자수기별 · 일 보기에서만
   const [s, e] = schRange()
   const today = ymd(new Date())
   const entries = currentEntries()
@@ -1311,9 +1337,10 @@ function paintCal(canW, repaint, canWork) {
     const sw = c ? c.swaps : 0
     return `<span class="mchip ${sw ? 'warn' : ''}" title="${esc(`${m.name} — 실 교체 ${sw}개${sw ? ` (약 ${Math.round(sw * SCH.swapMin)}분)` : ''}`)}">${esc(m.name.replace(/^자수기\s*/, '') || m.name)}${sw ? ` ·교체${sw}` : ' ✓'}</span>`
   }
+  const xBtn = (en) => (canW && en.status !== '완료' ? `<button type="button" class="ent-x" data-cancel="${en._id}" title="배정 취소 (주문으로 되돌림)" aria-label="배정 취소">×</button>` : '')
   const chip = (en, big) => `<div class="sch-chip ${en._draft ? 'draft' : ''} ${lateInfo(en) ? 'late' : ''}" data-st="${esc(en.status)}" data-task="${esc(en.task || '')}" data-eid="${en._id}" ${canW ? 'draggable="true"' : ''}
       title="${esc(`#${en.orderNo} ${en.order?.title || ''} — ${en.qty}장${en.task ? ' ' + en.task : ''} (${en.status})${en._draft ? ' · 저장 전' : ''}${lateInfo(en) ? '\n⚠ ' + lateInfo(en) : ''}${en.note ? '\n' + en.note : ''}`)}">
-      <b>${lateInfo(en) ? '⚠ ' : ''}#${en.orderNo}</b> ${won(en.qty)}장${en.status !== '완료' && ['none', 'working'].includes(en.order?.designState) ? '<span class="dzflag" title="디자인 미확정">D</span>' : ''}${en.task ? `<span class="task">${esc(en.task)}</span>` : ''}${mcChip(en)}${big ? `<span class="sub">${esc(en.order?.title || '')}</span>` : ''}</div>`
+      <b>${lateInfo(en) ? '⚠ ' : ''}#${en.orderNo}</b> ${won(en.qty)}장${en.status !== '완료' && ['none', 'working'].includes(en.order?.designState) ? '<span class="dzflag" title="디자인 미확정">D</span>' : ''}${en.task ? `<span class="task">${esc(en.task)}</span>` : ''}${mcChip(en)}${big ? `<span class="sub">${esc(en.order?.title || '')}</span>` : ''}${xBtn(en)}</div>`
   // 날짜 머리글: 합계/한도. 한도를 넘으면 붉게(관리자가 보고 재배정), 주말 작업은 '휴무' 표시
   const loadOf = (list) => (list || []).reduce((t, x) => t + x.qty, 0)
   const dayHead = (k, list) => {
@@ -1333,7 +1360,7 @@ function paintCal(canW, repaint, canWork) {
     $('#s_over').textContent = overDays ? `⚠ 한도 초과 ${overDays}일` : ''
   }
 
-  if (SCH.view === 'day') {
+  if (isDayView()) {
     const key = ymd(SCH.cur)
     const list = by.get(key) || []
     const dn = loadOf(list), dcap = SCH.cap[key]
@@ -1346,7 +1373,7 @@ function paintCal(canW, repaint, canWork) {
           ${mcLine(en)}
           ${en.order?.totalQty ? `<div class="prog">${esc(en.task || '전체')} 공정 완료 ${won(en.order.taskDone?.[en.task || ''] || 0)} / ${won(en.order.totalQty)}장</div>` : ''}</div>
         ${badge(en.status, en.status === '완료' ? 'b-good' : en.status === '진행' ? 'b-info' : 'b-warn')}
-        ${canWork && !en._draft ? `<div class="sch-actions">${statusButtons(en)}</div>` : (canWork ? '<div class="sch-actions"><span class="field-hint">저장 후 처리 가능</span></div>' : '')}</div>`
+        ${canWork && !en._draft ? `<div class="sch-actions">${statusButtons(en)}</div>` : (canWork ? '<div class="sch-actions"><span class="field-hint">저장 후 처리 가능</span></div>' : '')}${xBtn(en)}</div>`
     // 자수기별 칸 — 한 줄에 6대씩. 자수기가 배정되지 않은 작업은 '미배정' 칸에 모은다.
     const dayBody = () => {
       const byM = new Map()
@@ -1354,7 +1381,7 @@ function paintCal(canW, repaint, canWork) {
       const seqOf = (en) => (en.estStartAt ? new Date(en.estStartAt).getTime() : 0) || en.seq || 0
       const cols = SCH.machines.map((m) => ({ id: String(m._id), name: m.name, items: byM.get(String(m._id)) || [] }))
       if (byM.get('')) cols.push({ id: '', name: '자수기 미배정', items: byM.get('') })
-      if (!cols.length) return list.length ? list.map(entryHtml).join('') : '<div class="sch-hint">이 날짜에 배정된 작업이 없습니다.<br>왼쪽 주문을 이곳으로 끌어다 놓으세요.</div>'
+      if (SCH.view !== 'mach' || !cols.length) return list.length ? list.map(entryHtml).join('') : '<div class="sch-hint">이 날짜에 배정된 작업이 없습니다.<br>왼쪽 주문을 이곳으로 끌어다 놓으세요.</div>'
       return `<div class="sch-mgrid">${cols.map((c) => `<div class="sch-mcol ${c.id ? '' : 'none'}"><div class="sch-mhead"><b>${esc(c.name)}</b><span>${c.items.length ? `${won(loadOf(c.items))}장` : '쉬는 중'}</span></div>${c.items.sort((x, y) => seqOf(x) - seqOf(y)).map(entryHtml).join('') || '<div class="sch-mempty">작업 없음</div>'}</div>`).join('')}</div>${list.length ? '' : '<div class="sch-hint">이 날짜에 배정된 작업이 없습니다.<br>왼쪽 주문을 이곳으로 끌어다 놓으세요.</div>'}`
     }
     cal.innerHTML = `<div class="sch-dayview" data-date="${key}">
@@ -1368,11 +1395,22 @@ function paintCal(canW, repaint, canWork) {
         const k = ymd(d)
         const out = SCH.view === 'month' && d.getMonth() !== SCH.cur.getMonth()
         const list = by.get(k) || []
-        return `<div class="sch-cell ${out ? 'out' : ''} ${k === today ? 'today' : ''}" data-date="${k}">
+        return `<div class="sch-cell ${out ? 'out' : ''} ${k === today ? 'today' : ''} ${k === schSel() ? 'sel' : ''}" data-date="${k}">
           <div class="sch-day"><span class="sch-daynum ${d.getDay() === 0 ? 'sun' : ''}">${d.getDate()}</span>${dayHead(k, list)}</div>
           ${list.map((en) => chip(en, SCH.view === 'week')).join('')}</div>`
       }).join('')}</div>`
   }
+
+  // 주 · 월 보기: 날짜 칸을 누르면 그 날짜가 선택된다(왼쪽 주문 더블클릭이 들어갈 곳)
+  cal.querySelectorAll('.sch-cell[data-date]').forEach((cell) => {
+    cell.addEventListener('click', (ev) => {
+      if (ev.target.closest('[data-eid]')) return
+      SCH.sel = cell.dataset.date
+      cal.querySelectorAll('.sch-cell.sel').forEach((x) => x.classList.remove('sel'))
+      cell.classList.add('sel')
+      paintLeft(canW)
+    })
+  })
 
   // 놓기(drop) — 주문 카드는 임시 배정 추가, 일정 칸은 날짜 이동. 저장은 [저장] 버튼에서.
   cal.querySelectorAll('[data-date]').forEach((cell) => {
@@ -1398,11 +1436,15 @@ function paintCal(canW, repaint, canWork) {
     b.addEventListener('click', (ev) => { ev.stopPropagation(); setWorkStatus(findEntry(b.dataset.eid), b.dataset.wkst) })
     b.addEventListener('dragstart', (ev) => ev.preventDefault())
   })
+  cal.querySelectorAll('[data-cancel]').forEach((b) => {
+    b.addEventListener('click', (ev) => { ev.stopPropagation(); cancelToLeft(b.dataset.cancel); repaint() })
+    b.addEventListener('dragstart', (ev) => ev.preventDefault())
+  })
   cal.querySelectorAll('[data-wk]').forEach((b) => {
     b.addEventListener('click', (ev) => { ev.stopPropagation(); workAction(findEntry(b.dataset.eid), b.dataset.wk) })
     b.addEventListener('dragstart', (ev) => ev.preventDefault())
   })
-  cal.querySelectorAll('[data-eid]:not([data-wkst]):not([data-wk])').forEach((el) => {       // 상태 버튼은 제외 — 눌러도 drawer 가 열리지 않게
+  cal.querySelectorAll('[data-eid]:not([data-wkst]):not([data-wk]):not([data-cancel])').forEach((el) => {       // 상태 버튼은 제외 — 눌러도 drawer 가 열리지 않게
     el.addEventListener('dragstart', (ev) => {
       ev.dataTransfer.setData('text/plain', JSON.stringify({ k: 'entry', id: el.dataset.eid }))
       ev.dataTransfer.effectAllowed = 'move'
@@ -1942,12 +1984,12 @@ async function viewDesigns() {
 const capKey = (v) => { const s = String(v ?? '').trim().toLowerCase().replace(/^caps/, ''); return /^\d+$/.test(s) ? String(Number(s)) : s }
 const variantFor = (variants, capColor) => (variants || []).find((x) => (x.caps || []).some((c) => capKey(c) === capKey(capColor)) && capKey(capColor) !== '') || null
 // 자수사 컬러표 — 도움말(?) 아이콘을 누르면 컬러표 이미지(public/images/color_table.png)를 모달로 보여 준다.
-function openColorTable() {
+function openColorTable(src = '/images/color_table.png', title = '자수사 컬러표') {
   document.getElementById('th_modal')?.remove()
   const dlg = document.createElement('dialog')
   dlg.id = 'th_modal'; dlg.className = 'mdl'
-  dlg.innerHTML = `<div class="mdl-head"><h2>자수사 컬러표</h2><button type="button" class="drawer-x" id="th_x" aria-label="닫기">×</button></div>
-    <div class="mdl-body" style="display:block;text-align:center"><img src="/images/color_table.png" alt="자수사 컬러표" style="max-width:100%;height:auto;display:inline-block" onerror="this.outerHTML='<div class=&quot;sch-hint&quot;>컬러표 이미지(images/color_table.png)를 불러오지 못했습니다.</div>'"></div>`
+  dlg.innerHTML = `<div class="mdl-head"><h2>${esc(title)}</h2><button type="button" class="drawer-x" id="th_x" aria-label="닫기">×</button></div>
+    <div class="mdl-body" style="display:block;text-align:center"><img src="${esc(src)}" alt="${esc(title)}" style="max-width:100%;height:auto;display:inline-block" onerror="this.outerHTML='<div class=&quot;sch-hint&quot;>컬러표 이미지를 불러오지 못했습니다.</div>'"></div>`
   document.body.appendChild(dlg)
   dlg.showModal()
   const close = () => { dlg.close(); dlg.remove() }
@@ -2145,7 +2187,7 @@ async function openDesign(id, done, prefill = {}, onCreated) {
       try { await saveAll(); await api(`/designs/${id}/versions/${curNo}/confirm`, { method: 'POST' }); await reload(curNo); done && done() } catch (e) { setErr(e.message); alert(`확정하지 못했습니다.
 ${e.message}`) }
     })
-    $('#emb_help')?.addEventListener('click', openColorTable)
+    $('#emb_help')?.addEventListener('click', () => openColorTable())
     // 변환: 디자인 중이면 시안 · 스티치 수 · 색상, 확정된 버전이면 자수 디자인 시안만 (서버 규칙). 입력 중이던 다른 값은 먼저 저장한다.
     $('#emb_convert')?.addEventListener('click', async () => {
       const btn = $('#emb_convert')

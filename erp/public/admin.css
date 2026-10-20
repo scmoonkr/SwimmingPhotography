@@ -550,7 +550,7 @@ textarea.field-input { resize: vertical; line-height: 1.6; min-height: 96px; }
 .pg-legend .k.wt { background: #8a8f98; height: 5px; }
 @media (max-width: 1100px) { .plan { height: auto; } .plan-body { grid-template-columns: 1fr; } }
 /* 작업배정 — 일별 보기 (자수기 카드 한 줄에 6개) */
-.pd-grid { display: grid; grid-template-columns: repeat(6, minmax(160px, 1fr)); gap: 10px; padding: 12px; align-content: start; }
+.pd-grid { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 10px; padding: 12px; align-content: start; }
 .pd-card { border: 1px solid var(--line); border-radius: 10px; background: var(--paper); padding: 8px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .pd-job { border: 1px solid var(--line); border-left-width: 4px; border-radius: 7px; padding: 6px 8px; font-size: 12px; cursor: pointer; line-height: 1.45; }
 .pd-job:hover { outline: 2px solid var(--ink); }
@@ -561,7 +561,8 @@ textarea.field-input { resize: vertical; line-height: 1.6; min-height: 96px; }
 .pd-th img { width: 16px; height: 16px; border-radius: 3px; object-fit: cover; border: 1px solid var(--line); }
 .asg-h { display: flex; justify-content: space-between; align-items: center; gap: 6px; font-size: 13px; }
 .asg-load { font-size: 11px; color: var(--ink-light); }
-@media (max-width: 1100px) { .pd-grid { grid-template-columns: repeat(2, minmax(160px, 1fr)); } }
+@media (max-width: 1500px) { .pd-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (max-width: 1100px) { .pd-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 /* 작업지시서 — 자수기 번호 (작업자 아래, 크게) */
 .ws-mach { margin-bottom: 0; }
 .ws-mach td { height: 36px; }
@@ -597,7 +598,7 @@ dialog.mdl[open] { display: flex; flex-direction: column; }
 .mdl-head h2 { flex: 1; font-size: 15px; font-weight: 700; }
 .mdl-body { overflow: auto; padding: 16px 18px; display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 10px; align-content: start; }
 /* 작업현황 일별 — 자수기별 칸 (한 줄 6대) */
-.sch-mgrid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; align-items: start; }
+.sch-mgrid { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 10px; align-items: start; }
 .sch-mcol { border: 1px solid var(--line); border-radius: 10px; padding: 8px; display: flex; flex-direction: column; gap: 8px; background: var(--paper); min-width: 0; }
 .sch-mcol.none { border-style: dashed; }
 .sch-mhead { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; padding: 0 2px; }
@@ -606,7 +607,22 @@ dialog.mdl[open] { display: flex; flex-direction: column; }
 .sch-mcol .sch-entry { flex-wrap: wrap; gap: 6px 10px; padding: 8px 10px; align-items: flex-start; }
 .sch-mcol .sch-entry .qty { min-width: 0; font-size: 15px; text-align: left; }
 .sch-mcol .sch-entry .meta { flex-basis: 100%; }
+@media (max-width: 1500px) { .sch-mgrid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 @media (max-width: 1000px) { .sch-mgrid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 800px) { .sch-mgrid { grid-template-columns: 1fr; } }
 /* 작업지시서 — 실 교체 표시 */
 .ws-sw { font-size: 9px; font-weight: 800; color: #fff; background: #1a1a1a; border-radius: 3px; padding: 0 3px; margin-left: 3px; vertical-align: 1px; }
+/* 작업현황 — 주 · 월 보기에서 선택한 날짜 */
+.sch-cell { cursor: pointer; }
+.sch-cell.sel { background: var(--orange-bg); box-shadow: inset 0 0 0 2px var(--orange); }
+.sch-cell.sel .sch-daynum { font-weight: 800; }
+/* 작업현황 왼쪽 주문 — 납기 줄 오른쪽 끝 [+] */
+.so-due { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.so-add { flex: 0 0 auto; width: 24px; height: 24px; padding: 0; border: 1px solid var(--line); border-radius: 50%; background: var(--paper); color: var(--ink); font-size: 16px; line-height: 1; cursor: pointer; }
+.so-add:hover { background: var(--orange); border-color: var(--orange); color: #fff; }
+/* 작업현황 — 배정 취소 [×] (칸 오른쪽 아래) */
+.sch-chip, .sch-entry { position: relative; }
+.ent-x { position: absolute; right: 4px; bottom: 4px; width: 18px; height: 18px; padding: 0; border: 1px solid var(--line); border-radius: 50%; background: var(--paper); color: var(--ink-light); font-size: 12px; line-height: 1; cursor: pointer; opacity: .75; }
+.ent-x:hover { background: var(--bad); border-color: var(--bad); color: #fff; opacity: 1; }
+.sch-chip:has(.ent-x) { padding-right: 24px; }
+.sch-entry:has(.ent-x) { padding-bottom: 30px; }
