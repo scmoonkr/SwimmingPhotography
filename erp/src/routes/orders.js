@@ -5,6 +5,7 @@ import { requireCap } from '../auth.js'
 import { ObjectId } from 'mongodb'
 import { oid, escRe } from '../crud.js'
 import { normPieces, parsePieces } from '../pieces.js'
+import { parseCsv, plan } from '../notionCsv.js'
 import { designDetails, latestOf, latestConfirmed, versionOf, DESIGN_ROLES } from '../designLib.js'
 import multer from 'multer'
 import crypto from 'node:crypto'
@@ -221,6 +222,52 @@ router.get('/:id', async (req, res) => {
     const logs = await (await col('activityLogs')).find({ target: 'order', targetId: _id }).sort({ at: -1 }).limit(100).toArray()
     const designsState = (await designDetails([o])).get(String(o._id)) || []
     res.json({ ...o, logs, designsState })
+  } catch (e) { res.status(e.status || 500).json({ error: e.message }) }
+})
+
+// Notion 에서 내보낸 CSV 가져오기 — 주문자명(주문 제목)으로 같은 주문을 찾는다.
+//   같은 주문: Notion 이 원본인 값(주문일 · 출발필수 · 출발날짜 · 내용 · 요청사항 · 제품·색상·사이즈)만 바꾸고 우리가 만든 값은 그대로 둔다.
+//   없는 주문: 새 주문번호로 만든다.   apply=1 이 아니면 미리보기만(DB 변경 없음).
+const csvUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 1 } })
+router.post('/import-csv', requireCap('orders'), csvUpload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'CSV 파일을 선택하세요.' })
+    const rows = parseCsv(req.file.buffer.toString('utf8'))
+    if (!rows.length || !('주문자명' in rows[0])) return res.status(400).json({ error: "CSV 에 '주문자명' 열이 없습니다. 노션에서 내보낸 주문 CSV 인지 확인하세요." })
+    const oc = await col('orders')
+    const existing = await oc.find({}, { projection: { orderNo: 1, title: 1, status: 1, orderedAt: 1, dueAt: 1, shippedAt: 1, content: 1, request: 1, items: 1, pieceCount: 1 } }).toArray()
+    const pl = plan(rows, existing)
+    const skipped = pl.skipped.reduce((m, x) => { m[x.reason] = (m[x.reason] || 0) + 1; return m }, {})
+    const preview = {
+      rows: rows.length, creates: pl.creates.map((c) => ({ title: c.title })), updates: pl.updates.map((u) => ({ orderNo: u.orderNo, title: u.title, changes: u.changes })),
+      unchanged: pl.unchanged.length, skipped,
+    }
+    if (req.body?.apply !== '1') return res.json({ applied: false, ...preview })
+
+    const now = new Date()
+    const pc = await col('partners')
+    for (const u of pl.updates) {
+      await oc.updateOne({ _id: oid(u.id) }, { $set: { ...u.set, updatedAt: now } })
+      await log(oid(u.id), req.user, 'import', { from: 'notion-csv', fields: u.changes.map((c) => c.label) })
+    }
+    let made = 0
+    for (const c of pl.creates) {
+      const v = c.values
+      const partner = v.p.leading ? await pc.findOne({ name: v.p.leading }, { projection: { _id: 1 } }) : null
+      const items = v.hasItem ? [{ productName: v.item.productName, designCode: v.item.designCode, color: v.item.color, size: v.item.size, qty: v.p.qty ?? 1, unitPrice: 0, note: v.item.note }] : []
+      const doc = {
+        title: v.title, partnerId: partner?._id || null, customerId: null,
+        orderedAt: v.orderedAt || now, dueAt: v.dueAt, shippedAt: v.shippedAt, status: v.status || '접수', priority: 0, tags: v.p.tags,
+        content: v.content, request: v.request, notes: [], pieces: [], pieceCount: 0, attachments: [],
+        items, vat: false, paid: 0, shipping: { method: '', trackingNo: '', address: '', direct: v.p.tags.includes('직접배송') },
+        amounts: calcAmounts(items, false, 0), orderNo: await nextSeq('orderNo'),
+        source: { system: 'notion-csv', importedAt: now }, createdAt: now, updatedAt: now, createdBy: req.user.username,
+      }
+      const r = await oc.insertOne(doc)
+      await log(r.insertedId, req.user, 'create', { orderNo: doc.orderNo, from: 'notion-csv' })
+      made++
+    }
+    res.json({ applied: true, ...preview, createdCount: made, updatedCount: pl.updates.length })
   } catch (e) { res.status(e.status || 500).json({ error: e.message }) }
 })
 

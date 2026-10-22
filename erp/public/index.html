@@ -283,7 +283,7 @@ async function viewList(E) {
   pageShell({
     en: E.en, title: E.label, addLabel: canW ? `${E.label} 등록` : '',
     tools: `${E.search ? '<input id="q" class="table-search" placeholder="검색…" type="search">' : ''}${
-      E.filter ? `<select id="f" class="table-select"><option value="">${E.filter.label}</option>${(E.filter.extra || []).map((x) => `<option value="${esc(x.value)}">${esc(x.label)}</option>`).join('')}${E.filter.opts.map((o) => `<option>${o}</option>`).join('')}</select>` : ''}`,
+      E.filter ? `<select id="f" class="table-select"><option value="">${E.filter.label}</option>${(E.filter.extra || []).map((x) => `<option value="${esc(x.value)}">${esc(x.label)}</option>`).join('')}${E.filter.opts.map((o) => `<option>${o}</option>`).join('')}</select>` : ''}${E.api === '/orders' && canW ? '<span style="flex:1"></span><button type="button" class="btn btn-ghost" id="imp" title="노션에서 내보낸 CSV 로 주문을 갱신합니다 (주문자명으로 같은 주문을 찾습니다)">가져오기</button>' : ''}`,
   })
   const load = async () => {
     try {
@@ -307,7 +307,60 @@ async function viewList(E) {
   $('#q')?.addEventListener('input', debounce(load))
   $('#f')?.addEventListener('change', load)
   $('#add')?.addEventListener('click', () => openForm(E, null, load))
+  $('#imp')?.addEventListener('click', () => openImport(load))
   load()
+}
+
+// 노션 CSV 가져오기 — 파일을 고르면 먼저 미리보기(신규 · 변경 · 건너뜀)를 보여 주고, [가져오기]를 눌러야 반영한다.
+//   같은 주문은 주문자명(제목)으로 찾고, 노션이 원본인 값만 바꾼다(우리가 만든 제작 명세 · 디자인 · priority · 메모 등은 그대로).
+function openImport(done) {
+  document.getElementById('imp_modal')?.remove()
+  const dlg = document.createElement('dialog')
+  dlg.id = 'imp_modal'; dlg.className = 'mdl'; dlg.style.width = 'min(760px, 94vw)'
+  dlg.innerHTML = `<div class="mdl-head"><h2>노션 CSV 가져오기</h2><button type="button" class="drawer-x" id="imp_x" aria-label="닫기">×</button></div>
+    <div class="mdl-body" style="display:flex;flex-direction:column;gap:12px">
+      <div class="drawer-note">노션에서 내보낸 주문 CSV를 고르세요. <b>주문자명</b>이 같은 주문은 노션 값(주문일 · 출발필수 · 출발날짜 · 내용 · 요청사항 · 제품 · 색상 · 사이즈 등)만 바꾸고, 제작 명세 · 디자인 연결 · priority · 메모처럼 우리가 만든 값은 그대로 둡니다. 없는 주문은 새로 만듭니다.</div>
+      <input type="file" id="imp_file" accept=".csv,text/csv" class="field-input">
+      <div id="imp_res" style="max-height:46vh;overflow:auto"></div><div class="drawer-err" id="imp_err"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end"><button type="button" class="btn btn-ghost" id="imp_cancel">닫기</button><button type="button" class="btn btn-primary" id="imp_go" disabled>가져오기</button></div>
+    </div>`
+  document.body.appendChild(dlg)
+  dlg.showModal()
+  const close = () => { dlg.close(); dlg.remove() }
+  const err = (m) => { dlg.querySelector('#imp_err').textContent = m || '' }
+  const send = async (apply) => {
+    const f = dlg.querySelector('#imp_file').files[0]
+    if (!f) throw new Error('CSV 파일을 선택하세요.')
+    const fd = new FormData(); fd.append('file', f); fd.append('apply', apply ? '1' : '0')
+    const r = await fetch('/api/orders/import-csv', { method: 'POST', credentials: 'same-origin', body: fd })
+    const j = await r.json().catch(() => ({}))
+    if (!r.ok) throw new Error(j.error || r.statusText)
+    return j
+  }
+  const show = (j) => {
+    const sk = Object.entries(j.skipped || {}).map(([k, n]) => `${k} ${n}`).join(' · ')
+    const li = (arr, fn, max = 40) => arr.slice(0, max).map(fn).join('') + (arr.length > max ? `<li class="field-hint">… 외 ${arr.length - max}건</li>` : '')
+    dlg.querySelector('#imp_res').innerHTML = `<div class="drawer-note"><b>신규 ${j.creates.length}건</b> · <b>변경 ${j.updates.length}건</b> · 변경 없음 ${j.unchanged}건${sk ? ` · 건너뜀(${sk})` : ''}</div>
+      ${j.updates.length ? `<h4 style="margin:10px 0 4px">변경</h4><ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.6">${li(j.updates, (u) => `<li><b>#${u.orderNo}</b> ${esc(u.title)} — ${u.changes.map((c) => `${esc(c.label)}${c.from || c.to ? ` ${esc(c.from)} → ${esc(c.to)}` : ''}`).join(', ')}</li>`)}</ul>` : ''}
+      ${j.creates.length ? `<h4 style="margin:10px 0 4px">신규</h4><ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.6">${li(j.creates, (c) => `<li>${esc(c.title)}</li>`)}</ul>` : ''}`
+    dlg.querySelector('#imp_go').disabled = !(j.creates.length || j.updates.length)
+  }
+  dlg.querySelector('#imp_file').onchange = async () => {
+    err(''); dlg.querySelector('#imp_res').innerHTML = '<div class="field-hint">확인하는 중…</div>'; dlg.querySelector('#imp_go').disabled = true
+    try { show(await send(false)) } catch (e) { dlg.querySelector('#imp_res').innerHTML = ''; err(e.message) }
+  }
+  dlg.querySelector('#imp_go').onclick = async () => {
+    const b = dlg.querySelector('#imp_go'); b.disabled = true; err('')
+    try {
+      const j = await send(true)
+      close(); await done?.()
+      alert(`가져왔습니다 — 신규 ${j.createdCount}건 · 변경 ${j.updatedCount}건`)
+    } catch (e) { err(e.message); b.disabled = false }
+  }
+  dlg.querySelector('#imp_x').onclick = close
+  dlg.querySelector('#imp_cancel').onclick = close
+  dlg.addEventListener('click', (ev) => { if (ev.target === dlg) close() })
+  dlg.addEventListener('cancel', () => setTimeout(() => dlg.remove(), 0))
 }
 
 async function openForm(E, rec, done, prefill) {
@@ -1043,8 +1096,7 @@ async function viewSchedule() {
   if (!canW && canWork && !canDesign && !SCH.workInit) { SCH.workInit = true; SCH.view = 'mach'; SCH.cur = new Date() }    // 작업자는 오늘 할 일부터 본다
   $('#main').innerHTML = `<div class="sch ${hasLeft ? '' : 'solo'}">
     ${hasLeft ? `<section class="table-card sch-left" id="sch_left">
-      <div class="table-tools" style="flex-wrap:wrap"><span class="sch-seg"><button data-lt="orders">접수 주문</button></span>
-        <input id="sq" class="table-search" style="max-width:none;flex:1;min-width:120px" placeholder="검색…" type="search" value="${esc(SCH.q)}"></div>
+      <div class="table-tools" style="gap:6px;padding:8px 10px"><select class="field-input" id="sch_of" style="width:auto;flex:1;min-width:0;padding:6px 8px"><option value="all">전체</option><option value="mapped">디자인 매핑된 것</option><option value="open">주문 완료 안 된 것</option></select><select class="field-input" id="sch_os" style="width:auto;flex:1;min-width:0;padding:6px 8px"><option value="mix">조합 (우선순위 + 출고일 + 수량)</option><option value="prio">우선순위순</option><option value="due">출고일 빠른순</option><option value="qty">주문수량 많은순</option></select></div>
       <div class="sch-orders" id="sch_orders"></div>
     </section>` : ''}
     <section class="table-card sch-right">
@@ -1054,6 +1106,7 @@ async function viewSchedule() {
         <span class="sch-over" id="s_over"></span>
         <span class="sch-seg">${[['mach', '자수기별'], ['day', '일'], ['week', '주'], ['month', '월']].map(([k, l]) => `<button data-v="${k}">${l}</button>`).join('')}</span>
         <span style="flex:1"></span>
+        <button class="btn btn-ghost" id="s_wb" type="button" title="이번 주에서 작업이 있는 날만, 하루를 A4 한 장에 크게 인쇄합니다 (게시판용)">작업현황</button>
         <button class="btn btn-ghost" id="s_ws" type="button" title="지금 보는 날짜의 작업지시서를 인쇄합니다 (자수기별 · 일 보기)">작업지시서</button>
         ${canW ? '<button class="btn btn-ghost" id="s_clear" title="아직 시작하지 않은 작업배정을 화면에서 모두 비웁니다 — [저장]을 눌러야 반영됩니다 (진행·완료·잠금 작업은 그대로)">배정 초기화</button>' : ''}
         ${canW ? '<button class="btn btn-ghost" id="s_auto" title="자수기가 배정되지 않은 작업을 실 교체가 가장 적게 드는 자수기에 배치합니다 (저장 전 초안)">자수기 자동 배치</button>' : ''}
@@ -1075,10 +1128,42 @@ async function viewSchedule() {
   document.querySelectorAll('.sch-seg button').forEach((b) => {
     b.onclick = () => { if (SCH.sel && (b.dataset.v === 'mach' || b.dataset.v === 'day')) SCH.cur = new Date(`${schSel()}T12:00:00`); SCH.view = b.dataset.v; try { localStorage.setItem('sch_view', SCH.view) } catch (e) { /* 무시 */ } load() }
   })
-  $('#sq')?.addEventListener('input', debounce(() => { SCH.q = $('#sq').value; load() }))
+  $('#sch_of')?.addEventListener('change', () => { PLAN.of = $('#sch_of').value; SCH.paint?.() })       // 필터 · 정렬은 작업배정과 같은 값을 쓴다
+  $('#sch_os')?.addEventListener('change', () => { PLAN.os = $('#sch_os').value; SCH.paint?.() })
 
   // 저장 / 변경 취소
   // 작업지시서 — 작업지시서 화면의 [인쇄]와 같은 지시서. 자수기별·일 보기에서만 보이며, 저장된 배정만 대상
+  // 작업현황 인쇄 — 주 보기. 작업이 있는 날만, 하루를 A4 한 장에 크게(게시판에 붙여 두고 보는 용도). 저장된 배정만 대상.
+  $('#s_wb')?.addEventListener('click', () => {
+    if (draftCount()) { alert('저장하지 않은 배정 변경이 있습니다. 먼저 저장하거나 변경을 취소하세요.'); return }
+    const [rs, re] = schRange(), from = ymd(rs), to = ymd(re)
+    const mord = new Map(SCH.machines.map((m, i) => [String(m._id), i]))
+    const days = new Map()
+    for (const e of SCH.entries) { if (e.date < from || e.date > to) continue; if (!days.has(e.date)) days.set(e.date, []); days.get(e.date).push(e) }
+    if (!days.size) return alert('이번 주에는 작업이 없습니다.')
+    const MAXROWS = 14
+    const pages = []
+    for (const [date, list] of [...days.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+      list.sort((a, b) => (mord.get(String(a.machineId)) ?? 99) - (mord.get(String(b.machineId)) ?? 99) || (new Date(a.estStartAt || 0) - new Date(b.estStartAt || 0)) || (a.seq ?? 0) - (b.seq ?? 0) || a.orderNo - b.orderNo)
+      const d = new Date(`${date}T12:00:00`)
+      const chunks = []
+      for (let i = 0; i < list.length; i += MAXROWS) chunks.push(list.slice(i, i + MAXROWS))
+      chunks.forEach((rows, ci) => {
+        const rowH = Math.max(56, Math.min(120, Math.floor(880 / rows.length)))
+        const body = rows.map((e) => {
+          const due = e.order?.dueAt ? new Date(e.order.dueAt).toISOString().slice(0, 10) : ''
+          const tot = e.order?.totalQty || e.qty
+          const done = e.order?.taskDone?.[e.task || ''] || 0
+          return `<div class="wb-row ${e.status === '완료' ? 'done' : ''}" style="height:${rowH}px"><div class="wb-l1"><b>#${e.orderNo}</b> ${esc(e.order?.title || '')}${e.task ? ` <span class="wb-tk">${esc(e.task)}</span>` : ''}</div><div class="wb-l2"><span>주문: ${won(tot)}장, 완료: ${won(done)}장</span><span class="wb-due">${due ? `출고 ${esc(due)}` : '출고일 미정'}</span></div></div>`
+        }).join('')
+        pages.push(`<div class="ws-page wb-page"><div class="wb-head"><span class="wb-d">${d.getDate()} <small>${DOW[d.getDay()]}</small></span>${chunks.length > 1 ? `<span class="wb-sum">${ci + 1}/${chunks.length}</span>` : ''}</div>${body}</div>`)
+      })
+    }
+    let host = document.getElementById('ws_render')
+    if (!host) { host = document.createElement('div'); host.id = 'ws_render'; document.body.appendChild(host) }
+    host.innerHTML = pages.join('')
+    window.print()
+  })
   $('#s_ws')?.addEventListener('click', () => {
     if (draftCount()) { alert('저장하지 않은 배정 변경이 있습니다. 먼저 저장하거나 변경을 취소하세요.'); return }
     const [rs, re] = schRange(), from = ymd(rs), to = ymd(re)
@@ -1121,14 +1206,13 @@ async function viewSchedule() {
 
   const paint = () => { paintLeft(canW, canDesign || canW); paintCal(canW, paint, canWork); paintDirty() }
   SCH.paint = paint
-  document.querySelectorAll('[data-lt]').forEach((b) => { b.onclick = () => { SCH.leftTab = b.dataset.lt; paint() } })
   const load = async () => {
     try {
       SCH.cur.setHours(12, 0, 0, 0)
       const [s, e] = schRange()
       const [cal, ord, mc] = await Promise.all([
         api(`/schedule?from=${ymd(s)}&to=${ymd(e)}`),
-        canW ? api(`/schedule/orders${SCH.q ? `?q=${encodeURIComponent(SCH.q)}` : ''}`) : { items: [] },
+        canW ? api('/schedule/orders') : { items: [] },
         api('/machines').catch(() => ({ items: [], swapMinutes: 7 })),
       ])
       SCH.machines = mc.items; SCH.swapMin = mc.swapMinutes
@@ -1180,7 +1264,6 @@ const dragData = (ev) => { try { return JSON.parse(ev.dataTransfer.getData('text
 // 좌측: 탭에 맞는 목록
 function paintLeft(canW, canAct) {
   if (!$('#sch_orders')) return
-  document.querySelectorAll('[data-lt]').forEach((b) => b.classList.toggle('on', b.dataset.lt === SCH.leftTab))
   paintOrders(canW)
 }
 
@@ -1262,7 +1345,13 @@ function paintOrders(canW) {
   const box = $('#sch_orders')
   if (!box) return
   const today = ymd(new Date())
-  const list = leftOrders()
+  const fv = PLAN.of || 'all', sv = PLAN.os || 'mix'
+  if ($('#sch_of')) { $('#sch_of').value = fv; $('#sch_os').value = sv }
+  const dueOf = (o) => (o.dueAt ? new Date(o.dueAt).getTime() : Infinity)
+  const list = leftOrders().filter((o) => (fv === 'mapped' ? o.designState !== 'none' : fv === 'open' ? o.status !== '완료' : true))
+    .sort((a, b) => (sv === 'due' ? dueOf(a) - dueOf(b) : sv === 'qty' ? (b.totalQty || 0) - (a.totalQty || 0)
+      : sv === 'prio' ? ((b.priority || 0) - (a.priority || 0)) || dueOf(a) - dueOf(b)
+        : ((b.priority || 0) - (a.priority || 0)) || dueOf(a) - dueOf(b) || (b.totalQty || 0) - (a.totalQty || 0)))
   // 기간 배정은 하루 처리 한도 이상(하루에 다 못 하는) 주문에만 보인다 — 한도 = 가동 대수 × 대당 처리량 (설정)
   const dayLimit = Math.max(1, (SCH.cfg.machines || 0) * (SCH.cfg.perMachine || 0))
   box.innerHTML = list.length ? list.map((o) => {
@@ -1274,8 +1363,8 @@ function paintOrders(canW) {
       <div class="so-top"><b>#${o.orderNo}</b>${badge(o.status, ORDER_BADGE[o.status] || 'b-warn')}${overdue ? '<span class="so-late">납기 초과</span>' : ''}<span class="so-q">${o.totalQty ? `${won(o.totalQty)}장` : '수량 ?'}</span></div>
       <div class="so-title">${esc(o.title)}</div>
       <div class="so-design ${o.designState || 'none'}">${{ none: '디자인 연결 없음', working: `디자인 작업 중 (${o.designCount}건)`, ready: `✓ 디자인 확정 (${o.designCount}건)` }[o.designState || 'none']}</div>
-      <div class="so-sub so-due ${diff !== null && diff < 0 ? 'late' : diff !== null && diff <= 3 ? 'soon' : ''}"><span>${dueTxt}${o.partnerName ? ` · ${esc(o.partnerName)}` : ''}</span>${canW ? '<button type="button" class="so-add" data-addday title="선택한 날짜에 배정 (저장 전)" aria-label="선택한 날짜에 배정">+</button>' : ''}</div>${canW && o.totalQty >= dayLimit ? `<div class="so-actions"><button type="button" class="btn btn-ghost" data-plan="${o._id}" title="하루 수량을 정해 여러 날에 한 번에 배정">기간 배정</button></div>` : ''}</div>`
-  }).join('') : `<div class="sch-hint">${SCH.q ? '검색 결과가 없습니다.' : '작업배정을 기다리는 접수 주문이 없습니다.'}</div>`
+      <div class="so-sub so-due ${diff !== null && diff < 0 ? 'late' : diff !== null && diff <= 3 ? 'soon' : ''}"><span>${dueTxt}${o.partnerName ? ` · ${esc(o.partnerName)}` : ''}</span>${canW ? `<span class="so-pr" title="priority 0~9 — 숫자가 큰 주문부터"><button type="button" data-pdec="${o._id}" aria-label="priority 내리기">−</button><b>${o.priority || 0}</b><button type="button" data-pinc="${o._id}" aria-label="priority 올리기">+</button></span>` : ''}${canW ? '<button type="button" class="so-add" data-addday title="선택한 날짜에 배정 (저장 전)" aria-label="선택한 날짜에 배정">+</button>' : ''}</div>${canW && o.totalQty >= dayLimit ? `<div class="so-actions"><button type="button" class="btn btn-ghost" data-plan="${o._id}" title="하루 수량을 정해 여러 날에 한 번에 배정">기간 배정</button></div>` : ''}</div>`
+  }).join('') : '<div class="sch-hint">작업배정을 기다리는 접수 주문이 없습니다.</div>'
   box.querySelectorAll('.sch-order').forEach((el) => {
     el.addEventListener('dragstart', (ev) => {
       ev.dataTransfer.setData('text/plain', JSON.stringify({ k: 'order', id: el.dataset.oid }))
@@ -1295,6 +1384,17 @@ function paintOrders(canW) {
       workMsg(`#${o.orderNo} ${won(o.totalQty || 1)}장을 ${mdText(d)}에 배정했습니다 (저장 전)`)
     })
     el.querySelector('[data-addday]')?.addEventListener('dragstart', (ev) => ev.preventDefault())
+    el.querySelectorAll('[data-pdec],[data-pinc]').forEach((b) => {
+      b.addEventListener('dragstart', (ev) => ev.preventDefault())
+      b.addEventListener('click', async (ev) => {
+        ev.stopPropagation()
+        const o = SCH.orders.find((x) => String(x._id) === el.dataset.oid)
+        if (!o) return
+        const v = Math.max(0, Math.min(9, (o.priority || 0) + (b.hasAttribute('data-pinc') ? 1 : -1)))
+        if (v === (o.priority || 0)) return
+        try { await api('/production/priority', { method: 'POST', body: { id: o._id, priority: v } }); o.priority = v; SCH.paint?.() } catch (e) { alert(e.message) }
+      })
+    })
   })
 
   box.querySelectorAll('[data-plan]').forEach((b) => b.addEventListener('click', (ev) => { ev.stopPropagation(); openPlan(b.dataset.plan) }))
@@ -1315,6 +1415,7 @@ function paintCal(canW, repaint, canWork) {
   const cal = $('#sch_cal')
   $('#s_label').textContent = schLabel()
   document.querySelectorAll('.sch-seg button').forEach((b) => b.classList.toggle('on', b.dataset.v === SCH.view))
+  const wbb = $('#s_wb'); if (wbb) wbb.style.display = SCH.view === 'week' ? '' : 'none'          // 작업현황 인쇄는 주 보기에서만
   const wsb = $('#s_ws'); if (wsb) wsb.style.display = isDayView() ? '' : 'none'          // 작업지시서는 자수기별 · 일 보기에서만
   const [s, e] = schRange()
   const today = ymd(new Date())
