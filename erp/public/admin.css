@@ -618,7 +618,8 @@ dialog.mdl[open] { display: flex; flex-direction: column; }
 .sch-cell.sel .sch-daynum { font-weight: 800; }
 /* 작업현황 왼쪽 주문 — 납기 줄 오른쪽 끝 [+] */
 .so-due { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.so-add { flex: 0 0 auto; width: 24px; height: 24px; padding: 0; border: 1px solid var(--line); border-radius: 50%; background: var(--paper); color: var(--ink); font-size: 16px; line-height: 1; cursor: pointer; }
+.so-add { flex: 0 0 auto; width: 24px; height: 24px; padding: 0; border: 1px solid var(--line); border-radius: 50%; background: var(--paper); color: var(--ink); font-size: 14px; line-height: 1; cursor: pointer; }
+.so-add svg { display: block; margin: auto; }
 .so-add:hover { background: var(--orange); border-color: var(--orange); color: #fff; }
 /* 작업현황 — 배정 취소 [×] (칸 오른쪽 아래) */
 .sch-chip, .sch-entry { position: relative; }
