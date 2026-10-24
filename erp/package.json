@@ -9,6 +9,7 @@
     "start": "node src/index.js"
   },
   "dependencies": {
+    "bcryptjs": "^3.0.3",
     "cfb": "^1.2.2",
     "cors": "^2.8.5",
     "dotenv": "^16.0.0",

@@ -6,6 +6,7 @@ import { ObjectId } from 'mongodb'
 import { oid, escRe } from '../crud.js'
 import { normPieces, parsePieces } from '../pieces.js'
 import { parseCsv, plan } from '../notionCsv.js'
+import { recentOrders, configured as smartstoreConfigured } from '../smartstore.js'
 import { designDetails, latestOf, latestConfirmed, versionOf, DESIGN_ROLES } from '../designLib.js'
 import multer from 'multer'
 import crypto from 'node:crypto'
@@ -210,6 +211,15 @@ router.post('/:id/caps', requireCap('work', 'orders'), async (req, res) => {
     await c.updateOne({ _id }, { $set: { caps, updatedAt: new Date() } })
     await log(_id, req.user, 'update', { fields: ['caps'] })
     res.json({ caps })
+  } catch (e) { res.status(e.status || 500).json({ error: e.message }) }
+})
+
+// 스마트스토어(네이버 커머스 API) 최근 주문 — 보기만 한다(DB 에 저장하지 않는다). ?days=1~14 (기본 3)
+router.get('/smartstore', requireCap('orders'), async (req, res) => {
+  try {
+    if (!smartstoreConfigured()) return res.status(400).json({ error: '.env 에 NAVER_COMMERCE_CLIENT_ID · NAVER_COMMERCE_CLIENT_SECRET (커머스API센터 애플리케이션)을 넣어 주세요.' })
+    const items = await recentOrders(req.query.days)
+    res.json({ items, days: Math.max(1, Math.min(14, Math.round(Number(req.query.days)) || 3)), fetchedAt: new Date() })
   } catch (e) { res.status(e.status || 500).json({ error: e.message }) }
 })
 

@@ -23,6 +23,8 @@ const badge = (txt, cls) => `<span class="badge ${cls}">${esc(txt)}</span>`
 const debounce = (fn, ms = 250) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms) } }
 // 이미지 주소: 예전 S3 주소(http…)는 그대로, 서버 저장 경로('items/…', 'orders/…')는 /api/files 로 본다
 const imgSrc = (u) => (/^(https?:\/\/|\/images\/)/.test(u) ? u : `/api/files/${String(u).split('/').map(encodeURIComponent).join('/')}`)
+// 목록용 큰 썸네일 — 칸을 위아래 여백 없이 채운다 (디자인 · 컬러)
+const thumbLg = (url) => (url ? `<img class="cell-img lg" src="${esc(imgSrc(url))}" alt="" loading="lazy">` : '<span class="cell-img lg empty">없음</span>')
 const thumb = (url) => (url ? `<img class="cell-img" src="${esc(imgSrc(url))}" alt="" loading="lazy">` : '<span class="cell-img empty">없음</span>')
 // 코드 → 이미지 경로 (caps01 → /images/caps/01.png). 서버(codeImage)와 같은 규칙이며, 파일이 없으면 '없음'으로 바꾼다.
 const codeImg = (code, name = '', ic = '', no = '') => {
@@ -283,7 +285,7 @@ async function viewList(E) {
   pageShell({
     en: E.en, title: E.label, addLabel: canW ? `${E.label} 등록` : '',
     tools: `${E.search ? '<input id="q" class="table-search" placeholder="검색…" type="search">' : ''}${
-      E.filter ? `<select id="f" class="table-select"><option value="">${E.filter.label}</option>${(E.filter.extra || []).map((x) => `<option value="${esc(x.value)}">${esc(x.label)}</option>`).join('')}${E.filter.opts.map((o) => `<option>${o}</option>`).join('')}</select>` : ''}${E.api === '/orders' && canW ? '<span style="flex:1"></span><button type="button" class="btn btn-ghost" id="imp" title="노션에서 내보낸 CSV 로 주문을 갱신합니다 (주문자명으로 같은 주문을 찾습니다)">가져오기</button>' : ''}`,
+      E.filter ? `<select id="f" class="table-select"><option value="">${E.filter.label}</option>${(E.filter.extra || []).map((x) => `<option value="${esc(x.value)}">${esc(x.label)}</option>`).join('')}${E.filter.opts.map((o) => `<option>${o}</option>`).join('')}</select>` : ''}${E.api === '/orders' && canW ? '<span style="flex:1"></span><button type="button" class="btn btn-ghost" id="imp" title="노션에서 내보낸 CSV 로 주문을 갱신합니다 (주문자명으로 같은 주문을 찾습니다)">가져오기</button><button type="button" class="btn btn-ghost" id="ss" title="네이버 스마트스토어의 최근 주문을 불러와 보여 줍니다">스마트스토어</button>' : ''}`,
   })
   const load = async () => {
     try {
@@ -308,6 +310,39 @@ async function viewList(E) {
   $('#f')?.addEventListener('change', load)
   $('#add')?.addEventListener('click', () => openForm(E, null, load))
   $('#imp')?.addEventListener('click', () => openImport(load))
+  $('#ss')?.addEventListener('click', () => openSmartstore())
+  load()
+}
+
+// 스마트스토어 주문 — 최근 N일 결제 주문을 네이버 커머스 API 로 불러와 보여 준다(저장하지 않는다).
+function openSmartstore() {
+  document.getElementById('ss_modal')?.remove()
+  const dlg = document.createElement('dialog')
+  dlg.id = 'ss_modal'; dlg.className = 'mdl'; dlg.style.width = 'min(1100px, 96vw)'
+  dlg.innerHTML = `<div class="mdl-head"><h2>스마트스토어 주문</h2><button type="button" class="drawer-x" id="ss_x" aria-label="닫기">×</button></div>
+    <div class="mdl-body" style="display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;gap:8px;align-items:center"><select id="ss_days" class="table-select"><option value="1">최근 1일</option><option value="3" selected>최근 3일</option><option value="7">최근 7일</option><option value="14">최근 14일</option></select>
+        <button type="button" class="btn btn-primary" id="ss_go">불러오기</button><span class="field-hint" id="ss_msg"></span></div>
+      <div id="ss_res" style="max-height:62vh;overflow:auto"></div><div class="drawer-err" id="ss_err"></div>
+    </div>`
+  document.body.appendChild(dlg)
+  dlg.showModal()
+  const close = () => { dlg.close(); dlg.remove() }
+  const won0 = (n) => Number(n || 0).toLocaleString()
+  const load = async () => {
+    const btn = dlg.querySelector('#ss_go'); btn.disabled = true
+    dlg.querySelector('#ss_err').textContent = ''; dlg.querySelector('#ss_msg').textContent = '불러오는 중…'; dlg.querySelector('#ss_res').innerHTML = ''
+    try {
+      const j = await api(`/orders/smartstore?days=${dlg.querySelector('#ss_days').value}`)
+      dlg.querySelector('#ss_msg').textContent = `${j.items.length}건`
+      dlg.querySelector('#ss_res').innerHTML = j.items.length ? `<table class="data"><thead><tr><th>결제일시</th><th>주문번호</th><th>주문자</th><th>수취인 · 연락처</th><th>상품 · 옵션</th><th class="num">수량</th><th class="num">결제금액</th><th>상태</th><th>배송 메모</th></tr></thead><tbody>${
+        j.items.map((o) => `<tr><td>${esc(String(o.paidAt).replace('T', ' ').slice(0, 16))}</td><td class="mono">${esc(o.orderId)}</td><td>${esc(o.orderer)}</td><td>${esc(o.receiver)}<div class="field-hint">${esc(o.receiverTel)}</div></td><td><b>${esc(o.product)}</b><div class="field-hint">${esc(o.option)}</div></td><td class="num">${o.qty}</td><td class="num">${won0(o.amount)}원</td><td>${esc(o.status)}</td><td>${esc(o.memo)}</td></tr>`).join('')}</tbody></table>` : '<div class="sch-hint">이 기간에 결제된 주문이 없습니다.</div>'
+    } catch (e) { dlg.querySelector('#ss_msg').textContent = ''; dlg.querySelector('#ss_err').textContent = e.message } finally { btn.disabled = false }
+  }
+  dlg.querySelector('#ss_go').onclick = load
+  dlg.querySelector('#ss_x').onclick = close
+  dlg.addEventListener('click', (ev) => { if (ev.target === dlg) close() })
+  dlg.addEventListener('cancel', () => setTimeout(() => dlg.remove(), 0))
   load()
 }
 
@@ -2064,7 +2099,7 @@ async function viewDesigns() {
       if ($('#f').value) p.set('status', $('#f').value)
       const { items } = await api(`/designs?${p}`)
       paintTable(items, [
-        ['img', '', (d) => thumb(d.preview)], ['code', '코드', (d) => `<span class="mono">${esc(d.code)}</span>`],
+        ['img', '', (d) => thumbLg(d.preview)], ['code', '코드', (d) => `<span class="mono">${esc(d.code)}</span>`],
         ['name', '디자인', (d) => `<b>${esc(d.name)}</b>${d.active === false ? ` ${badge('중지', 'b-mute')}` : ''}`],
         ['partner', '거래처', (d) => esc(d.partnerName)],
         ['ver', '최신 버전', (d) => `v${d.latestVersion} ${badge(d.latestStatus, DS_BADGE[d.latestStatus] || 'b-mute')}`],

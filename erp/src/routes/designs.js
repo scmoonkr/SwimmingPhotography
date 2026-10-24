@@ -58,8 +58,9 @@ const summary = (d, pn) => {
     _id: d._id, code: d.code, name: d.name, partnerId: d.partnerId || null, partnerName: pn.get(String(d.partnerId || '')) || '',
     tags: d.tags || [], active: d.active !== false, updatedAt: d.updatedAt,
     versionCount: (d.versions || []).length, latestVersion: v?.no ?? null, latestStatus: v?.status || '',
-    preview: v?.previewImage || '', colorCount: (v?.colors || []).filter(hasColor).length,
-    setCount: 1 + (v?.variants || []).length, stitches: v?.stitches ?? null,        // 컬러 세트 수(기본 포함) · 최신 버전의 스티치 수 fileCount: (v?.files || []).length,
+    preview: (v?.status === '확정' && v?.embPreview) || v?.previewImage || '', colorCount: (v?.colors || []).filter(hasColor).length,
+    setCount: 1 + (v?.variants || []).length, stitches: v?.stitches ?? null,        // 컬러 세트 수(기본 포함) · 최신 버전의 스티치 수
+    fileCount: (v?.files || []).length,
     hasConfirmed: (d.versions || []).some((x) => x.status === '확정'),
     variants: ((latestConfirmed(d) || v)?.variants || []).map((x) => ({ name: x.name, caps: x.caps || [] })),
     baseName: (latestConfirmed(d) || v)?.baseName || '기본',
