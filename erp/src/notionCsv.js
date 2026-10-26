@@ -87,13 +87,14 @@ export function plan(rows, existing) {
   const byTitle = new Map()
   for (const o of existing) { const k = normTitle(o.title); if (!byTitle.has(k)) byTitle.set(k, []); byTitle.get(k).push(o) }
   const used = new Set()
+  // row: CSV 의 몇 번째 행인가(0부터) — 미리보기에서 행 단위로 골라 반영할 때 쓴다
   const out = { creates: [], updates: [], unchanged: [], skipped: [] }
-  for (const r of rows) {
+  for (const [row, r] of rows.entries()) {
     const why = skipReason(r)
-    if (why) { out.skipped.push({ title: (r['주문자명'] || '').trim(), reason: why }); continue }
+    if (why) { out.skipped.push({ row, title: (r['주문자명'] || '').trim(), reason: why }); continue }
     const v = fromRow(r)
     const cand = (byTitle.get(normTitle(v.title)) || []).find((o) => !used.has(String(o._id)))
-    if (!cand) { out.creates.push({ title: v.title, values: v }); continue }
+    if (!cand) { out.creates.push({ row, title: v.title, values: v }); continue }
     used.add(String(cand._id))
 
     const set = {}, changes = []
@@ -120,8 +121,8 @@ export function plan(rows, existing) {
         if (parts.length) set.items = items
       }
     }
-    if (changes.length) out.updates.push({ id: String(cand._id), orderNo: cand.orderNo, title: cand.title, changes, set })
-    else out.unchanged.push({ title: cand.title, orderNo: cand.orderNo })
+    if (changes.length) out.updates.push({ row, id: String(cand._id), orderNo: cand.orderNo, title: cand.title, changes, set })
+    else out.unchanged.push({ row, title: cand.title, orderNo: cand.orderNo })
   }
   return out
 }

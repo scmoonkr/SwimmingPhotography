@@ -288,7 +288,7 @@ async function viewList(E) {
   pageShell({
     en: E.en, title: E.label, addLabel: canW ? `${E.label} 등록` : '',
     tools: `${E.search ? '<input id="q" class="table-search" placeholder="검색…" type="search">' : ''}${
-      E.filter ? `<select id="f" class="table-select"><option value="">${E.filter.label}</option>${(E.filter.extra || []).map((x) => `<option value="${esc(x.value)}">${esc(x.label)}</option>`).join('')}${E.filter.opts.map((o) => `<option>${o}</option>`).join('')}</select>` : ''}${E.api === '/orders' && canW ? '<span style="flex:1"></span><button type="button" class="btn btn-ghost" id="imp" title="노션에서 내보낸 CSV 로 주문을 갱신합니다 (주문자명으로 같은 주문을 찾습니다)">가져오기</button><button type="button" class="btn btn-ghost" id="ss" title="네이버 스마트스토어의 최근 주문을 불러와 보여 줍니다">스마트스토어</button>' : ''}`,
+      E.filter ? `<select id="f" class="table-select"><option value="">${E.filter.label}</option>${(E.filter.extra || []).map((x) => `<option value="${esc(x.value)}">${esc(x.label)}</option>`).join('')}${E.filter.opts.map((o) => `<option>${o}</option>`).join('')}</select>` : ''}${E.api === '/orders' && canW ? '<span style="flex:1"></span><button type="button" class="btn btn-ghost" id="imp" title="노션에서 내보낸 CSV 로 주문을 갱신합니다 (주문자명으로 같은 주문을 찾습니다)">가져오기</button>' : ''}`,
   })
   const load = async () => {
     try {
@@ -313,7 +313,6 @@ async function viewList(E) {
   $('#f')?.addEventListener('change', load)
   $('#add')?.addEventListener('click', () => openForm(E, null, load))
   $('#imp')?.addEventListener('click', () => openImport(load))
-  $('#ss')?.addEventListener('click', () => openSmartstore())
   load()
 }
 
@@ -321,7 +320,7 @@ async function viewList(E) {
 async function viewSsOrders() {
   pageShell({
     en: 'Smartstore Orders', title: '스마트스토어 주문', addLabel: '',
-    tools: '<input id="q" class="table-search" placeholder="주문번호 · 주문자 · 수취인 · 상품 · 주소 검색…" type="search"><span style="flex:1"></span><button type="button" class="btn btn-ghost" id="ss_open" title="스마트스토어의 최근 주문을 불러와 보고, import 로 가져옵니다">스마트스토어에서 불러오기</button>',
+    tools: '<input id="q" class="table-search" placeholder="주문번호 · 주문자 · 수취인 · 상품 · 주소 · 톡톡 검색…" type="search"><span style="flex:1"></span><button type="button" class="btn btn-ghost" id="ss_open" title="스마트스토어의 최근 주문을 불러와 보고, import 로 가져옵니다">스마트스토어에서 불러오기</button>',
   })
   const load = async () => {
     try {
@@ -332,18 +331,50 @@ async function viewSsOrders() {
         ['paid', '결제일시 · 주문번호', (o) => `${esc(String(o.paidAt).replace('T', ' ').slice(0, 16))}<div class="field-hint mono">${esc(o.orderId)}</div>`],
         ['orderer', '주문자', (o) => esc(o.orderer)],
         ['receiver', '수취인 · 연락처', (o) => `${esc(o.receiver)}<div class="field-hint">${esc(o.receiverTel)}</div>`],
-        ['product', '상품', (o) => `<b>${esc(o.product)}</b>${o.option ? ` <span class="ss-opt">${esc(o.option)}</span>` : ''}<div class="field-hint">${o.zip ? `(${esc(o.zip)}) ` : ''}${esc(o.address)}</div>`],
+        ['product', '상품', (o) => `<div class="ss-wrap"><b>${esc(o.product)}</b>${o.option ? ` <span class="ss-opt">${esc(o.option)}</span>` : ''}<div class="field-hint">${o.zip ? `(${esc(o.zip)}) ` : ''}${esc(o.address)}</div></div>`],
         ['qty', '수량', (o) => o.qty, 'r'],
         ['amount', '결제금액', (o) => `${Number(o.amount || 0).toLocaleString()}원`, 'r'],
         ['status', '상태', (o) => esc(o.status)],
-        ['memo', '배송 메모', (o) => esc(o.memo)],
+        ['memo', '배송 메모', (o) => `<div class="ss-wrap memo">${esc(o.memo)}</div>`],
+        ['talk', '톡톡', (o) => `<button type="button" class="btn btn-ghost talk-btn${o.talk ? ' on' : ''}" title="${o.talk ? '저장된 톡톡 메시지 보기 · 고치기' : '톡톡 메시지 붙여 넣기'}">톡톡</button>`],
       ], null, '가져온 주문이 없습니다. "스마트스토어에서 불러오기"로 주문을 불러와 import 하세요.')
+      $('#tbl').querySelectorAll('tr[data-i] .talk-btn').forEach((b) => { b.onclick = () => openTalk(items[b.closest('tr').dataset.i], load) })
       $('#ft').textContent = `${items.length} / ${total}`
     } catch (e) { $('#tbl').innerHTML = emptyTable(e.message) }
   }
   $('#q')?.addEventListener('input', debounce(load))
   $('#ss_open')?.addEventListener('click', () => openSmartstore(load))
   load()
+}
+
+// 톡톡 — 스마트스토어 톡톡에서 복사한 대화를 붙여 넣어 주문에 저장한다 (같은 주문번호의 상품주문 모두에 저장된다).
+function openTalk(order, done) {
+  document.getElementById('talk_modal')?.remove()
+  const canW = me.can.includes('orders')
+  const dlg = document.createElement('dialog')
+  dlg.id = 'talk_modal'; dlg.className = 'mdl'; dlg.style.width = 'min(640px, 96vw)'
+  dlg.innerHTML = `<div class="mdl-head"><h2>톡톡 <span class="field-hint">${esc(order.orderer)} · <span class="mono">${esc(order.orderId)}</span></span></h2><button type="button" class="drawer-x" id="tk_x" aria-label="닫기">×</button></div>
+    <div class="mdl-body talk-body">
+      <div class="field-hint">스마트스토어 톡톡에서 대화를 복사해 붙여 넣고 저장하세요.${order.talkAt ? ` · 마지막 저장 ${esc(String(new Date(order.talkAt).toLocaleString()))}${order.talkBy ? ` (${esc(order.talkBy)})` : ''}` : ''}</div>
+      <textarea class="field-input talk-text" id="tk_text" placeholder="톡톡 대화 내용" ${canW ? '' : 'readonly'}>${esc(order.talk || '')}</textarea>
+      <div class="drawer-err" id="tk_err"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end"><button type="button" class="btn btn-ghost" id="tk_cancel">닫기</button>${canW ? '<button type="button" class="btn btn-primary" id="tk_save">저장</button>' : ''}</div>
+    </div>`
+  document.body.appendChild(dlg)
+  dlg.showModal()
+  const $d = (s) => dlg.querySelector(s)
+  const close = () => { dlg.close(); dlg.remove() }
+  $d('#tk_save')?.addEventListener('click', async () => {
+    const b = $d('#tk_save'); b.disabled = true; $d('#tk_err').textContent = ''
+    try {
+      await api(`/smartstore-orders/${encodeURIComponent(order.productOrderId)}/talk`, { method: 'PUT', body: { talk: $d('#tk_text').value } })
+      close(); await done?.()
+    } catch (e) { $d('#tk_err').textContent = e.message; b.disabled = false }
+  })
+  $d('#tk_x').onclick = close
+  $d('#tk_cancel').onclick = close
+  dlg.addEventListener('cancel', () => setTimeout(() => dlg.remove(), 0))
+  $d('#tk_text').focus()
 }
 
 // 스마트스토어 주문 — 최근 N일 결제 주문을 네이버 커머스 API 로 불러와 보여 준다(저장하지 않는다).
@@ -422,43 +453,59 @@ function openSmartstore(done) {
 function openImport(done) {
   document.getElementById('imp_modal')?.remove()
   const dlg = document.createElement('dialog')
-  dlg.id = 'imp_modal'; dlg.className = 'mdl'; dlg.style.width = 'min(760px, 94vw)'
+  dlg.id = 'imp_modal'; dlg.className = 'mdl'; dlg.style.width = 'min(1100px, 96vw)'
   dlg.innerHTML = `<div class="mdl-head"><h2>노션 CSV 가져오기</h2><button type="button" class="drawer-x" id="imp_x" aria-label="닫기">×</button></div>
     <div class="mdl-body" style="display:flex;flex-direction:column;gap:12px">
       <div class="drawer-note">노션에서 내보낸 주문 CSV를 고르세요. <b>주문자명</b>이 같은 주문은 노션 값(주문일 · 출발필수 · 출발날짜 · 내용 · 요청사항 · 제품 · 색상 · 사이즈 등)만 바꾸고, 제작 명세 · 디자인 연결 · priority · 메모처럼 우리가 만든 값은 그대로 둡니다. 없는 주문은 새로 만듭니다.</div>
       <input type="file" id="imp_file" accept=".csv,text/csv" class="field-input">
-      <div id="imp_res" style="max-height:46vh;overflow:auto"></div><div class="drawer-err" id="imp_err"></div>
+      <div id="imp_res" style="max-height:56vh;overflow:auto"></div><div class="drawer-err" id="imp_err"></div>
       <div style="display:flex;gap:8px;justify-content:flex-end"><button type="button" class="btn btn-ghost" id="imp_cancel">닫기</button><button type="button" class="btn btn-primary" id="imp_go" disabled>가져오기</button></div>
     </div>`
   document.body.appendChild(dlg)
   dlg.showModal()
   const close = () => { dlg.close(); dlg.remove() }
   const err = (m) => { dlg.querySelector('#imp_err').textContent = m || '' }
-  const send = async (apply) => {
+  const send = async (apply, pick) => {
     const f = dlg.querySelector('#imp_file').files[0]
     if (!f) throw new Error('CSV 파일을 선택하세요.')
     const fd = new FormData(); fd.append('file', f); fd.append('apply', apply ? '1' : '0')
+    if (pick) fd.append('pick', JSON.stringify(pick))
     const r = await fetch('/api/orders/import-csv', { method: 'POST', credentials: 'same-origin', body: fd })
     const j = await r.json().catch(() => ({}))
     if (!r.ok) throw new Error(j.error || r.statusText)
     return j
   }
+  // 미리보기 표 — CSV 의 모든 행을 상태(변경 · 신규 · 변경 없음 · 건너뜀)와 함께 보여 준다.
+  // 변경 · 신규만 체크할 수 있고(기본 체크), 체크한 것만 가져온다.
+  const picked = () => [...dlg.querySelectorAll('.imp-chk:checked')].map((c) => c.value)
+  const upd = () => {
+    const all = dlg.querySelectorAll('.imp-chk'), n = picked().length
+    const go = dlg.querySelector('#imp_go'); go.disabled = !n; go.textContent = all.length ? `가져오기 (${n}건)` : '가져오기'
+    const ca = dlg.querySelector('#imp_all'); if (ca) { ca.checked = n === all.length; ca.indeterminate = n > 0 && n < all.length }
+  }
   const show = (j) => {
     const sk = Object.entries(j.skipped || {}).map(([k, n]) => `${k} ${n}`).join(' · ')
-    const li = (arr, fn, max = 40) => arr.slice(0, max).map(fn).join('') + (arr.length > max ? `<li class="field-hint">… 외 ${arr.length - max}건</li>` : '')
+    const KIND = { update: ['변경', 'b-info'], create: ['신규', 'b-good'], same: ['변경 없음', 'b-mute'], skip: ['건너뜀', 'b-warn'] }
+    const what = (x) => (x.kind === 'update' ? x.changes.map((c) => `${esc(c.label)}${c.from || c.to ? ` ${esc(c.from)} → ${esc(c.to)}` : ''}`).join('<br>')
+      : x.kind === 'create' ? '새 주문으로 만듭니다' : x.kind === 'skip' ? esc(x.reason) : '')
+    const pickable = (x) => x.kind === 'update' || x.kind === 'create'
+    const rows = j.list.map((x) => `<tr style="${pickable(x) ? '' : 'color:var(--ink-light)'}"><td>${pickable(x) ? `<input type="checkbox" class="imp-chk" value="${esc(x.key)}" checked>` : ''}</td><td>${badge(...KIND[x.kind])}</td><td class="num">${x.orderNo ? `#${x.orderNo}` : ''}</td><td>${esc(x.title) || '<span class="field-hint">(제목 없음)</span>'}</td><td class="mono" style="white-space:nowrap">${esc(x.orderedAt)}</td><td class="mono" style="white-space:nowrap">${esc(x.dueAt)}</td><td>${esc(x.notionStatus)}</td><td class="${x.kind === 'update' ? '' : 'field-hint'}">${what(x)}</td></tr>`)
     dlg.querySelector('#imp_res').innerHTML = `<div class="drawer-note"><b>신규 ${j.creates.length}건</b> · <b>변경 ${j.updates.length}건</b> · 변경 없음 ${j.unchanged}건${sk ? ` · 건너뜀(${sk})` : ''}</div>
-      ${j.updates.length ? `<h4 style="margin:10px 0 4px">변경</h4><ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.6">${li(j.updates, (u) => `<li><b>#${u.orderNo}</b> ${esc(u.title)} — ${u.changes.map((c) => `${esc(c.label)}${c.from || c.to ? ` ${esc(c.from)} → ${esc(c.to)}` : ''}`).join(', ')}</li>`)}</ul>` : ''}
-      ${j.creates.length ? `<h4 style="margin:10px 0 4px">신규</h4><ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.6">${li(j.creates, (c) => `<li>${esc(c.title)}</li>`)}</ul>` : ''}`
-    dlg.querySelector('#imp_go').disabled = !(j.creates.length || j.updates.length)
+      ${rows.length ? `<table class="data" style="font-size:13px"><thead><tr><th style="width:30px">${j.creates.length + j.updates.length ? '<input type="checkbox" id="imp_all" checked title="전체 선택">' : ''}</th><th style="width:72px">상태</th><th class="num" style="width:56px">#</th><th>주문자명</th><th>주문일</th><th>출발필수</th><th>노션 상태</th><th>바뀌는 내용 · 사유</th></tr></thead><tbody>${rows.join('')}</tbody></table>` : ''}`
+    dlg.querySelectorAll('.imp-chk').forEach((c) => { c.onchange = upd })
+    const ca = dlg.querySelector('#imp_all'); if (ca) ca.onchange = () => { dlg.querySelectorAll('.imp-chk').forEach((c) => { c.checked = ca.checked }); upd() }
+    upd()
   }
   dlg.querySelector('#imp_file').onchange = async () => {
     err(''); dlg.querySelector('#imp_res').innerHTML = '<div class="field-hint">확인하는 중…</div>'; dlg.querySelector('#imp_go').disabled = true
     try { show(await send(false)) } catch (e) { dlg.querySelector('#imp_res').innerHTML = ''; err(e.message) }
   }
   dlg.querySelector('#imp_go').onclick = async () => {
+    const pick = picked()
+    if (!pick.length) return
     const b = dlg.querySelector('#imp_go'); b.disabled = true; err('')
     try {
-      const j = await send(true)
+      const j = await send(true, pick)
       close(); await done?.()
       alert(`가져왔습니다 — 신규 ${j.createdCount}건 · 변경 ${j.updatedCount}건`)
     } catch (e) { err(e.message); b.disabled = false }
@@ -938,7 +985,7 @@ function wireAttachments(order, initial, canW) {
 // 좌측: 접수 상태 주문만. 날짜로 끌어 놓으면 임시 배정(점선)이 되고, 오른쪽 위 [저장]을 눌러야 주문 상태가 '작업배정'이 된다.
 // 되돌리기: 일정 칸을 좌측 목록으로 끌어다 놓거나 작업지시를 삭제하면, 그 주문의 배정이 모두 없어질 때 '접수'로 돌아간다.
 // 일정표에는 '#주문번호 수량장' 으로 보이고, 칸을 다른 날짜로 끌면 옮겨진다. 일/주/월 보기.
-const SCH = { view: 'month', cur: new Date(), q: '', orders: [], entries: [], dues: [], cap: {}, cfg: { machines: 8, perMachine: 10 }, leftTab: 'orders', machines: [], swapMin: 7, dq: [] }
+const SCH = { view: 'month', cur: new Date(), q: '', orders: [], entries: [], dues: [], cap: {}, cfg: { machines: 8, perMachine: 10 }, leftTab: 'orders', machines: [], swapMin: 7, dq: [], showDone: false }
 // 하루짜리 보기: 자수기별(mach) · 일(day, 자수기 구분 없이 한 줄씩)
 const isDayView = () => SCH.view === 'mach' || SCH.view === 'day'
 // 선택된 날짜 — 자수기별 · 일 보기는 보고 있는 날, 주 · 월 보기는 눌러서 고른 날(범위 밖이면 보고 있는 날). 왼쪽 주문을 더블클릭하면 이 날짜로 들어간다.
@@ -1211,6 +1258,7 @@ async function viewSchedule() {
         <span class="sch-label" id="s_label"></span><span class="sch-wmsg" id="w_msg"></span>
         <span class="sch-over" id="s_over"></span>
         <span class="sch-seg">${[['mach', '자수기별'], ['day', '일'], ['week', '주'], ['month', '월']].map(([k, l]) => `<button data-v="${k}">${l}</button>`).join('')}</span>
+        <label class="table-check" title="체크를 풀면 완료된 작업을 달력에서 숨깁니다 (하루 합계·한도는 그대로)"><input type="checkbox" id="s_done" ${SCH.showDone ? 'checked' : ''}> 완료 포함</label>
         <span style="flex:1"></span>
         <button class="btn btn-ghost" id="s_wb" type="button" title="이번 주에서 작업이 있는 날만, 하루를 A4 한 장에 크게 인쇄합니다 (게시판용)">작업현황</button>
         <button class="btn btn-ghost" id="s_ws" type="button" title="지금 보는 날짜의 작업지시서를 인쇄합니다 (자수기별 · 일 보기)">작업지시서</button>
@@ -1234,6 +1282,7 @@ async function viewSchedule() {
   document.querySelectorAll('.sch-seg button').forEach((b) => {
     b.onclick = () => { if (SCH.sel && (b.dataset.v === 'mach' || b.dataset.v === 'day')) SCH.cur = new Date(`${schSel()}T12:00:00`); SCH.view = b.dataset.v; try { localStorage.setItem('sch_view', SCH.view) } catch (e) { /* 무시 */ } load() }
   })
+  $('#s_done').onchange = () => { SCH.showDone = $('#s_done').checked; SCH.paint?.() }
   $('#sch_of')?.addEventListener('change', () => { PLAN.of = $('#sch_of').value; SCH.paint?.() })       // 필터 · 정렬은 작업배정과 같은 값을 쓴다
   $('#sch_os')?.addEventListener('change', () => { PLAN.os = $('#sch_os').value; SCH.paint?.() })
 
@@ -1550,6 +1599,8 @@ function paintCal(canW, repaint, canWork) {
       <b>${lateInfo(en) ? '⚠ ' : ''}#${en.orderNo}</b> ${won(en.qty)}장${en.status !== '완료' && ['none', 'working'].includes(en.order?.designState) ? '<span class="dzflag" title="디자인 미확정">D</span>' : ''}${en.task ? `<span class="task">${esc(en.task)}</span>` : ''}${mcChip(en)}${big ? `<span class="sub">${esc(en.order?.title || '')}</span>` : ''}${xBtn(en)}</div>`
   // 날짜 머리글: 합계/한도. 한도를 넘으면 붉게(관리자가 보고 재배정), 주말 작업은 '휴무' 표시
   const loadOf = (list) => (list || []).reduce((t, x) => t + x.qty, 0)
+  // [완료 포함]을 풀면 완료된 작업은 그리지 않는다 — 하루 합계·한도는 완료분까지 센 값을 그대로 쓴다
+  const shown = (list) => (SCH.showDone ? list : list.filter((en) => en.status !== '완료'))
   const dayHead = (k, list) => {
     const n = loadOf(list), cap = SCH.cap[k]
     if (cap == null) return n ? `<span class="sch-sum off" title="작업일이 아닌 날(주말)에 배정되어 있습니다">휴무 ${won(n)}장</span>` : ''
@@ -1569,8 +1620,8 @@ function paintCal(canW, repaint, canWork) {
 
   if (isDayView()) {
     const key = ymd(SCH.cur)
-    const list = by.get(key) || []
-    const dn = loadOf(list), dcap = SCH.cap[key]
+    const list = shown(by.get(key) || [])
+    const dn = loadOf(by.get(key)), dcap = SCH.cap[key]
     const head = dcap == null ? (dn ? `<div class="sch-dayhead over" style="color:var(--orange-deep);border-color:var(--orange)">휴무일 작업 ${won(dn)}장</div>` : '<div class="sch-dayhead">휴무일(주말)입니다. 필요하면 일정 계획에서 직접 배정하세요.</div>')
       : `<div class="sch-dayhead ${dn > dcap ? 'over' : ''}">합계 ${won(dn)} / 하루 한도 ${won(dcap)}장${dn > dcap ? ` — ⚠ ${won(dn - dcap)}장 초과, 재배정이 필요합니다` : ''}</div>`
     const entryHtml = (en) => `<div class="sch-entry ${en._draft ? 'draft' : ''} ${lateInfo(en) ? 'late' : ''}" data-task="${esc(en.task || '')}" data-eid="${en._id}" ${canW ? 'draggable="true"' : ''}>
@@ -1604,7 +1655,7 @@ function paintCal(canW, repaint, canWork) {
         const list = by.get(k) || []
         return `<div class="sch-cell ${out ? 'out' : ''} ${k === today ? 'today' : ''} ${k === schSel() ? 'sel' : ''}" data-date="${k}">
           <div class="sch-day"><span class="sch-daynum ${d.getDay() === 0 ? 'sun' : ''}">${d.getDate()}</span>${dayHead(k, list)}</div>
-          ${list.map((en) => chip(en, SCH.view === 'week')).join('')}</div>`
+          ${shown(list).map((en) => chip(en, SCH.view === 'week')).join('')}</div>`
       }).join('')}</div>`
   }
 

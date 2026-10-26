@@ -4,18 +4,17 @@ import { Router } from 'express'
 import { col } from '../db.js'
 import { requireCap } from '../auth.js'
 import { escRe } from '../crud.js'
-
 const router = Router()
 const str = (v, n = 500) => String(v ?? '').trim().slice(0, n)
 const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0)
 
-// 목록: ?q=(주문번호·주문자·수취인·상품·주소) &limit (기본 300)
+// 목록: ?q=(주문번호·주문자·수취인·상품·주소·톡톡 내용) &limit (기본 300)
 router.get('/', async (req, res) => {
   try {
     const q = {}
     if (req.query.q) {
       const re = { $regex: escRe(req.query.q), $options: 'i' }
-      q.$or = [{ orderId: re }, { productOrderId: re }, { orderer: re }, { receiver: re }, { product: re }, { option: re }, { address: re }]
+      q.$or = [{ orderId: re }, { productOrderId: re }, { orderer: re }, { receiver: re }, { product: re }, { option: re }, { address: re }, { talk: re }]
     }
     const limit = Math.max(1, Math.min(1000, Math.round(num(req.query.limit)) || 300))
     const c = await col('smartstoreOrders')
@@ -46,6 +45,19 @@ router.post('/import', requireCap('orders'), async (req, res) => {
       if (r.upsertedCount) created++; else updated++
     }
     res.json({ ok: true, created, updated })
+  } catch (e) { res.status(e.status || 500).json({ error: e.message }) }
+})
+
+// 톡톡 메시지 — 스마트스토어 톡톡에서 복사한 대화를 주문에 붙여 둔다. 같은 주문번호(orderId)의 상품주문 모두에 저장한다.
+router.put('/:productOrderId/talk', requireCap('orders'), async (req, res) => {
+  try {
+    const c = await col('smartstoreOrders')
+    const o = await c.findOne({ productOrderId: str(req.params.productOrderId, 40) }, { projection: { orderId: 1, productOrderId: 1 } })
+    if (!o) return res.status(404).json({ error: '주문을 찾지 못했습니다.' })
+    const talk = String(req.body?.talk ?? '').replace(/\r\n/g, '\n').trim().slice(0, 50000)
+    const set = { talk, talkAt: new Date(), talkBy: req.user.username }
+    await c.updateMany(o.orderId ? { orderId: o.orderId } : { productOrderId: o.productOrderId }, { $set: set })
+    res.json({ ok: true, ...set })
   } catch (e) { res.status(e.status || 500).json({ error: e.message }) }
 })
 

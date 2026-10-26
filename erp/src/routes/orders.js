@@ -248,11 +248,29 @@ router.post('/import-csv', requireCap('orders'), csvUpload.single('file'), async
     const existing = await oc.find({}, { projection: { orderNo: 1, title: 1, status: 1, orderedAt: 1, dueAt: 1, shippedAt: 1, content: 1, request: 1, items: 1, pieceCount: 1 } }).toArray()
     const pl = plan(rows, existing)
     const skipped = pl.skipped.reduce((m, x) => { m[x.reason] = (m[x.reason] || 0) + 1; return m }, {})
+    // key — 미리보기에서 체크한 것만 반영하기 위한 식별자: CSV 행 번호 + 주문자명 (파일이 바뀌었으면 맞지 않게)
+    const key = (x) => `${x.row}:${x.title}`
+    // list — CSV 행 순서대로 전부(신규 · 변경 · 변경 없음 · 건너뜀). 표로 보여 주고 신규 · 변경만 고를 수 있다.
+    const csv = (x) => { const r = rows[x.row] || {}; return { orderedAt: r['주문일'] || '', dueAt: r['출발필수'] || '', notionStatus: r['상태'] || '' } }
+    const list = [
+      ...pl.updates.map((u) => ({ kind: 'update', key: key(u), row: u.row, orderNo: u.orderNo, title: u.title, changes: u.changes, ...csv(u) })),
+      ...pl.creates.map((c) => ({ kind: 'create', key: key(c), row: c.row, title: c.title, ...csv(c) })),
+      ...pl.unchanged.map((u) => ({ kind: 'same', row: u.row, orderNo: u.orderNo, title: u.title, ...csv(u) })),
+      ...pl.skipped.map((s) => ({ kind: 'skip', row: s.row, title: s.title, reason: s.reason, ...csv(s) })),
+    ].sort((a, b) => a.row - b.row)
     const preview = {
-      rows: rows.length, creates: pl.creates.map((c) => ({ title: c.title })), updates: pl.updates.map((u) => ({ orderNo: u.orderNo, title: u.title, changes: u.changes })),
+      rows: rows.length, list, creates: pl.creates.map((c) => ({ key: key(c), title: c.title })), updates: pl.updates.map((u) => ({ key: key(u), orderNo: u.orderNo, title: u.title, changes: u.changes })),
       unchanged: pl.unchanged.length, skipped,
     }
     if (req.body?.apply !== '1') return res.json({ applied: false, ...preview })
+    // pick(JSON 배열)이 오면 그 key 만 반영한다
+    if (req.body?.pick) {
+      let pick
+      try { pick = new Set(JSON.parse(req.body.pick)) } catch { return res.status(400).json({ error: '선택 목록 형식이 올바르지 않습니다.' }) }
+      pl.creates = pl.creates.filter((c) => pick.has(key(c)))
+      pl.updates = pl.updates.filter((u) => pick.has(key(u)))
+      if (!pl.creates.length && !pl.updates.length) return res.status(400).json({ error: '가져올 주문을 체크하세요.' })
+    }
 
     const now = new Date()
     const pc = await col('partners')
