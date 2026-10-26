@@ -650,3 +650,7 @@ dialog.mdl[open] { display: flex; flex-direction: column; }
 /* 디자인 · 컬러 목록 썸네일 — 크게, 위아래 여백 없이 */
 .cell-img.lg { width: 104px; height: 78px; border-radius: 0; border: 0; object-fit: cover; }
 table.data td:has(> .cell-img.lg) { padding: 0; width: 104px; }
+/* 스마트스토어 주문 modal — 주문마다 두 줄(위: 주문 · 아래: 배송지) */
+.ss-t .ss-r1 td { border-bottom: 0; padding-bottom: 2px; }
+.ss-t .ss-r2 td { font-size: 12.5px; color: var(--ink-mute); padding-top: 0; }
+.ss-opt { margin-left: 4px; padding: 1px 7px; border-radius: 10px; background: var(--paper-deep); font-size: 12px; color: var(--ink-mute); }

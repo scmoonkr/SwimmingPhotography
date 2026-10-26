@@ -64,12 +64,15 @@ const flat = (it) => {
   }
 }
 
-// 최근 days 일(오늘 포함)의 결제 주문
-export async function recentOrders(days = 3) {
-  const n = Math.max(1, Math.min(14, Math.round(Number(days)) || 3))
+// 최근 days 일(1~365, 오늘 포함)의 결제 주문 — 하루씩 나눠 3개씩 동시에 부른다 (커머스 API 는 초당 호출 수에 한도가 있다)
+export async function recentOrders(days = 30) {
+  const n = Math.max(1, Math.min(365, Math.round(Number(days)) || 30))
   const to = Date.now()
   const rows = []
-  for (let i = 0; i < n; i++) rows.push(...await fetchRange(to - (i + 1) * DAY, to - i * DAY))
+  let next = 0
+  await Promise.all(Array.from({ length: Math.min(3, n) }, async () => {
+    while (next < n) { const i = next++; rows.push(...await fetchRange(to - (i + 1) * DAY, to - i * DAY)) }
+  }))
   const seen = new Set()
   return rows.map(flat).filter((x) => x.productOrderId && !seen.has(x.productOrderId) && seen.add(x.productOrderId))
     .sort((a, b) => String(b.paidAt).localeCompare(String(a.paidAt)))
