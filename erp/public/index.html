@@ -321,7 +321,7 @@ function openSmartstore() {
   dlg.id = 'ss_modal'; dlg.className = 'mdl'; dlg.style.width = 'min(1100px, 96vw)'
   dlg.innerHTML = `<div class="mdl-head"><h2>스마트스토어 주문</h2><button type="button" class="drawer-x" id="ss_x" aria-label="닫기">×</button></div>
     <div class="mdl-body" style="display:flex;flex-direction:column;gap:10px">
-      <div style="display:flex;gap:8px;align-items:center"><select id="ss_days" class="table-select"><option value="30" selected>1개월</option><option value="90">3개월</option><option value="365">전체 (최근 1년)</option></select>
+      <div style="display:flex;gap:8px;align-items:center"><select id="ss_days" class="table-select"><option value="1">1일</option><option value="3">3일</option><option value="7">7일</option><option value="30" selected>1개월</option><option value="90">3개월</option><option value="365">전체 (최근 1년)</option></select>
         <button type="button" class="btn btn-primary" id="ss_go">불러오기</button><span class="field-hint" id="ss_msg"></span><span style="flex:1"></span>
         <button type="button" class="btn btn-ghost" id="ss_xlsx" disabled title="체크한 주문(체크한 것이 없으면 전체)을 엑셀 파일로 받습니다">xlsx 다운로드</button></div>
       <div id="ss_res" style="max-height:62vh;overflow:auto"></div><div class="drawer-err" id="ss_err"></div>

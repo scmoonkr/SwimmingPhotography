@@ -33,14 +33,25 @@ async function token() {
 
 const fmt = (ms) => new Date(ms).toISOString().replace('Z', '+00:00')
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+// 호출 한도(429 · '요청이 많아…')에 걸리면 잠깐 쉬었다가 다시 부른다 (1초 → 2초 → 4초 → 8초)
+async function getJson(url) {
+  for (let attempt = 0; ; attempt++) {
+    const r = await fetch(url, { headers: { Authorization: `Bearer ${await token()}` } })
+    const j = await r.json().catch(() => ({}))
+    const busy = r.status === 429 || /요청이 많|too many|rate/i.test(String(j.message || ''))
+    if (r.ok) return j
+    if (busy && attempt < 4) { await sleep(1000 * 2 ** attempt); continue }
+    throw Object.assign(new Error(`스마트스토어 주문 조회 실패: ${busy ? '요청이 많아 잠시 막혔습니다. 잠시 뒤 다시 시도하거나 기간을 줄여 보세요.' : (j.message || r.statusText)}`), { status: 502 })
+  }
+}
+
 // 한 구간(최대 24시간)의 상품주문
 async function fetchRange(from, to) {
   const out = []
   for (let page = 1; page <= 20; page++) {
     const q = new URLSearchParams({ from: fmt(from), to: fmt(to), rangeType: 'PAYED_DATETIME', pageSize: '300', page: String(page) })
-    const r = await fetch(`${BASE}/v1/pay-order/seller/product-orders?${q}`, { headers: { Authorization: `Bearer ${await token()}` } })
-    const j = await r.json().catch(() => ({}))
-    if (!r.ok) throw Object.assign(new Error(`스마트스토어 주문 조회 실패: ${j.message || r.statusText}`), { status: 502 })
+    const j = await getJson(`${BASE}/v1/pay-order/seller/product-orders?${q}`)
     const list = j.data?.contents || []
     out.push(...list)
     if (!j.data?.pagination?.hasNext) break
@@ -64,15 +75,15 @@ const flat = (it) => {
   }
 }
 
-// 최근 days 일(1~365, 오늘 포함)의 결제 주문 — 하루씩 나눠 3개씩 동시에 부른다 (커머스 API 는 초당 호출 수에 한도가 있다)
+// 최근 days 일(1~365, 오늘 포함)의 결제 주문 — 하루씩 나눠 한 번에 하나씩, 호출 사이를 띄워서 부른다 (커머스 API 는 호출 수에 한도가 있다)
 export async function recentOrders(days = 30) {
   const n = Math.max(1, Math.min(365, Math.round(Number(days)) || 30))
   const to = Date.now()
   const rows = []
-  let next = 0
-  await Promise.all(Array.from({ length: Math.min(3, n) }, async () => {
-    while (next < n) { const i = next++; rows.push(...await fetchRange(to - (i + 1) * DAY, to - i * DAY)) }
-  }))
+  for (let i = 0; i < n; i++) {
+    if (i) await sleep(400)
+    rows.push(...await fetchRange(to - (i + 1) * DAY, to - i * DAY))
+  }
   const seen = new Set()
   return rows.map(flat).filter((x) => x.productOrderId && !seen.has(x.productOrderId) && seen.add(x.productOrderId))
     .sort((a, b) => String(b.paidAt).localeCompare(String(a.paidAt)))
