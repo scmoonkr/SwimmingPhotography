@@ -67,6 +67,8 @@ export async function ensureIndexes() {
   await orders.createIndex({ status: 1, dueAt: 1 })
   await orders.createIndex({ partnerId: 1, orderedAt: -1 })
   await (await col('users')).createIndex({ username: 1 }, { unique: true })
+  await (await col('smartstoreOrders')).createIndex({ productOrderId: 1 }, { unique: true })
+  await (await col('smartstoreOrders')).createIndex({ paidAt: -1 })
   await (await col('partners')).createIndex({ name: 1 })
   await (await col('customers')).createIndex({ name: 1 })
   // 옵션 code 는 물품·상품 각각에서 유일해야 한다 (재고의 키)

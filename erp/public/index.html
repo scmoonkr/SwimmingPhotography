@@ -176,9 +176,12 @@ const MENU = [
   ['설정', [
     ['settings', '설정', '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>'],
   ]],
+  ['smartstore', [
+    ['ssorders', '주문', '<path d="M4 3h16v18l-3-2-3 2-3-2-3 2-3-2-1 1V3Z"/><path d="M8 8h8M8 12h8M8 16h4"/>'],
+  ]],
 ]
 const VIEWS = {
-  materials: () => viewItems('materials'), goods: () => viewItems('goods'),
+  materials: () => viewItems('materials'), goods: () => viewItems('goods'), ssorders: () => viewSsOrders(),
   settings: () => viewSettings(), worksheets: () => viewWorksheets(), designs: () => viewDesigns(), dmap: () => viewDesignMap(), machines: () => viewMachines(), assign: () => viewAssign(), schedule: () => viewSchedule(), stock: () => viewStock(), po: () => viewPO(), ship: () => viewShip(), stocktake: () => viewStocktake(),
 }
 
@@ -314,8 +317,37 @@ async function viewList(E) {
   load()
 }
 
+// 스마트스토어 > 주문 — import 로 가져온 주문 목록. 기존 주문과는 따로 운영한다(나중에 통합).
+async function viewSsOrders() {
+  pageShell({
+    en: 'Smartstore Orders', title: '스마트스토어 주문', addLabel: '',
+    tools: '<input id="q" class="table-search" placeholder="주문번호 · 주문자 · 수취인 · 상품 · 주소 검색…" type="search"><span style="flex:1"></span><button type="button" class="btn btn-ghost" id="ss_open" title="스마트스토어의 최근 주문을 불러와 보고, import 로 가져옵니다">스마트스토어에서 불러오기</button>',
+  })
+  const load = async () => {
+    try {
+      const p = new URLSearchParams({ limit: '500' })
+      if ($('#q')?.value) p.set('q', $('#q').value)
+      const { items, total } = await api(`/smartstore-orders?${p}`)
+      paintTable(items, [
+        ['paid', '결제일시 · 주문번호', (o) => `${esc(String(o.paidAt).replace('T', ' ').slice(0, 16))}<div class="field-hint mono">${esc(o.orderId)}</div>`],
+        ['orderer', '주문자', (o) => esc(o.orderer)],
+        ['receiver', '수취인 · 연락처', (o) => `${esc(o.receiver)}<div class="field-hint">${esc(o.receiverTel)}</div>`],
+        ['product', '상품', (o) => `<b>${esc(o.product)}</b>${o.option ? ` <span class="ss-opt">${esc(o.option)}</span>` : ''}<div class="field-hint">${o.zip ? `(${esc(o.zip)}) ` : ''}${esc(o.address)}</div>`],
+        ['qty', '수량', (o) => o.qty, 'r'],
+        ['amount', '결제금액', (o) => `${Number(o.amount || 0).toLocaleString()}원`, 'r'],
+        ['status', '상태', (o) => esc(o.status)],
+        ['memo', '배송 메모', (o) => esc(o.memo)],
+      ], null, '가져온 주문이 없습니다. "스마트스토어에서 불러오기"로 주문을 불러와 import 하세요.')
+      $('#ft').textContent = `${items.length} / ${total}`
+    } catch (e) { $('#tbl').innerHTML = emptyTable(e.message) }
+  }
+  $('#q')?.addEventListener('input', debounce(load))
+  $('#ss_open')?.addEventListener('click', () => openSmartstore(load))
+  load()
+}
+
 // 스마트스토어 주문 — 최근 N일 결제 주문을 네이버 커머스 API 로 불러와 보여 준다(저장하지 않는다).
-function openSmartstore() {
+function openSmartstore(done) {
   document.getElementById('ss_modal')?.remove()
   const dlg = document.createElement('dialog')
   dlg.id = 'ss_modal'; dlg.className = 'mdl'; dlg.style.width = 'min(1100px, 96vw)'
@@ -323,7 +355,8 @@ function openSmartstore() {
     <div class="mdl-body" style="display:flex;flex-direction:column;gap:10px">
       <div style="display:flex;gap:8px;align-items:center"><select id="ss_days" class="table-select"><option value="1">1일</option><option value="3">3일</option><option value="7">7일</option><option value="30" selected>1개월</option><option value="90">3개월</option><option value="365">전체 (최근 1년)</option></select>
         <button type="button" class="btn btn-primary" id="ss_go">불러오기</button><span class="field-hint" id="ss_msg"></span><span style="flex:1"></span>
-        <button type="button" class="btn btn-ghost" id="ss_xlsx" disabled title="체크한 주문(체크한 것이 없으면 전체)을 엑셀 파일로 받습니다">xlsx 다운로드</button></div>
+        <button type="button" class="btn btn-ghost" id="ss_xlsx" disabled title="체크한 주문(체크한 것이 없으면 전체)을 엑셀 파일로 받습니다">xlsx 다운로드</button>
+        <button type="button" class="btn btn-primary" id="ss_imp" disabled title="체크한 주문(체크한 것이 없으면 전체)을 스마트스토어 > 주문에 저장합니다">import</button></div>
       <div id="ss_res" style="max-height:62vh;overflow:auto"></div><div class="drawer-err" id="ss_err"></div>
     </div>`
   document.body.appendChild(dlg)
@@ -335,6 +368,7 @@ function openSmartstore() {
   const upd = () => {
     const n = dlg.querySelectorAll('.ss-chk:checked').length
     dlg.querySelector('#ss_xlsx').textContent = n ? `xlsx 다운로드 (${n}건)` : 'xlsx 다운로드'
+    dlg.querySelector('#ss_imp').textContent = n ? `import (${n}건)` : 'import'
     const all = dlg.querySelector('#ss_all'); if (all) all.checked = items.length > 0 && n === items.length
   }
   const load = async () => {
@@ -345,6 +379,7 @@ function openSmartstore() {
       items = j.items
       dlg.querySelector('#ss_msg').textContent = `${j.items.length}건`
       dlg.querySelector('#ss_xlsx').disabled = !j.items.length
+      dlg.querySelector('#ss_imp').disabled = !j.items.length
       dlg.querySelector('#ss_res').innerHTML = j.items.length ? `<table class="data ss-t"><thead><tr><th style="width:30px"><input type="checkbox" id="ss_all" title="전체 선택"></th><th>결제일시 · 주문번호</th><th>주문자</th><th>수취인 · 연락처</th><th>상품</th><th class="num">수량</th><th class="num">결제금액</th><th>상태</th><th>배송 메모</th></tr></thead><tbody>${
         j.items.map((o) => `<tr class="ss-r1"><td rowspan="2" style="vertical-align:top;padding-top:14px"><input type="checkbox" class="ss-chk" value="${esc(o.productOrderId)}"></td><td>${esc(String(o.paidAt).replace('T', ' ').slice(0, 16))}<div class="field-hint mono">${esc(o.orderId)}</div></td><td>${esc(o.orderer)}</td><td>${esc(o.receiver)}<div class="field-hint">${esc(o.receiverTel)}</div></td><td><b>${esc(o.product)}</b>${o.option ? ` <span class="ss-opt">${esc(o.option)}</span>` : ''}</td><td class="num">${o.qty}</td><td class="num">${won0(o.amount)}원</td><td>${esc(o.status)}</td><td>${esc(o.memo)}</td></tr><tr class="ss-r2"><td colspan="8">배송지 ${o.zip ? `<span class="mono">(${esc(o.zip)})</span> ` : ''}${esc(o.address) || '<span class="field-hint">주소 없음</span>'}</td></tr>`).join('')}</tbody></table>` : '<div class="sch-hint">이 기간에 결제된 주문이 없습니다.</div>'
       dlg.querySelectorAll('.ss-chk').forEach((c) => { c.onchange = upd })
@@ -353,6 +388,18 @@ function openSmartstore() {
     } catch (e) { dlg.querySelector('#ss_msg').textContent = ''; dlg.querySelector('#ss_err').textContent = e.message } finally { btn.disabled = false }
   }
   dlg.querySelector('#ss_go').onclick = load
+  // import — 체크한 주문(없으면 전체)을 스마트스토어 > 주문 목록에 저장한다 (같은 상품주문번호는 갱신)
+  dlg.querySelector('#ss_imp').onclick = async () => {
+    const list = picked()
+    if (!list.length) return
+    if (!dlg.querySelectorAll('.ss-chk:checked').length && !confirm(`체크한 주문이 없습니다. 조회된 ${list.length}건 전체를 import 할까요?`)) return
+    const btn = dlg.querySelector('#ss_imp'); btn.disabled = true; dlg.querySelector('#ss_err').textContent = ''
+    try {
+      const r = await api('/smartstore-orders/import', { method: 'POST', body: { items: list } })
+      dlg.querySelector('#ss_msg').textContent = `import 완료 — 신규 ${r.created}건 · 갱신 ${r.updated}건`
+      await done?.()
+    } catch (e) { dlg.querySelector('#ss_err').textContent = e.message } finally { btn.disabled = false }
+  }
   // xlsx 다운로드 — 체크한 주문(없으면 전체). SheetJS 를 처음 쓸 때 내려받는다.
   dlg.querySelector('#ss_xlsx').onclick = async () => {
     const btn = dlg.querySelector('#ss_xlsx'); btn.disabled = true
