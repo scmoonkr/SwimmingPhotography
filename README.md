@@ -204,7 +204,7 @@ node erp/scripts/create-user.js <아이디> <비밀번호> admin
 node erp/scripts/create-user.js <아이디> <비밀번호> manager/order       # 주문관리자: 주문·거래처·고객, 작업 배정
 node erp/scripts/create-user.js <아이디> <비밀번호> manager/work        # 작업관리자: 디자인, 작업 시작·완료, 재고, 하루 한도
 node erp/scripts/create-user.js <아이디> <비밀번호> manager/order,work  # 두 업무 모두
-node erp/scripts/create-user.js <아이디> <비밀번호> worker              # 작업자: 조회 + 작업 시작·완료
+node erp/scripts/create-user.js <아이디> <비밀번호> viewer         # 작업자: 조회 + 작업 시작·완료
 ```
 
 - 업무를 지정하지 않은 `manager` 는 모든 업무를 한다. `admin` 은 항상 전부 가능하다.
