@@ -1,7 +1,7 @@
 // 네이버 스마트스토어(커머스 API) 주문 조회.
 //   인증: OAuth2 client credentials — client_secret_sign = base64(bcrypt(`${client_id}_${timestamp}`, client_secret))
-//   .env: NAVER_COMMERCE_CLIENT_ID · NAVER_COMMERCE_CLIENT_SECRET  (커머스API센터에서 발급한 애플리케이션 ID · 시크릿)
-//         없으면 NAVER_CLIENT_ID · NAVER_CLIENT_SECRET 을 대신 쓴다 (커머스API 애플리케이션 값을 넣어 둔 경우)
+//   .env: NAVER_SMARTSTORE_CLIENT_ID · NAVER_SMARTSTORE_CLIENT_SECRET  (커머스API센터에서 발급한 애플리케이션 ID · 시크릿)
+//         (NAVER_CLIENT_ID · NAVER_CLIENT_SECRET 은 네이버 로그인용이라 여기서는 쓰지 않는다)
 //   주문 조회: GET /external/v1/pay-order/seller/product-orders (조건형) — 한 번에 최대 24시간이라 하루씩 나눠 부른다.
 import bcrypt from 'bcryptjs'
 
@@ -9,8 +9,8 @@ const BASE = 'https://api.commerce.naver.com/external'
 const DAY = 24 * 3600e3
 
 const creds = () => {
-  const id = process.env.NAVER_COMMERCE_CLIENT_ID || process.env.NAVER_CLIENT_ID || ''
-  const secret = process.env.NAVER_COMMERCE_CLIENT_SECRET || process.env.NAVER_CLIENT_SECRET || ''
+  const id = process.env.NAVER_SMARTSTORE_CLIENT_ID || ''
+  const secret = process.env.NAVER_SMARTSTORE_CLIENT_SECRET || ''
   return { id, secret }
 }
 export const configured = () => { const c = creds(); return !!(c.id && c.secret) }
@@ -19,10 +19,10 @@ let cached = { token: '', exp: 0 }
 async function token() {
   if (cached.token && Date.now() < cached.exp - 60e3) return cached.token
   const { id, secret } = creds()
-  if (!id || !secret) throw Object.assign(new Error('스마트스토어 API 키가 .env 에 없습니다 (NAVER_COMMERCE_CLIENT_ID · NAVER_COMMERCE_CLIENT_SECRET).'), { status: 400 })
+  if (!id || !secret) throw Object.assign(new Error('스마트스토어 API 키가 .env 에 없습니다 (NAVER_SMARTSTORE_CLIENT_ID · NAVER_SMARTSTORE_CLIENT_SECRET).'), { status: 400 })
   const ts = Date.now()
   let sign
-  try { sign = Buffer.from(bcrypt.hashSync(`${id}_${ts}`, secret)).toString('base64') } catch { throw Object.assign(new Error('NAVER_COMMERCE_CLIENT_SECRET 형식이 올바르지 않습니다 (커머스API센터의 애플리케이션 시크릿이어야 합니다).'), { status: 400 }) }
+  try { sign = Buffer.from(bcrypt.hashSync(`${id}_${ts}`, secret)).toString('base64') } catch { throw Object.assign(new Error('NAVER_SMARTSTORE_CLIENT_SECRET 형식이 올바르지 않습니다 (커머스API센터의 애플리케이션 시크릿이어야 합니다).'), { status: 400 }) }
   const body = new URLSearchParams({ client_id: id, timestamp: String(ts), client_secret_sign: sign, grant_type: 'client_credentials', type: 'SELF' })
   const r = await fetch(`${BASE}/v1/oauth2/token`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body })
   const j = await r.json().catch(() => ({}))

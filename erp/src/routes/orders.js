@@ -217,7 +217,7 @@ router.post('/:id/caps', requireCap('work', 'orders'), async (req, res) => {
 // 스마트스토어(네이버 커머스 API) 최근 주문 — 보기만 한다(DB 에 저장하지 않는다). ?days=1~365 (기본 30)
 router.get('/smartstore', requireCap('orders'), async (req, res) => {
   try {
-    if (!smartstoreConfigured()) return res.status(400).json({ error: '.env 에 NAVER_COMMERCE_CLIENT_ID · NAVER_COMMERCE_CLIENT_SECRET (커머스API센터 애플리케이션)을 넣어 주세요.' })
+    if (!smartstoreConfigured()) return res.status(400).json({ error: '.env 에 NAVER_SMARTSTORE_CLIENT_ID · NAVER_SMARTSTORE_CLIENT_SECRET (커머스API센터 애플리케이션)을 넣어 주세요.' })
     const items = await recentOrders(req.query.days)
     res.json({ items, days: Math.max(1, Math.min(365, Math.round(Number(req.query.days)) || 30)), fetchedAt: new Date() })
   } catch (e) { res.status(e.status || 500).json({ error: e.message }) }
