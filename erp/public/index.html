@@ -48,6 +48,28 @@ const optName = (m) => `${m.name}${m.color ? ' · ' + m.color : ''}${m.size ? ' 
 
 let me = null
 let tab = 'orders'
+// ── 주소 해시(#/메뉴[/보기/날짜]) — 새로고침 · 뒤로 가기 · 링크 공유가 되게 현재 화면을 주소에 기억한다 ──
+//   예: #/ssorders   #/schedule/week/2026-10-27   (작업현황은 보기와 날짜까지)
+const hashParts = () => location.hash.replace(/^#\/?/, '').split('/')
+const SCH_VIEWS = ['mach', 'day', 'week', 'month']
+// 해시 → tab · 작업현황 보기/날짜 (알 수 없는 값은 무시한다). tab 이 바뀌었으면 true.
+function applyHash() {
+  const [t0, v, d] = hashParts()
+  const known = new Set(MENU.flatMap((g) => g[1]).map((x) => x[0]))
+  let changed = false
+  if (t0 && known.has(t0) && t0 !== tab) { tab = t0; changed = true }
+  if (t0 === 'schedule') {
+    if (SCH_VIEWS.includes(v)) SCH.view = v
+    if (/^\d{4}-\d{2}-\d{2}$/.test(d || '')) { const x = new Date(`${d}T12:00:00`); if (!Number.isNaN(x.getTime())) SCH.cur = x }
+  }
+  return changed
+}
+// 현재 화면을 주소에 쓴다. replace=true 면 뒤로 가기 목록에 쌓지 않는다(같은 화면 안의 변경).
+function pushRoute(replace) {
+  const h = `#/${tab}${tab === 'schedule' ? `/${SCH.view}/${ymd(SCH.cur)}` : ''}`
+  if (location.hash === h) return
+  history[replace ? 'replaceState' : 'pushState'](null, '', h)
+}
 const cache = {}                       // 거래처·고객 선택 목록
 
 async function api(path, { method = 'GET', body } = {}) {
@@ -221,10 +243,12 @@ function render() {
         draftReset()
       }
       tab = b.dataset.t
+      pushRoute(false)
       render()
     }
   })
   $('#lo').onclick = async () => { await api('/auth/logout', { method: 'POST' }).catch(() => {}); me = null; render() }
+  pushRoute(true)
   ;(VIEWS[tab] || (() => viewList(ENT[tab])))()
 }
 
@@ -329,6 +353,7 @@ async function viewSsOrders() {
       const { items, total } = await api(`/smartstore-orders?${p}`)
       paintTable(items, [
         ['paid', '결제일시 · 주문번호', (o) => `${esc(String(o.paidAt).replace('T', ' ').slice(0, 16))}<div class="field-hint mono">${esc(o.orderId)}</div>`],
+        ['invoice', '송장', (o) => `<button type="button" class="btn btn-ghost inv-btn${o.invoice ? ' on' : ''}" title="${o.invoice ? '송장 보기 · 인쇄' : '송장번호 등록 · 인쇄'}">${o.invoice ? esc(o.invoice.carrierName) : '송장'}</button>${o.invoice ? `<div class="field-hint mono">${esc(o.invoice.trackingNo)}</div>` : ''}`],
         ['orderer', '주문자', (o) => esc(o.orderer)],
         ['receiver', '수취인 · 연락처', (o) => `${esc(o.receiver)}<div class="field-hint">${esc(o.receiverTel)}</div>`],
         ['product', '상품', (o) => `<div class="ss-wrap"><b>${esc(o.product)}</b>${o.option ? ` <span class="ss-opt">${esc(o.option)}</span>` : ''}<div class="field-hint">${o.zip ? `(${esc(o.zip)}) ` : ''}${esc(o.address)}</div></div>`],
@@ -339,12 +364,125 @@ async function viewSsOrders() {
         ['talk', '톡톡', (o) => `<button type="button" class="btn btn-ghost talk-btn${o.talk ? ' on' : ''}" title="${o.talk ? '저장된 톡톡 메시지 보기 · 고치기' : '톡톡 메시지 붙여 넣기'}">톡톡</button>`],
       ], null, '가져온 주문이 없습니다. "스마트스토어에서 불러오기"로 주문을 불러와 import 하세요.')
       $('#tbl').querySelectorAll('tr[data-i] .talk-btn').forEach((b) => { b.onclick = () => openTalk(items[b.closest('tr').dataset.i], load) })
+      $('#tbl').querySelectorAll('tr[data-i] .inv-btn').forEach((b) => { b.onclick = () => openInvoice(items[b.closest('tr').dataset.i], load) })
       $('#ft').textContent = `${items.length} / ${total}`
     } catch (e) { $('#tbl').innerHTML = emptyTable(e.message) }
   }
   $('#q')?.addEventListener('input', debounce(load))
   $('#ss_open')?.addEventListener('click', () => openSmartstore(load))
   load()
+}
+
+// 송장 — 딜리버리API 로 택배를 접수해 송장번호를 받거나(롯데 · CJ), 받은 번호를 직접 입력하고, 배송을 조회하고, 송장(배송 라벨)을 인쇄한다.
+function openInvoice(order, done) {
+  document.getElementById('inv_modal')?.remove()
+  const dlg = document.createElement('dialog')
+  dlg.id = 'inv_modal'; dlg.className = 'mdl'; dlg.style.width = 'min(560px, 94vw)'
+  dlg.innerHTML = `<div class="mdl-head"><h2>송장 · ${esc(order.receiver)} (${esc(order.orderId)})</h2><button type="button" class="drawer-x" id="inv_x" aria-label="닫기">×</button></div>
+    <div class="mdl-body" style="display:flex;flex-direction:column;gap:12px">
+      <div class="drawer-note">${esc(order.receiver)} · ${esc(order.receiverTel)}<br>${order.zip ? `(${esc(order.zip)}) ` : ''}${esc(order.address)}<br><b>${esc(order.product)}</b>${order.option ? ` · ${esc(order.option)}` : ''} × ${order.qty}</div>
+      <div id="inv_ship" class="field-hint"></div>
+      <label class="field"><span class="field-label">택배사</span><select id="inv_c" class="field-input"></select></label>
+      <label class="field"><span class="field-label">송장번호 (택배사에서 받은 숫자)</span><input id="inv_n" class="field-input" inputmode="numeric" placeholder="예: 123456789012" value="${esc(order.invoice?.trackingNo || '')}"></label>
+      <div id="inv_t" class="field-hint"></div><div id="inv_trace"></div><div class="drawer-err" id="inv_err"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
+        <button type="button" class="btn btn-primary" id="inv_ship_go" hidden>택배 접수 (송장 발급)</button>
+        <button type="button" class="btn btn-ghost" id="inv_ship_x" hidden>접수 취소</button>
+        <button type="button" class="btn btn-ghost" id="inv_chk">배송 조회</button>
+        <button type="button" class="btn btn-ghost" id="inv_clr">송장 지우기</button>
+        <button type="button" class="btn btn-ghost" id="inv_pr">송장 인쇄</button>
+        <button type="button" class="btn btn-primary" id="inv_sv">저장</button></div>
+    </div>`
+  document.body.appendChild(dlg)
+  dlg.showModal()
+  const close = () => { dlg.close(); dlg.remove() }
+  const err = (m) => { dlg.querySelector('#inv_err').textContent = m || '' }
+  const digits = (v) => String(v || '').split('').filter((ch) => ch >= '0' && ch <= '9').join('')
+  let sender = {}
+  const syncShip = (ready) => {
+    const reg = !!order.invoice?.historyId
+    dlg.querySelector('#inv_ship_go').hidden = !ready || reg
+    dlg.querySelector('#inv_ship_x').hidden = !reg
+  }
+  api('/smartstore-orders/carriers').then((r) => {
+    sender = r.sender || {}
+    dlg.querySelector('#inv_c').innerHTML = r.carriers.map((c) => `<option value="${esc(c.id)}" ${c.id === (order.invoice?.carrierId || 'cj') ? 'selected' : ''}>${esc(c.name)}</option>`).join('')
+    if (!r.trackerReady) dlg.querySelector('#inv_t').textContent = '※ .env 에 DeliveryApiKey · DeliverySecretKey 가 없어 접수·배송 조회는 쓸 수 없습니다 (송장 저장·인쇄는 됩니다).'
+    const nm = (r.carriers.find((c) => c.id === r.shipCourier) || {}).name || r.shipCourier
+    dlg.querySelector('#inv_ship').textContent = r.shipReady ? `택배 접수는 ${nm} 계정으로 됩니다. (접수 후 송장번호가 바로 나오지 않으면 택배사에서 받은 번호를 입력해 저장하세요.)` : '※ 택배 접수를 쓰려면 .env 에 DeliveryCourierAccountKey (딜리버리API 콘솔에 택배사 계정을 등록하면 나오는 키)를 넣어 주세요. 지금은 송장번호를 직접 입력합니다.'
+    syncShip(r.shipReady)
+  }).catch((e) => err(e.message))
+  const cur = () => ({ carrierId: dlg.querySelector('#inv_c').value, trackingNo: digits(dlg.querySelector('#inv_n').value) })
+  // 배송 조회 — 택배사 조회 화면처럼 상태 · 상품 · 이력(최신이 위)을 보여 준다
+  const showTrace = (r) => {
+    const box = dlg.querySelector('#inv_trace')
+    if (!r.found) { box.innerHTML = ''; dlg.querySelector('#inv_t').textContent = r.message; return }
+    dlg.querySelector('#inv_t').textContent = ''
+    box.innerHTML = `<div class="tr-head"><b class="tr-st ${r.delivered ? 'done' : ''}">${esc(r.status || '-')}</b><span>${esc(r.courierName)} · <span class="mono">${esc(r.trackingNo)}</span></span>${r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener" class="tr-site">택배사 사이트에서 보기 ↗</a>` : ''}</div>
+      <div class="tr-info">${r.product ? `<span>상품 ${esc(r.product)}${r.quantity ? ` × ${r.quantity}` : ''}</span>` : ''}${r.sender ? `<span>보내는 분 ${esc(r.sender)}</span>` : ''}${r.receiver ? `<span>받는 분 ${esc(r.receiver)}</span>` : ''}${r.receiverAddress ? `<span>${esc(r.receiverAddress)}</span>` : ''}${r.deliveredAt ? `<span>배송완료 ${esc(r.deliveredAt)}</span>` : ''}</div>
+      <ol class="tr-steps">${[...r.steps].reverse().map((s, i) => `<li class="${i === 0 ? 'now' : ''}"><div class="tr-t">${esc(String(s.time).slice(0, 16))}</div><div class="tr-b"><b>${esc(s.status)}</b> <span class="tr-loc">${esc(s.location)}</span><div class="tr-d">${esc(s.description)}</div></div></li>`).join('') || '<li class="field-hint">아직 배송 이력이 없습니다.</li>'}</ol>`
+  }
+  const doTrace = async (quiet) => {
+    err(''); const v = cur(); const hint = dlg.querySelector('#inv_t')
+    if (!v.trackingNo) { if (!quiet) err('송장번호를 입력하세요.'); return }
+    hint.textContent = '조회하는 중…'
+    try { showTrace(await api(`/smartstore-orders/track?carrierId=${encodeURIComponent(v.carrierId)}&trackingNo=${encodeURIComponent(v.trackingNo)}`)) } catch (e) { hint.textContent = ''; if (!quiet) err(e.message) }
+  }
+  dlg.querySelector('#inv_chk').onclick = () => doTrace(false)
+  if (order.invoice?.trackingNo) setTimeout(() => doTrace(true), 300)
+  dlg.querySelector('#inv_ship_go').onclick = async () => {
+    err(''); const b = dlg.querySelector('#inv_ship_go'); b.disabled = true; dlg.querySelector('#inv_t').textContent = '택배를 접수하는 중…'
+    try {
+      const r = await api(`/smartstore-orders/${encodeURIComponent(order.productOrderId)}/ship`, { method: 'POST' })
+      order.invoice = r.invoice
+      dlg.querySelector('#inv_c').value = r.invoice.carrierId
+      dlg.querySelector('#inv_n').value = r.invoice.trackingNo || ''
+      dlg.querySelector('#inv_t').textContent = r.invoice.trackingNo ? `접수 완료 — 송장번호 ${r.invoice.trackingNo}` : '접수는 됐지만 송장번호가 아직 나오지 않았습니다. 택배사에서 번호를 받으면 입력해 저장하세요.'
+      syncShip(true); await done?.()
+    } catch (e) { dlg.querySelector('#inv_t').textContent = ''; err(e.message) } finally { b.disabled = false }
+  }
+  dlg.querySelector('#inv_ship_x').onclick = async () => {
+    if (!confirm('택배 접수를 취소할까요? (이미 송장번호가 부여되었거나 발송 처리된 건은 취소되지 않습니다)')) return
+    err('')
+    try { await api(`/smartstore-orders/${encodeURIComponent(order.productOrderId)}/ship`, { method: 'DELETE' }); order.invoice = null; close(); await done?.() } catch (e) { err(e.message) }
+  }
+  dlg.querySelector('#inv_sv').onclick = async () => {
+    err(''); const v = cur()
+    try { const r = await api(`/smartstore-orders/${encodeURIComponent(order.productOrderId)}/invoice`, { method: 'PUT', body: v }); order.invoice = r.invoice; close(); await done?.() } catch (e) { err(e.message) }
+  }
+  dlg.querySelector('#inv_clr').onclick = async () => {
+    err('')
+    try { await api(`/smartstore-orders/${encodeURIComponent(order.productOrderId)}/invoice`, { method: 'PUT', body: { trackingNo: '' } }); order.invoice = null; close(); await done?.() } catch (e) { err(e.message) }
+  }
+  dlg.querySelector('#inv_pr').onclick = async () => {
+    err(''); const v = cur()
+    if (!v.trackingNo) return err('송장번호를 입력하세요.')
+    const names = Object.fromEntries([...dlg.querySelectorAll('#inv_c option')].map((o) => [o.value, o.textContent]))
+    try { await printInvoice({ ...order, invoice: { ...v, carrierName: names[v.carrierId] || v.carrierId } }, sender) } catch (e) { err(e.message) }
+  }
+  dlg.querySelector('#inv_x').onclick = close
+  dlg.addEventListener('click', (ev) => { if (ev.target === dlg) close() })
+  dlg.addEventListener('cancel', () => setTimeout(() => dlg.remove(), 0))
+}
+
+// 송장(배송 라벨) 인쇄 — A4 위쪽에 100×150mm 한 장. 송장번호는 Code128 바코드로 넣는다(JsBarcode).
+async function printInvoice(o, sender) {
+  await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js')
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+  window.JsBarcode(svg, o.invoice.trackingNo, { format: 'CODE128', width: 2.4, height: 70, displayValue: true, fontSize: 18, margin: 0 })
+  const tn = o.invoice.trackingNo
+  const pretty = tn.length === 12 ? `${tn.slice(0, 4)}-${tn.slice(4, 8)}-${tn.slice(8)}` : tn
+  let host = document.getElementById('ws_render')
+  if (!host) { host = document.createElement('div'); host.id = 'ws_render'; document.body.appendChild(host) }
+  host.innerHTML = `<div class="ws-page inv-page"><div class="inv-label">
+    <div class="inv-top"><b>${esc(o.invoice.carrierName)}</b><span>${esc(ymd(new Date()))}</span></div>
+    <div class="inv-bc">${svg.outerHTML}<div class="inv-no">${esc(pretty)}</div></div>
+    <div class="inv-to"><div class="inv-k">받는 분</div><div class="inv-name">${esc(o.receiver)} <span>${esc(o.receiverTel)}</span></div><div class="inv-addr">${o.zip ? `(${esc(o.zip)}) ` : ''}${esc(o.address)}</div></div>
+    <div class="inv-item"><div class="inv-k">상품</div>${esc(o.product)}${o.option ? ` / ${esc(o.option)}` : ''} × ${o.qty}</div>
+    ${o.memo ? `<div class="inv-memo"><div class="inv-k">배송 메모</div>${esc(o.memo)}</div>` : ''}
+    <div class="inv-from"><div class="inv-k">보내는 분</div>${esc(sender.name || '메달뱅크')}${sender.tel ? ` · ${esc(sender.tel)}` : ''}${sender.address ? `<div>${esc(sender.address)}</div>` : ''}</div>
+  </div></div>`
+  window.print()
 }
 
 // 톡톡 — 스마트스토어 톡톡에서 복사한 대화를 붙여 넣어 주문에 저장한다 (같은 주문번호의 상품주문 모두에 저장된다).
@@ -385,7 +523,7 @@ function openSmartstore(done) {
   dlg.innerHTML = `<div class="mdl-head"><h2>스마트스토어 주문</h2><button type="button" class="drawer-x" id="ss_x" aria-label="닫기">×</button></div>
     <div class="mdl-body" style="display:flex;flex-direction:column;gap:10px">
       <div style="display:flex;gap:8px;align-items:center"><select id="ss_days" class="table-select"><option value="1">1일</option><option value="3">3일</option><option value="7">7일</option><option value="30" selected>1개월</option><option value="90">3개월</option><option value="365">전체 (최근 1년)</option></select>
-        <button type="button" class="btn btn-primary" id="ss_go">불러오기</button><span class="field-hint" id="ss_msg"></span><span style="flex:1"></span>
+        <button type="button" class="btn btn-primary" id="ss_go">가져오기</button><span class="field-hint" id="ss_msg">기간을 고르고 [가져오기]를 누르세요.</span><span style="flex:1"></span>
         <button type="button" class="btn btn-ghost" id="ss_xlsx" disabled title="체크한 주문(체크한 것이 없으면 전체)을 엑셀 파일로 받습니다">xlsx 다운로드</button>
         <button type="button" class="btn btn-primary" id="ss_imp" disabled title="체크한 주문(체크한 것이 없으면 전체)을 스마트스토어 > 주문에 저장합니다">import</button></div>
       <div id="ss_res" style="max-height:62vh;overflow:auto"></div><div class="drawer-err" id="ss_err"></div>
@@ -412,7 +550,7 @@ function openSmartstore(done) {
       dlg.querySelector('#ss_xlsx').disabled = !j.items.length
       dlg.querySelector('#ss_imp').disabled = !j.items.length
       dlg.querySelector('#ss_res').innerHTML = j.items.length ? `<table class="data ss-t"><thead><tr><th style="width:30px"><input type="checkbox" id="ss_all" title="전체 선택"></th><th>결제일시 · 주문번호</th><th>주문자</th><th>수취인 · 연락처</th><th>상품</th><th class="num">수량</th><th class="num">결제금액</th><th>상태</th><th>배송 메모</th></tr></thead><tbody>${
-        j.items.map((o) => `<tr class="ss-r1"><td rowspan="2" style="vertical-align:top;padding-top:14px"><input type="checkbox" class="ss-chk" value="${esc(o.productOrderId)}"></td><td>${esc(String(o.paidAt).replace('T', ' ').slice(0, 16))}<div class="field-hint mono">${esc(o.orderId)}</div></td><td>${esc(o.orderer)}</td><td>${esc(o.receiver)}<div class="field-hint">${esc(o.receiverTel)}</div></td><td><b>${esc(o.product)}</b>${o.option ? ` <span class="ss-opt">${esc(o.option)}</span>` : ''}</td><td class="num">${o.qty}</td><td class="num">${won0(o.amount)}원</td><td>${esc(o.status)}</td><td>${esc(o.memo)}</td></tr><tr class="ss-r2"><td colspan="8">배송지 ${o.zip ? `<span class="mono">(${esc(o.zip)})</span> ` : ''}${esc(o.address) || '<span class="field-hint">주소 없음</span>'}</td></tr>`).join('')}</tbody></table>` : '<div class="sch-hint">이 기간에 결제된 주문이 없습니다.</div>'
+        j.items.map((o) => `<tr class="ss-r1"><td rowspan="2" style="vertical-align:top;padding-top:14px"><input type="checkbox" class="ss-chk" value="${esc(o.productOrderId)}"></td><td>${esc(String(o.paidAt).replace('T', ' ').slice(0, 16))}<div class="field-hint mono">${esc(o.orderId)}</div></td><td>${esc(o.orderer)}</td><td>${esc(o.receiver)}<div class="field-hint">${esc(o.receiverTel)}</div></td><td><b>${esc(o.product)}</b>${o.option ? ` <span class="ss-opt">${esc(o.option)}</span>` : ''}</td><td class="num">${o.qty}</td><td class="num">${won0(o.amount)}원</td><td>${esc(o.status)}</td><td>${esc(o.memo)}</td></tr><tr class="ss-r2"><td colspan="8">${o.invoiceNo ? `<b>송장 ${esc(o.invoiceCompany)} <span class="mono">${esc(o.invoiceNo)}</span></b> · ` : ''}배송지 ${o.zip ? `<span class="mono">(${esc(o.zip)})</span> ` : ''}${esc(o.address) || '<span class="field-hint">주소 없음</span>'}</td></tr>`).join('')}</tbody></table>` : '<div class="sch-hint">이 기간에 결제된 주문이 없습니다.</div>'
       dlg.querySelectorAll('.ss-chk').forEach((c) => { c.onchange = upd })
       const all = dlg.querySelector('#ss_all'); if (all) all.onchange = () => { dlg.querySelectorAll('.ss-chk').forEach((c) => { c.checked = all.checked }); upd() }
       upd()
@@ -445,7 +583,7 @@ function openSmartstore(done) {
   dlg.querySelector('#ss_x').onclick = close
   dlg.addEventListener('click', (ev) => { if (ev.target === dlg) close() })
   dlg.addEventListener('cancel', () => setTimeout(() => dlg.remove(), 0))
-  load()
+  // 열 때 자동으로 불러오지 않는다 — [가져오기]를 눌러야 조회한다
 }
 
 // 노션 CSV 가져오기 — 파일을 고르면 먼저 미리보기(신규 · 변경 · 건너뜀)를 보여 주고, [가져오기]를 눌러야 반영한다.
@@ -1364,6 +1502,7 @@ async function viewSchedule() {
   const load = async () => {
     try {
       SCH.cur.setHours(12, 0, 0, 0)
+      if (tab === 'schedule') pushRoute(true)
       const [s, e] = schRange()
       const [cal, ord, mc] = await Promise.all([
         api(`/schedule?from=${ymd(s)}&to=${ymd(e)}`),
@@ -3562,7 +3701,18 @@ async function openStocktake(rec, done) {
   $('#tx')?.addEventListener('click', () => { if (confirm('이 검수를 삭제할까요?')) run(() => api(`/stocktakes/${st._id}`, { method: 'DELETE' })) })
 }
 
-api('/auth/me').then((r) => { me = r.user }).catch(() => {}).finally(render)
+api('/auth/me').then((r) => { me = r.user }).catch(() => {}).finally(() => { applyHash(); render() })
+window.addEventListener('popstate', () => {
+  if (!me) return
+  const prev = tab
+  if (prev === 'schedule' && hashParts()[0] !== 'schedule' && draftCount()) {
+    if (!confirm('저장하지 않은 작업배정 변경이 있습니다. 버리고 이동할까요?')) { pushRoute(false); return }
+    draftReset()
+  }
+  const changed = applyHash()
+  if (changed) render()
+  else if (tab === 'schedule' && SCH.reload) SCH.reload()        // 같은 작업현황 안에서 보기 · 날짜만 바뀐 경우
+})
 </script>
 </body>
 </html>

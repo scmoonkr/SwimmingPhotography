@@ -59,10 +59,14 @@ async function fetchRange(from, to) {
   return out
 }
 
+// 스마트스토어 택배사 코드 → 우리 택배사 코드 (송장 화면 · 배송 조회와 같은 값)
+const NAVER_CARRIER = { CJGLS: 'cj', HYUNDAI: 'lotte', LOTTE: 'lotte', HANJIN: 'hanjin', EPOST: 'post', KGB: 'logen', LOGEN: 'logen', KDEXP: 'kyungdong', DAESIN: 'daesin' }
+
 // 응답 한 건 → 화면용 평탄한 주문
 const flat = (it) => {
   const c = it.content || it
   const o = c.order || {}, p = c.productOrder || {}, a = p.shippingAddress || {}
+  const dv = c.delivery || p.delivery || {}           // 발송 처리한 주문이면 택배사 · 송장번호가 들어 있다
   return {
     productOrderId: it.productOrderId || p.productOrderId || '',
     orderId: o.orderId || '',
@@ -72,6 +76,7 @@ const flat = (it) => {
     product: p.productName || '', option: p.productOption || '', qty: Number(p.quantity) || 0,
     amount: Number(p.totalPaymentAmount ?? p.totalProductAmount) || 0,
     status: p.productOrderStatus || '', memo: p.shippingMemo || '',
+    invoiceCompany: dv.deliveryCompany || '', invoiceCarrier: NAVER_CARRIER[String(dv.deliveryCompany || '').toUpperCase()] || '', invoiceNo: String(dv.trackingNumber || '').split('').filter((ch) => ch >= '0' && ch <= '9').join(''), sentAt: dv.sendDate || '',
   }
 }
 

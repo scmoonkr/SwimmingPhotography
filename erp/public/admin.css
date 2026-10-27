@@ -662,3 +662,34 @@ table.data td .ss-wrap.memo { min-width: 140px; max-width: 260px; }
 .mdl-body.talk-body { display: flex; flex-direction: column; gap: 10px; }
 .talk-text { min-height: 50vh; resize: vertical; line-height: 1.6; }
 .ss-opt { margin-left: 4px; padding: 1px 7px; border-radius: 10px; background: var(--paper-deep); font-size: 12px; color: var(--ink-mute); }
+/* 송장(배송 라벨) 인쇄 — A4 위쪽 100×150mm */
+.inv-btn { padding: 3px 9px; }
+.inv-btn.on { border-color: var(--orange); color: var(--orange-deep, #c2410c); font-weight: 700; }
+.inv-btn .field-hint { margin: 0; line-height: 1.2; }
+.inv-page { padding: 30px; }
+.inv-label { width: 378px; min-height: 567px; border: 2px solid #111; padding: 16px; box-sizing: border-box; display: flex; flex-direction: column; gap: 10px; font-size: 14px; color: #111; }
+.inv-top { display: flex; justify-content: space-between; align-items: baseline; font-size: 20px; border-bottom: 2px solid #111; padding-bottom: 6px; }
+.inv-top span { font-size: 12px; color: #444; }
+.inv-bc { text-align: center; }
+.inv-bc svg { max-width: 100%; height: auto; }
+.inv-no { font-size: 22px; font-weight: 800; letter-spacing: 1px; margin-top: 2px; }
+.inv-k { font-size: 11px; font-weight: 700; color: #555; margin-bottom: 2px; }
+.inv-to { border: 2px solid #111; padding: 8px 10px; }
+.inv-name { font-size: 22px; font-weight: 800; }
+.inv-name span { font-size: 15px; font-weight: 600; margin-left: 6px; }
+.inv-addr { font-size: 17px; font-weight: 600; line-height: 1.35; margin-top: 3px; }
+.inv-item, .inv-memo { font-size: 14px; border-top: 1px dashed #888; padding-top: 6px; }
+.inv-from { margin-top: auto; border-top: 2px solid #111; padding-top: 6px; font-size: 12px; }
+/* 배송 조회 결과 — 택배사 조회 화면처럼 */
+.tr-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; background: var(--paper-card); border-radius: 8px; font-size: 13px; }
+.tr-st { font-size: 17px; }
+.tr-st.done { color: var(--ok, #15803d); }
+.tr-site { margin-left: auto; font-size: 12px; color: var(--orange-deep, #c2410c); text-decoration: underline; }
+.tr-info { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; color: var(--ink-mute); margin: 8px 2px; }
+.tr-steps { list-style: none; margin: 0; padding: 0 0 0 4px; max-height: 38vh; overflow: auto; }
+.tr-steps li { display: flex; gap: 12px; padding: 8px 0 8px 14px; border-left: 2px solid var(--line); position: relative; font-size: 13px; }
+.tr-steps li::before { content: ''; position: absolute; left: -6px; top: 13px; width: 10px; height: 10px; border-radius: 50%; background: var(--line); }
+.tr-steps li.now::before { background: var(--orange); }
+.tr-t { flex: 0 0 112px; font-size: 12px; color: var(--ink-mute); font-variant-numeric: tabular-nums; }
+.tr-loc { color: var(--ink-mute); font-size: 12px; }
+.tr-d { font-size: 12.5px; color: var(--ink-light); margin-top: 2px; }
