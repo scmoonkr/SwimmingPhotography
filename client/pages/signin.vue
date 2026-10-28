@@ -39,10 +39,6 @@ const naverMsg = computed(() => NAVER_ERR[String(route.query.e || '')] || '')
       <a class="nv-btn" :href="naverUrl">
         <span class="nv-n" aria-hidden="true">N</span>네이버 로그인
       </a>
-      <p class="lg-join">
-        처음이신가요? <a class="lg-link" :href="naverUrl">회원가입(네이버)</a>
-        <span class="lg-sub">네이버로 로그인하면 바로 가입됩니다.</span>
-      </p>
     </div>
   </div>
 </template>
@@ -59,8 +55,4 @@ const naverMsg = computed(() => NAVER_ERR[String(route.query.e || '')] || '')
 }
 .nv-btn:hover { background: #02b351; }
 .nv-n { font-family: Arial, sans-serif; font-size: 17px; font-weight: 900; line-height: 1; }
-.lg-join { margin: 0; font-size: 13px; color: var(--ink-mute); }
-.lg-link { color: var(--ink); font-weight: 700; text-decoration: underline; }
-.lg-link:hover { color: var(--orange); }
-.lg-sub { display: block; margin-top: 3px; font-size: 12px; color: var(--ink-light); }
 </style>

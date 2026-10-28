@@ -34,5 +34,5 @@ export function useAuth() {
     checked.value = true
   }
 
-  return { user, ensure, refresh, signin, logout }
+  return { user, checked, ensure, refresh, signin, logout }
 }

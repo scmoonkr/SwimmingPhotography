@@ -4,14 +4,13 @@ import { computed, onMounted, ref } from 'vue'
 
 const modalOpen = ref(false)
 
-// 관리자(대시보드) URL — 환경별(runtimeConfig). dev: localhost:6642 / prod: admin.swimmingphotography.com
-const adminUrl = useRuntimeConfig().public.adminUrl
-
-// 로그아웃 — 로그인 중일 때만 '관리자' 다음에 보인다.
+// 로그인 · 로그아웃 — 로그인 중이면 '{이름} 로그아웃'(이름은 내 정보로), 아니면 '로그인'(네이버 로그인).
 // 로그인 여부는 브라우저에서 한 번 확인한다(서버 렌더링 때는 묻지 않는다 — 공개 페이지 응답이 방문자마다 달라지지 않게).
-const { user, ensure, logout } = useAuth()
+const { user, checked, ensure, logout } = useAuth()
 const route = useRoute()
 onMounted(() => { ensure() })
+// 지금 보던 곳으로 돌아오게 한다 (내부 경로만)
+const loginUrl = computed(() => `/api/auth/naver?r=${encodeURIComponent(route.fullPath.startsWith('/') && !route.fullPath.startsWith('//') ? route.fullPath : '/')}`)
 const loggingOut = ref(false)
 const onLogout = async () => {
   if (loggingOut.value) return
@@ -45,9 +44,14 @@ const marqueeItems = computed(() => [NOTICE()])
         <NuxtLink to="/introduction">소개</NuxtLink>
         <NuxtLink to="/agreement">규약</NuxtLink>
         <NuxtLink to="/submission">제보</NuxtLink>
-        <a class="fn-admin" :href="adminUrl">관리자</a>
-        <!-- 로그인 중이면 로그아웃 -->
-        <button v-if="user" class="fn-logout" type="button" :disabled="loggingOut" :title="user.name || user.username" @click="onLogout">로그아웃</button>
+        <!-- 로그인 확인이 끝난 뒤에만 보인다 (확인 전에 '로그인' 이 잠깐 비치지 않게) -->
+        <template v-if="checked">
+          <template v-if="user">
+            <NuxtLink class="fn-me" to="/my/page">{{ user.name || user.username }}</NuxtLink>
+            <button class="fn-logout" type="button" :disabled="loggingOut" @click="onLogout">로그아웃</button>
+          </template>
+          <a v-else class="fn-login" :href="loginUrl">로그인</a>
+        </template>
       </nav>
 
       <p class="promise">수영사진(Swimming Photography)의 모든 컨텐츠는 직접 취재하거나 또는 신뢰할 수 있는 기관을 통해 본인 인증이 완료된 수영인의 제보를 기반으로 합니다. 제보자가 원치 않는 경우, 신원은 보증하지만 익명으로 처리 할 수 있습니다. 본 프로젝트는 메달뱅크아쿠아틱스 매거진과는 별개로 병행하여 운영됩니다.</p>
@@ -106,7 +110,7 @@ const marqueeItems = computed(() => [NOTICE()])
 .foot-nav .fn-logout { font: inherit; font-size: 12px; letter-spacing: .02em; color: var(--ink-light); background: none; border: none; padding: 0; cursor: pointer; transition: color .15s; }
 .foot-nav .fn-logout:hover:not(:disabled) { color: var(--ink); }
 .foot-nav .fn-logout:disabled { opacity: .5; cursor: default; }
-.foot-nav .fn-admin { color: #C6C6C3; }   /* 관리자 — 한 단계 더 흐리게 (reg-detail과 동일 톤). backend 진입점 */
+.foot-nav .fn-me { color: var(--ink); font-weight: 700; }
 .site-foot .promise { color: var(--ink); margin-bottom: 12px; max-width: max(620px, calc(60% - 8px)); }
 .site-foot .legal { letter-spacing: .01em; }
 .site-foot .legal .reg-detail { color: #C6C6C3; }
