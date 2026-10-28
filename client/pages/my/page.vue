@@ -121,10 +121,12 @@ const save = async () => {
           <span class="mp-l">이메일</span>
           <input v-model="form.email" class="mp-in" type="email" maxlength="100" autocomplete="email">
         </label>
+        <!--
         <label class="mp-fld">
           <span class="mp-l">휴대폰</span>
           <input v-model="form.mobile" class="mp-in" type="tel" maxlength="20" autocomplete="tel" placeholder="010-0000-0000">
         </label>
+        -->
 
         <p v-if="msg" class="mp-msg" :class="ok ? 'ok' : 'bad'">{{ msg }}</p>
         <button class="mp-btn" type="submit" :disabled="busy">{{ busy ? '저장 중…' : '저장' }}</button>
