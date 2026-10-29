@@ -41,8 +41,8 @@ const athletesOf = (r: any): Athlete[] => {
 }
 // 로그인 계정 — 내가 고른 선수만 빼거나 고칠 수 있다. 관리자(계정 관리 권한)는 모두 가능.
 const { user } = useAuth()
-// 종목(영법·성별·거리)은 운영진(data)만 고친다 — 회원에게는 잠근다(서버도 무시한다)
-const canClass = computed(() => (user.value?.can || []).includes('data'))
+// 종목(영법·성별·거리)은 값이 있어도 항상 고칠 수 있다 (서버도 허용한다)
+const locked = (_k: 'discipline' | 'gender' | 'distance') => false
 const mine = (a: Athlete) => !a.contributor || a.contributor === user.value?.username || (user.value?.can || []).includes('users')
 // updatedAt → KST "yyyy-mm-dd hh:mm"
 const fmtTime = (v: any) => {
@@ -190,21 +190,21 @@ const onDelete = async () => {
           <div class="fld-row fld-row3">
             <label class="fld">
               <span class="info-l">영법</span>
-              <select v-model="draft.discipline" class="fld-input" :disabled="!canClass" @change="onClassChange">
+              <select v-model="draft.discipline" class="fld-input" :disabled="locked('discipline')" @change="onClassChange">
                 <option value="">—</option>
                 <option v-for="d in withCur(Object.keys(DISC_KO), draft.discipline)" :key="d" :value="d">{{ DISC_KO[d] || d }}</option>
               </select>
             </label>
             <label class="fld">
               <span class="info-l">성별</span>
-              <select v-model="draft.gender" class="fld-input" :disabled="!canClass" @change="onClassChange">
+              <select v-model="draft.gender" class="fld-input" :disabled="locked('gender')" @change="onClassChange">
                 <option value="">—</option>
                 <option v-for="g in withCur(GENDER_OPTS, draft.gender)" :key="g" :value="g">{{ GENDER_KO[g] || g }}</option>
               </select>
             </label>
             <label class="fld">
               <span class="info-l">거리</span>
-              <select v-model="draft.distance" class="fld-input" :disabled="!canClass" @change="onClassChange">
+              <select v-model="draft.distance" class="fld-input" :disabled="locked('distance')" @change="onClassChange">
                 <option value="">—</option>
                 <option v-for="d in withCur(DIST_OPTS, draft.distance)" :key="d" :value="d">{{ d }}</option>
               </select>
@@ -215,7 +215,7 @@ const onDelete = async () => {
           <div class="fld-row fld-row2 im-meta">
             <div class="fld">
               <span class="info-l">contributor</span>
-              <span class="meta-v">{{ row.contributorName || row.contributor || '—' }}</span>
+              <span class="meta-v">{{ row.contributorName || row.contributor || user?.name || user?.username || '—' }}</span>
             </div>
             <div class="fld">
               <span class="info-l">updatedAt</span>

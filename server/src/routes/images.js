@@ -484,6 +484,13 @@ router.put('/:id', async (req, res) => {
     // 종목(영법·성별·거리)이나 이름·팀·timeID 단일 필드는 보내도 무시한다.
     const staff = canAny(req.user, ['data'])
     for (const k of (staff ? EDITABLE : ['type'])) if (body[k] !== undefined) $set[k] = String(body[k] ?? '').trim()
+    // 종목(영법·성별·거리)은 회원도 값이 있어도 항상 고칠 수 있다 (빈 값으로는 지우지 않는다)
+    if (!staff) {
+      for (const k of ['discipline', 'gender', 'distance']) {
+        const v = String(body[k] ?? '').trim()
+        if (v !== '') $set[k] = v
+      }
+    }
     // 빈 이름은 막는다 — 단 Images Dir(폴더별 가져오기) 사진은 이름 없이 올라오므로 allowEmptyName 이면 허용
     if ($set.name === '' && !body.allowEmptyName && !Array.isArray(body.athletes)) return res.status(400).json({ error: '선수명을 입력하세요.' })
     // ageGroup — Images Dir 의 선수 찾기에서 고른 기록의 값 (timeID 와 함께 온다)
