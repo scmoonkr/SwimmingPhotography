@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 이미지 선택 — 대회 사진(images)을 카드로 훑어보고, 눌러서 선수·장면·캡션을 붙인다.
-// 필터: 대회 · 성별 · 영법 · 거리 · 선택 여부(선수 기록에 연결됐는가 = timeID 유무).
+// 필터: 대회 · 성별 · 영법 · 거리(각각 '전체' 가능 — 분류 안 된 사진 포함) · 선택 여부(선수 기록에 연결됐는가 = timeID 유무).
 // 카드를 누르면 대시보드 Images Dir 와 같은 상세 모달(ImageEditModal)이 열린다.
 // 내부 작업용 화면이라 메뉴에 걸지 않고 검색 노출도 막는다.
 import { computed, onMounted, ref, watch } from 'vue'
@@ -15,10 +15,10 @@ const DIST_OPTS = ['25M', '50M', '100M', '200M', '400M', '800M', '1500M']
 
 // ── 필터 ──
 const competitionID = ref<number | ''>('')
-// 기본값 — 자유형 · 남자 · 50M. 영법·성별·거리는 '전체' 없이 항상 하나를 고른다(한 종목씩 본다)
-const discipline = ref('FR')
-const gender = ref('men')
-const distance = ref('50M')
+// 기본값 — 영법·성별·거리 모두 '전체'. 전체는 조건을 걸지 않으므로 분류 안 된(빈 값) 사진도 같이 나온다.
+const discipline = ref('')
+const gender = ref('')
+const distance = ref('')
 // 선택 여부 — 선수 기록(times)에 연결된 사진인가. '' 전체 / has 선택됨 / none 선택안됨
 const picked = ref<'' | 'has' | 'none'>('')
 
@@ -91,12 +91,15 @@ const onDeleted = (r: any) => {
         </option>
       </select>
       <select v-model="gender" class="f-sel" aria-label="성별">
+        <option value="">성별 전체</option>
         <option v-for="(ko, code) in GENDER_KO" :key="code" :value="code">{{ ko }}</option>
       </select>
       <select v-model="discipline" class="f-sel" aria-label="영법">
+        <option value="">영법 전체</option>
         <option v-for="(ko, code) in DISC_KO" :key="code" :value="code">{{ ko }}</option>
       </select>
       <select v-model="distance" class="f-sel" aria-label="거리">
+        <option value="">거리 전체</option>
         <option v-for="d in DIST_OPTS" :key="d" :value="d">{{ d }}</option>
       </select>
       <select v-model="picked" class="f-sel" aria-label="선택 여부">
