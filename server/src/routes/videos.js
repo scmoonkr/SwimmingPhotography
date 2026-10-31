@@ -67,6 +67,21 @@ const videoOut = (v, nameOf) => {
   }
 }
 
+// 유튜브 영상(youtube 컬렉션) → 표의 영상 모양. timeID 로 기록에 연결된 것만 쓴다. youtube:true 면 화면이 유튜브 플레이어로 띄운다.
+const ytId = (u) => (String(u || '').match(/[?&]v=([\w-]{11})/) || String(u || '').match(/youtu\.be\/([\w-]{11})/) || [])[1] || ''
+const youtubeOut = (y) => {
+  const id = ytId(y.url)
+  return {
+    _id: String(y._id), youtube: true, competitionID: y.competitionID, competition: y.competitionName || '',
+    discipline: y.discipline || '', gender: y.gender || '', distance: y.distance || '',
+    filename: '', size: 0, caption: y.title || '',
+    url: y.url || '', embed: id ? `https://www.youtube.com/embed/${id}` : '', thumbnail: id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : '',
+    athletes: [], name: y.name || '', team: '', ageGroup: y.ageGroup || '', timeID: y.timeID ?? null,
+    uploader: '', uploaderName: '', contributor: '', contributorName: '',
+    createdAt: y.updatedAt, updatedAt: y.updatedAt,
+  }
+}
+
 // 기록(times) 목록 + 각 기록에 붙은 영상 — videos 페이지의 표. 대회는 필수, 성별·영법·거리는 비우면 전체.
 // 영상은 videos.timeIDs 로 잇는다(영상 하나에 선수가 여럿이면 그 기록들 모두에 보인다).
 router.get('/times', async (req, res) => {
@@ -88,6 +103,12 @@ router.get('/times', async (req, res) => {
     for (const v of vids) {
       const out = videoOut(v, nameOf)
       for (const id of (v.timeIDs || [])) { if (!byTime.has(id)) byTime.set(id, []); byTime.get(id).push(out) }
+    }
+    // 유튜브 — youtube.timeID 가 이 기록이면 같은 자리에 함께 보인다(올린 영상 뒤에)
+    const yts = ids.length ? await sp.collection('youtube').find({ timeID: { $in: ids } }).sort({ _id: 1 }).toArray() : []
+    for (const y of yts) {
+      if (!byTime.has(y.timeID)) byTime.set(y.timeID, [])
+      byTime.get(y.timeID).push(youtubeOut(y))
     }
     res.json(times.map((t) => ({
       timeID: t.timeID, competitionID: t.competitionID,

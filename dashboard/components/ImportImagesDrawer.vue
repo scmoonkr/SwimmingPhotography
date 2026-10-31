@@ -9,6 +9,8 @@ const props = defineProps<{
   competition: { id: number | '' | null; name: string }
 }>()
 const emit = defineEmits<{ (e: 'close'): void; (e: 'done', r: any): void }>()
+// ESC — 드로어 밖에 포커스가 있어도 닫힌다
+useEscClose(() => props.open, () => emit('close'))
 
 const api = (p = '') => `${useRuntimeConfig().public.apiBase}/api/times${p}`
 

@@ -3,6 +3,7 @@
 import { Router } from 'express'
 import { ObjectId } from 'mongodb'
 import { SP } from '../db.js'
+import { fetchChannelVideos, parseTitle } from '../ytCrawl.js'
 
 const router = Router()
 const coll = async () => (await SP()).collection('youtube')
@@ -67,6 +68,33 @@ router.get('/', async (req, res) => {
   }
 })
 
+// ── 크롤링 — 채널(@medalbankaquatics)의 영상 중 DB 에 없는 것을 가져온다 ──
+// POST { dryRun: true } → 가져올 영상만 보여준다(저장 안 함).  POST {} → 저장.
+// 제목에서 성별·영법·거리·기록·이름·일자·연령부·라운드를 읽는다. 형식이 다른 제목은 제목·주소만 저장한다.
+// 대회(competitionID)·timeID 는 붙이지 않는다 — 가져온 뒤 '대회 매칭' → 'times 매칭' 으로 잇는다.
+router.post('/crawl', async (req, res) => {
+  try {
+    const dryRun = !!(req.body && req.body.dryRun)
+    const vids = await fetchChannelVideos(String(process.env.YOUTUBE_CHANNEL || '@medalbankaquatics'))
+    if (!vids.length) return res.status(502).json({ error: '유튜브에서 영상을 읽지 못했습니다.' })
+    const c = await coll()
+    const have = new Set((await c.find({ url: { $in: vids.map((v) => v.url) } }, { projection: { url: 1 } }).toArray()).map((d) => d.url))
+    const fresh = vids.filter((v) => !have.has(v.url))
+    // 채널 목록은 최신순 — 오래된 것부터 넣어 _id 순서가 일자 순서와 맞게 한다
+    const docs = fresh.slice().reverse().map((v) => ({ title: v.title, ...(parseTitle(v.title) || {}), url: v.url }))
+    const unparsed = docs.filter((d) => !d.name).length
+    const dates = [...new Set(docs.map((d) => d.datetime).filter(Boolean))].sort().reverse()
+    const out = { channel: vids.length, existing: vids.length - fresh.length, added: docs.length, unparsed, dates, sample: docs.slice(-5).reverse().map((d) => d.title) }
+    if (!dryRun && docs.length) {
+      const r = await c.insertMany(docs, { ordered: false })
+      out.inserted = r.insertedCount
+    }
+    res.json(out)
+  } catch (e) {
+    res.status(502).json({ error: e.message })
+  }
+})
+
 // ── times 매칭 (이미지→기록 매칭과 같은 방식) — competitionID 가 붙은 영상에 timeID 를 채운다 ──
 // 키: 대회 + 이름 + 성별 + 영법 + 거리 (계영은 성별 제외). 이름은 NFC 로 맞춘다.
 // 여러 건(예선·결선)이면 유튜브의 round 로 좁히고, 못 좁히면 결선(가장 높은 라운드)으로.
@@ -87,7 +115,7 @@ const roundCanon = (r) => {
 const roundRank = (r) => ({ final: 3, semi: 2, prelim: 1 }[roundCanon(r)] || 0)
 
 // times 조회 필드 + 인덱스(키→기록들) + 한 영상 매칭 — match-times(일괄)·PUT(행 편집)에서 공용
-const TIMES_PROJ = { timeID: 1, name: 1, name_unique: 1, gender: 1, discipline: 1, distance: 1, round: 1 }
+const TIMES_PROJ = { timeID: 1, unique: 1, name: 1, name_unique: 1, gender: 1, discipline: 1, distance: 1, round: 1 }
 const buildTimesIndex = (rows) => {
   const idx = new Map()
   const put = (k, r) => { if (!idx.has(k)) idx.set(k, []); idx.get(k).push(r) }
@@ -102,16 +130,17 @@ const buildTimesIndex = (rows) => {
 // doc(name·gender·discipline·distance·round) → { timeID, status }. 여러건이면 round 로 좁히고 못 좁히면 결선.
 const matchDoc = (idx, doc) => {
   const hit = idx.get(keyOf(doc.name, doc.gender, doc.discipline, doc.distance)) || []
-  if (hit.length === 1) return { timeID: hit[0].timeID, status: 'ok' }
+  const out = (r, status) => ({ timeID: r.timeID, unique: r.unique ?? '', status })
+  if (hit.length === 1) return out(hit[0], 'ok')
   if (hit.length > 1) {
     const yc = roundCanon(doc.round)
     const narrowed = yc ? hit.filter((r) => roundCanon(r.round) === yc) : []
-    if (narrowed.length === 1) return { timeID: narrowed[0].timeID, status: 'ok' }
+    if (narrowed.length === 1) return out(narrowed[0], 'ok')
     let best = hit[0]
     for (const r of hit) if (roundRank(r.round) > roundRank(best.round)) best = r
-    return { timeID: best.timeID, status: 'multi' }
+    return out(best, 'multi')
   }
-  return { timeID: null, status: 'none' }
+  return { timeID: null, unique: '', status: 'none' }
 }
 
 router.post('/match-times', async (req, res) => {
@@ -145,7 +174,7 @@ router.post('/match-times', async (req, res) => {
         if (m.status === 'ok') ok++
         else if (m.status === 'multi') multi++
         else none++
-        if (m.timeID != null) bulk.push({ updateOne: { filter: { _id: d._id }, update: { $set: { timeID: m.timeID, updatedAt: new Date() } } } })
+        if (m.timeID != null) bulk.push({ updateOne: { filter: { _id: d._id }, update: { $set: { timeID: m.timeID, unique: m.unique, updatedAt: new Date() } } } })
       }
     }
     let modified = 0
@@ -168,7 +197,7 @@ router.post('/save-articles', async (req, res) => {
     if (Array.isArray(ids) && ids.length) filter._id = { $in: ids.map(toId).filter(Boolean) }
     else if (competitionID != null && String(competitionID).trim() !== '') filter.competitionID = Number(competitionID)
     const yts = await sp.collection('youtube')
-      .find(filter, { projection: { timeID: 1, url: 1, title: 1, competitionID: 1 } })
+      .find(filter, { projection: { timeID: 1, unique: 1, url: 1, title: 1, competitionID: 1 } })
       .toArray()
     if (!yts.length) return res.json({ total: 0, articles: 0, matched: 0, saved: 0, noArticle: 0, noUnique: 0 })
 
@@ -179,25 +208,37 @@ router.post('/save-articles', async (req, res) => {
       .toArray()
     const tById = new Map(tRows.map((t) => [t.timeID, t]))
 
-    // (competitionID + unique) 로 기사를 묶는다 — 같은 기사에 영상이 여럿이면 마지막 것이 남는다.
+    // (competitionID + unique) 로 기사를 묶는다 — 같은 기사에 영상이 여럿이면 모두 담는다(url 중복 제외).
     const byArticle = new Map()
     let noUnique = 0
     for (const y of yts) {
       const t = tById.get(y.timeID)
-      const uq = t?.unique
+      const uq = y.unique || t?.unique
       const cid = t?.competitionID ?? y.competitionID
       if (!uq || cid == null || String(cid).trim() === '') { noUnique++; continue }
-      byArticle.set(`${Number(cid)}|${uq}`, {
-        cid: Number(cid), uq,
-        youtube: { url: String(y.url || ''), caption: String(y.title || '') },
-      })
+      const k = `${Number(cid)}|${uq}`
+      if (!byArticle.has(k)) byArticle.set(k, { cid: Number(cid), uq, list: [] })
+      byArticle.get(k).list.push({ url: String(y.url || ''), caption: String(y.title || '') })
     }
-    const bulk = [...byArticle.values()].map((a) => ({
-      updateOne: {
-        filter: { competitionID: a.cid, unique: a.uq },
-        update: { $set: { youtube: a.youtube, updatedAt: new Date() } },
-      },
-    }))
+    // 기사에 이미 있는 youtube(객체 또는 배열)도 유지하며 합친다
+    const arts = byArticle.size
+      ? await sp.collection('articles')
+        .find({ $or: [...byArticle.values()].map((a) => ({ competitionID: a.cid, unique: a.uq })) }, { projection: { competitionID: 1, unique: 1, youtube: 1 } })
+        .toArray()
+      : []
+    const curBy = new Map(arts.map((x) => [`${Number(x.competitionID)}|${x.unique}`, x.youtube]))
+    const bulk = [...byArticle.entries()].map(([k, a]) => {
+      const cur = curBy.get(k)
+      const old = (Array.isArray(cur) ? cur : cur ? [cur] : []).filter((v) => v && v.url)
+      const seen = new Set()
+      const all = [...old, ...a.list].filter((v) => v.url && !seen.has(v.url) && seen.add(v.url))
+      return {
+        updateOne: {
+          filter: { competitionID: a.cid, unique: a.uq },
+          update: { $set: { youtube: all.length === 1 ? all[0] : all, updatedAt: new Date() } },
+        },
+      }
+    })
     let matched = 0; let saved = 0
     if (bulk.length) {
       const r = await sp.collection('articles').bulkWrite(bulk)
@@ -231,6 +272,7 @@ router.put('/:id', async (req, res) => {
       const rows = await sp.collection('times').find({ competitionID: Number(merged.competitionID) }, { projection: TIMES_PROJ }).toArray()
       const m = matchDoc(buildTimesIndex(rows), merged)
       $set.timeID = m.timeID
+      $set.unique = m.unique
       status = m.status
     }
     await sp.collection('youtube').updateOne({ _id }, { $set })

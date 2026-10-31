@@ -214,15 +214,20 @@ const onChanged = async () => { selected.value = null; await load() }
     <div v-if="playRow && playing" class="pm">
       <div class="pm-ov" @click="closePlay" />
       <div class="pm-box" role="dialog" aria-modal="true" aria-label="영상 재생">
-        <video :key="playing._id" :src="playing.url" :poster="playing.thumbnail || undefined" controls autoplay playsinline />
+        <!-- 유튜브 영상은 유튜브 플레이어로, 올린 영상은 video 로 -->
+        <iframe v-if="playing.youtube" :key="playing._id" class="pm-yt" :src="`${playing.embed}?autoplay=1&rel=0`" title="YouTube 영상" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen />
+        <video v-else :key="playing._id" :src="playing.url" :poster="playing.thumbnail || undefined" controls autoplay playsinline />
         <div class="pm-foot">
           <p class="pm-cap">{{ rowTitle(playRow) }}</p>
           <!-- 영상이 여러 개면 번호로 바꿔 본다 -->
           <span v-if="playRow.videos.length > 1" class="pm-nums">
             <button v-for="(v, i) in playRow.videos" :key="v._id" class="pm-num" type="button" :class="{ on: Number(i) === playIdx }" @click="playIdx = Number(i)">{{ Number(i) + 1 }}</button>
           </span>
-          <a class="pm-link" :href="`/api/videos/${playing._id}/download`">내려받기</a>
-          <button class="pm-link" type="button" @click="openEdit(playing)">정보 편집</button>
+          <a v-if="playing.youtube" class="pm-link" :href="playing.url" target="_blank" rel="noopener">YouTube에서 보기</a>
+          <template v-else>
+            <a class="pm-link" :href="`/api/videos/${playing._id}/download`">내려받기</a>
+            <button class="pm-link" type="button" @click="openEdit(playing)">정보 편집</button>
+          </template>
         </div>
         <button class="pm-x" type="button" aria-label="닫기" @click="closePlay">×</button>
       </div>
@@ -280,6 +285,7 @@ const onChanged = async () => { selected.value = null; await load() }
 .pm-ov { position: absolute; inset: 0; background: rgba(0, 0, 0, .85); }
 .pm-box { position: relative; display: flex; flex-direction: column; gap: 8px; max-width: min(1100px, 100%); max-height: 100%; }
 .pm-box video { display: block; max-width: 100%; max-height: calc(100vh - 100px); background: #000; }
+.pm-box .pm-yt { display: block; width: min(1000px, calc(100vw - 32px)); aspect-ratio: 16 / 9; max-height: calc(100vh - 100px); border: 0; background: #000; }
 .pm-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
 .pm-cap { flex: 1 1 200px; margin: 0; font-size: 12.5px; color: #ddd; word-break: break-all; }
 .pm-nums { display: inline-flex; gap: 4px; }

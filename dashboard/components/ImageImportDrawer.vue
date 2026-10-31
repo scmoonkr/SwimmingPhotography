@@ -19,6 +19,8 @@ const props = defineProps<{
   competitionID: number | ''
 }>()
 const emit = defineEmits<{ (e: 'close'): void; (e: 'done', r: any): void }>()
+// ESC — 드로어 밖에 포커스가 있어도 닫힌다
+useEscClose(() => props.open, () => emit('close'))
 
 const IMAGE_RE = /\.(jpe?g|png|gif|webp|avif)$/i
 

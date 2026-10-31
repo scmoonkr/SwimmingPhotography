@@ -72,6 +72,8 @@ const openVideo = (r: any) => { if (r?.url) window.open(r.url, '_blank', 'noopen
 
 // ── 대회 매칭 모달 ──
 const modalOpen = ref(false)
+// ESC — 안쪽 모달이 열려 있으면 그것이 먼저 닫힌다
+useEscClose(() => props.open && !modalOpen.value, () => emit('close'))
 const pickCid = ref<number | ''>('')
 const saving = ref(false)
 const openMatch = () => {

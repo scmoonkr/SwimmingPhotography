@@ -46,6 +46,8 @@ const imgSrc = (u: any) => {
 }
 
 const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') emit('close') }
+// 드로어 밖에 포커스가 있어도(표의 행을 눌러 연 경우) ESC 로 닫힌다
+useEscClose(() => props.open, () => emit('close'))
 </script>
 
 <template>

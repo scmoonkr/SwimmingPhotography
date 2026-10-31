@@ -520,6 +520,7 @@ const fetchMyAll = async () => {
 }
 
 const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') open.value = false }
+useEscClose(() => open.value, () => { open.value = false })
 onMounted(async () => {
   await loadCompetitions()
   // 전체를 조회하지 않고 대회 select 의 첫 대회를 선택 → 해당 대회 기록만 조회

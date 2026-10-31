@@ -311,10 +311,13 @@ export function buildArticleLayout(doc: any, opts: BuildOpts = {}): string {
       if (b.title) bodyParts.push(`<h2>${esc(b.title)}</h2>`)
       if (b.text) bodyParts.push(`<p>${esc(b.text)}</p>`)
     }
-    // 문서의 youtube { url, caption } — 경기 요약(event/summary) 블록 바로 다음에 표시
+    // 문서의 youtube { url, caption } 또는 그 배열 — 경기 요약(event/summary) 블록 바로 다음에 모두 표시
     if (b.type === 'event' && b.source === 'summary' && doc?.youtube) {
-      const v = videoHtml(doc.youtube.url, doc.youtube.caption)
-      if (v) bodyParts.push(v)
+      const list = Array.isArray(doc.youtube) ? doc.youtube : [doc.youtube]
+      for (const y of list) {
+        const v = y && videoHtml(y.url, y.caption)
+        if (v) bodyParts.push(v)
+      }
     }
   })
   // 맺음말 — content.conclusion(문자열)을 본문 맨 끝에 표시

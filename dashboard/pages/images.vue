@@ -115,6 +115,7 @@ watch([competitionID, discipline, matched, savedFilter, dateFilter], load)
 const selected = ref<any | null>(null)
 const open = ref(false)
 const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') open.value = false }
+useEscClose(() => open.value, () => { open.value = false })
 
 // 편집 대상 필드 — 서버 PUT /api/images/:id 의 EDITABLE 과 같은 목록.
 // name 은 선수 매칭 키(times.name_unique)라 동명이인이면 "홍길동1" 처럼 번호가 붙은 이름을 넣어야 한다.

@@ -24,7 +24,7 @@ const hasYoutube = ref(false)   // articles.youtube 있는 기사만
 
 // 유튜브 열 — 대회 기사는 articles.youtube 기준 (읽을거리와 공유하는 기본 열을 바꿔 쓴다)
 const columns = computed(() => e.columns.map((c: any) =>
-  c.key === 'hasYoutube' ? { ...c, get: (r: any) => (r.youtube?.url ? '○' : '') } : c))
+  c.key === 'hasYoutube' ? { ...c, get: (r: any) => ((Array.isArray(r.youtube) ? r.youtube.some((y: any) => y?.url) : r.youtube?.url) ? '○' : '') } : c))
 
 const rows = ref<any[]>([])
 const errorMsg = ref('')

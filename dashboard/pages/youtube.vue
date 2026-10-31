@@ -30,6 +30,7 @@ const errorMsg = ref('')
 const notice = ref('')
 const importOpen = ref(false)
 const timesMatching = ref(false)
+const crawling = ref(false)
 const savingArticles = ref(false)
 
 // 인라인 편집 상태
@@ -77,6 +78,32 @@ const onImportDone = async (r: any) => {
   notice.value = `${r.matched}건 매칭 완료${r.competitionName ? ` — ${r.competitionName}` : ''}`
   await loadCompetitions()
   await load()
+}
+
+// 유튜브 크롤링 — 채널(@medalbankaquatics)의 영상 중 DB 에 없는 것을 가져온다.
+// 먼저 가져올 건수만 보여주고(저장 안 함), 확인하면 저장한다.
+const crawl = async () => {
+  if (crawling.value) return
+  crawling.value = true; errorMsg.value = ''; notice.value = '유튜브 채널을 읽는 중… (수십 초 걸립니다)'
+  try {
+    const pre = await $fetch<any>(api('/crawl'), { method: 'POST', body: { dryRun: true } })
+    if (!pre.added) { notice.value = `새 영상이 없습니다 — 채널 ${pre.channel}건 모두 DB 에 있습니다.`; return }
+    const days = pre.dates?.length ? `
+일자: ${pre.dates.slice(0, 5).join(', ')}${pre.dates.length > 5 ? ' …' : ''}` : ''
+    const bad = pre.unparsed ? `
+제목 형식이 달라 이름·기록을 못 읽은 영상 ${pre.unparsed}건 (제목·주소만 저장)` : ''
+    if (!confirm(`DB 에 없는 영상 ${pre.added}건을 가져옵니다. (채널 ${pre.channel}건 중)${days}${bad}
+계속할까요?`)) { notice.value = ''; return }
+    const res = await $fetch<any>(api('/crawl'), { method: 'POST', body: {} })
+    notice.value = `유튜브 ${res.inserted ?? 0}건 가져옴 — 이어서 '대회 매칭' → 'times 매칭' 을 하세요.`
+    await loadCompetitions()
+    await load()
+  } catch (err: any) {
+    notice.value = ''
+    errorMsg.value = '유튜브 크롤링 실패: ' + (err?.data?.error || err?.message || '')
+  } finally {
+    crawling.value = false
+  }
 }
 
 // times 매칭(일괄) — competitionID 가 붙은 영상을 times 에 매칭해 timeID 를 설정한다.
@@ -128,7 +155,7 @@ const commitEdit = async (r: any) => {
   savingId.value = r._id; errorMsg.value = ''
   try {
     const res = await $fetch<any>(api(`/${r._id}`), { method: 'PUT', body: { ...draft.value } })
-    Object.assign(r, { name: res.name, gender: res.gender, discipline: res.discipline, distance: res.distance, time: res.time, timeID: res.timeID })
+    Object.assign(r, { name: res.name, gender: res.gender, discipline: res.discipline, distance: res.distance, time: res.time, timeID: res.timeID, unique: res.unique })
     editing.value = ''
     const st = res.matchStatus
     notice.value = st === 'skip'
@@ -171,6 +198,9 @@ watch([competitionID, matched, timeMatched], load)
       <input v-model="name" class="filter-input" type="search" placeholder="선수명·제목 검색…" @keydown.enter="load">
       <button class="btn btn-ghost" type="button" @click="load">검색</button>
       <span class="toolbar-spacer" />
+      <button class="btn btn-ghost" type="button" :disabled="crawling" @click="crawl">
+        {{ crawling ? '가져오는 중…' : '유튜브 가져오기' }}
+      </button>
       <button class="btn btn-primary" type="button" @click="importOpen = true">대회 매칭</button>
       <button class="btn btn-ghost" type="button" :disabled="timesMatching" @click="matchTimes">
         {{ timesMatching ? 'times 매칭 중…' : 'times 매칭' }}
@@ -190,12 +220,12 @@ watch([competitionID, matched, timeMatched], load)
           <thead>
             <tr>
               <th class="chk"><input type="checkbox" :checked="allChecked" :indeterminate.prop="someChecked" @change="toggleAll"></th>
-              <th>일자</th><th>선수명</th><th>성별</th><th>영법</th><th>거리</th><th>기록</th>
+              <th>일자</th><th>선수명</th><th>unique</th><th>성별</th><th>영법</th><th>거리</th><th>기록</th>
               <th>제목 · 대회</th><th>timeID</th><th></th>
             </tr>
           </thead>
           <tbody>
-            <tr v-if="!rows.length" class="empty-row"><td colspan="10">데이터가 없습니다.</td></tr>
+            <tr v-if="!rows.length" class="empty-row"><td colspan="11">데이터가 없습니다.</td></tr>
             <tr
               v-for="r in rows" :key="r._id"
               :class="{ editing: editing === r._id, hasid: !!r.timeID, sel: isChecked(r._id) }" @click="startEdit(r)"
@@ -206,6 +236,7 @@ watch([competitionID, matched, timeMatched], load)
               <!-- 편집 중 -->
               <template v-if="editing === r._id">
                 <td><input v-model="draft.name" class="cell-input" type="text" placeholder="선수명" @click.stop @keydown.enter="commitEdit(r)" @keydown.esc.stop="cancelEdit"></td>
+                <td class="mono muted">{{ r.unique || '—' }}</td>
                 <td>
                   <select v-model="draft.gender" class="cell-input" @click.stop>
                     <option value="">—</option>
@@ -230,6 +261,7 @@ watch([competitionID, matched, timeMatched], load)
               <!-- 표시 -->
               <template v-else>
                 <td class="strong">{{ r.name || '—' }}</td>
+                <td class="mono muted">{{ r.unique || '—' }}</td>
                 <td class="muted">{{ genderLabel(r.gender) || '—' }}</td>
                 <td>{{ discLabel(r.discipline) || '—' }}</td>
                 <td>{{ r.distance || '—' }}</td>
