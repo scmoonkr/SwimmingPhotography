@@ -17,6 +17,23 @@ const safeName = (s) => String(s).replace(/[^\w.\-가-힣]/g, '_')
 // name_unique 는 names 와 같은 문자열 배열. 매칭·표시에 문자열이 필요할 때 쓴다.
 // (배열/문자열 어느 쪽으로 저장돼 있든 받아준다 — 예전 문서 호환)
 export const nuStr = (v) => (Array.isArray(v) ? v.join(',') : String(v ?? ''))
+const NU_EXPR = {
+  $ifNull: [
+    '$unique',
+    {
+      $cond: [
+        { $isArray: '$name_unique' },
+        {
+          $reduce: {
+            input: '$name_unique', initialValue: '',
+            in: { $cond: [{ $eq: ['$$value', ''] }, '$$this', { $concat: ['$$value', ',', '$$this'] }] },
+          },
+        },
+        { $ifNull: ['$name_unique', { $ifNull: ['$name', ''] }] },
+      ],
+    },
+  ],
+}
 
 // 동명이인 조회 — GET /homonyms?competitionID=&name=
 // 이미지의 name 은 times.name_unique 와 같아야 매칭된다.
@@ -92,6 +109,68 @@ router.get('/homonyms', async (req, res) => {
       .sort((a, b) => String(a.name_unique).localeCompare(String(b.name_unique), 'ko', { numeric: true }))
 
     res.json({ isHomonym: !hit, base, candidates })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// 이미지 상세의 선수 찾기 — 현재 사진의 성별·영법·거리와 맞는 선수만 후보로 삼되,
+// 결과는 기록 행이 아닌 unique 선수 단위로 묶고 해당 대회의 전체 출전 종목을 함께 돌려준다.
+router.get('/athlete-options', async (req, res) => {
+  try {
+    const { competitionID, gender, discipline, distance, q } = req.query
+    const base = {}
+    if (competitionID != null && competitionID !== '') base.competitionID = Number(competitionID)
+
+    const recordFilter = {}
+    const conditions = []
+    if (gender) { recordFilter.gender = String(gender); conditions.push({ $eq: ['$$record.gender', String(gender)] }) }
+    if (discipline) { recordFilter.discipline = String(discipline); conditions.push({ $eq: ['$$record.discipline', String(discipline)] }) }
+    if (distance) { recordFilter.distance = String(distance); conditions.push({ $eq: ['$$record.distance', String(distance)] }) }
+
+    const pipeline = [
+      { $match: base },
+      { $addFields: { _uniqueKey: NU_EXPR } },
+      { $match: { _uniqueKey: { $ne: '' } } },
+      {
+        $group: {
+          _id: '$_uniqueKey',
+          name: { $first: '$name' },
+          team: { $first: '$team' },
+          gender: { $first: '$gender' },
+          group: { $first: '$group' },
+          ageGroup: { $first: '$ageGroup' },
+          records: { $push: { timeID: '$timeID', gender: '$gender', discipline: '$discipline', distance: '$distance' } },
+          events: { $addToSet: { discipline: '$discipline', distance: '$distance', time: '$time' } },
+        },
+      },
+    ]
+    if (Object.keys(recordFilter).length) pipeline.push({ $match: { records: { $elemMatch: recordFilter } } })
+    const term = String(q || '').trim()
+    if (term) {
+      const rx = new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
+      pipeline.push({ $match: { $or: [{ _id: rx }, { name: rx }, { team: rx }] } })
+    }
+    pipeline.push(
+      {
+        $addFields: {
+          matchingRecords: {
+            $filter: {
+              input: '$records', as: 'record',
+              cond: conditions.length ? { $and: conditions } : true,
+            },
+          },
+        },
+      },
+      {
+        $project: {
+          _id: 0, unique: '$_id', name_unique: '$_id', name: 1, team: 1, gender: 1, group: 1, ageGroup: 1, events: 1,
+          timeID: { $arrayElemAt: ['$matchingRecords.timeID', 0] },
+        },
+      },
+      { $limit: 5000 },
+    )
+    res.json(await (await coll()).aggregate(pipeline).toArray())
   } catch (e) {
     res.status(500).json({ error: e.message })
   }

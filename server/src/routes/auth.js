@@ -170,8 +170,9 @@ router.get('/mypage', requireAuth, async (req, res) => {
     const naver = u.provider === 'naver'
     res.json({
       username: u.username, provider: u.provider || '', name: u.name || '', nickname: u.nickname || '', email: u.email || '', mobile: u.mobile || '',
+      instagram: u.instagram || '',
       image: u.image || '', gender: u.gender || '', birthyear: u.birthyear || '', birthday: u.birthday || '', createdAt: u.createdAt || null,
-      locked: naver ? ['name', 'birthyear', 'birthday', 'gender'] : [],
+      locked: naver ? ['name', 'birthyear', 'birthday', 'gender', 'email'] : ['email'],
     })
   } catch (e) {
     res.status(500).json({ error: e.message })
@@ -203,20 +204,16 @@ router.post('/avatar', requireAuth, (req, res, next) => avatarUpload.single('fil
   }
 })
 
-// 내 정보 수정 — 네이버 회원은 별명 · 이메일 · 휴대폰만(이름 · 생년월일 · 성별은 네이버 값 그대로). 다른 계정은 표시 이름만.
+// 내 정보 수정 — 인스타그램 계정은 선택 입력. 네이버 회원의 이름·생년월일·성별·이메일은 변경하지 않는다.
 router.post('/profile', requireAuth, async (req, res) => {
   try {
     const b = req.body || {}
     const u = await (await users()).findOne({ username: req.user.username })
     if (!u) return res.status(404).json({ error: '없는 계정입니다.' })
     const set = { updatedAt: new Date() }
+    if ('instagram' in b) set.instagram = String(b.instagram ?? '').trim().slice(0, 100)
     if (u.provider === 'naver') {
       if ('nickname' in b) set.nickname = String(b.nickname ?? '').trim().slice(0, 40)
-      if ('email' in b) {
-        const email = String(b.email ?? '').trim().slice(0, 100)
-        if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: '이메일 형식이 올바르지 않습니다.' })
-        set.email = email
-      }
       if ('mobile' in b) {
         const mobile = String(b.mobile ?? '').trim().slice(0, 20)
         if (mobile && !/^[0-9+\-\s]{7,20}$/.test(mobile)) return res.status(400).json({ error: '휴대폰 번호 형식이 올바르지 않습니다.' })

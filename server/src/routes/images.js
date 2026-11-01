@@ -5,7 +5,7 @@ import multer from 'multer'
 import { ObjectId } from 'mongodb'
 import { SP } from '../db.js'
 import { publicUrl, putObject, deleteObject } from '../r2.js'
-import { canAny } from '../auth.js'
+import { canAny, userFromRequest } from '../auth.js'
 
 const router = Router()
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024, files: 2000 } })
@@ -309,12 +309,81 @@ router.get('/disciplines', async (req, res) => {
   }
 })
 
+// 클라이언트 이미지 필터별 건수.
+// 각 항목은 자기 필터를 제외한 나머지 선택을 반영한다.
+// 예: 성별 건수에는 대회·영법·식별 상태를, 영법 건수에는 대회·성별·식별 상태를,
+// 식별 건수에는 대회·성별·영법을 적용한다.
+router.get('/facets', async (req, res) => {
+  try {
+    const { competitionID, discipline, gender, matched } = req.query
+    const base = {}
+    if (competitionID) base.competitionID = Number(competitionID)
+
+    const identifiedFilter = { $and: [{ timeID: { $ne: null } }, { gender: { $type: 'string', $ne: '' } }] }
+    const unidentifiedFilter = { $or: [{ timeID: null }, { gender: { $exists: false } }, { gender: null }, { gender: '' }] }
+    const matchedFilter = matched === 'none'
+      ? unidentifiedFilter
+      : (matched === 'has' ? identifiedFilter : null)
+
+    const genderPipeline = []
+    if (matchedFilter) genderPipeline.push({ $match: matchedFilter })
+    if (discipline) genderPipeline.push({ $match: { discipline: String(discipline) } })
+    genderPipeline.push({ $group: { _id: '$gender', count: { $sum: 1 } } })
+
+    const disciplinePipeline = []
+    if (matchedFilter) disciplinePipeline.push({ $match: matchedFilter })
+    if (gender) disciplinePipeline.push({ $match: { gender: String(gender) } })
+    disciplinePipeline.push({ $group: { _id: '$discipline', count: { $sum: 1 } } })
+
+    const identificationPipeline = []
+    if (gender) identificationPipeline.push({ $match: { gender: String(gender) } })
+    if (discipline) identificationPipeline.push({ $match: { discipline: String(discipline) } })
+    identificationPipeline.push({
+      $group: {
+        _id: {
+          $cond: [{
+            $and: [
+              { $ne: [{ $ifNull: ['$timeID', null] }, null] },
+              { $ne: [{ $ifNull: ['$gender', ''] }, ''] },
+            ],
+          }, 'has', 'none'],
+        },
+        count: { $sum: 1 },
+      },
+    })
+
+    const [result = {}] = await (await coll()).aggregate([
+      { $match: base },
+      { $facet: { genders: genderPipeline, disciplines: disciplinePipeline, identification: identificationPipeline } },
+    ]).toArray()
+    const toCounts = (items) => Object.fromEntries((items || []).map((item) => [String(item._id ?? ''), item.count]))
+    const sum = (items) => (items || []).reduce((total, item) => total + item.count, 0)
+    res.json({
+      genders: toCounts(result.genders),
+      genderTotal: sum(result.genders),
+      disciplines: toCounts(result.disciplines),
+      disciplineTotal: sum(result.disciplines),
+      identification: toCounts(result.identification),
+      identificationTotal: sum(result.identification),
+    })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
 // 목록 — competitionID·discipline·name·matched 필터
 // matched: 'none' = timeID 가 없는(기록에 못 붙은) 사진만 · 'has' = 붙은 것만
 router.get('/', async (req, res) => {
   try {
-    const { competitionID, discipline, gender, distance, name, q, matched, saved, date, limit = 2000 } = req.query
+    const { competitionID, discipline, gender, distance, name, q, mine, matched, saved, date, skip, withTotal, limit = 2000 } = req.query
     const filter = {}
+    // 마이페이지 전용 — 요청자가 직접 저장했거나 선수 식별에 참여한 사진만.
+    // 클라이언트가 username 을 보내지 않고 세션 계정을 서버에서 확인한다.
+    if (mine === '1' || mine === 'true') {
+      const me = await userFromRequest(req)
+      if (!me) return res.status(401).json({ error: '로그인이 필요합니다.' })
+      filter.$and = [{ $or: [{ contributor: me.username }, { 'athletes.contributor': me.username }] }]
+    }
     if (competitionID) filter.competitionID = Number(competitionID)
     if (discipline) filter.discipline = String(discipline)
     if (gender) filter.gender = String(gender)
@@ -338,14 +407,27 @@ router.get('/', async (req, res) => {
       }
     }
     // times 매칭 여부 — timeID
-    if (matched === 'none') filter.timeID = null          // null 은 필드가 없는 문서도 함께 잡는다
-    else if (matched === 'has') filter.timeID = { $ne: null }
+    const addCondition = (condition) => {
+      if (!Array.isArray(filter.$and)) filter.$and = []
+      filter.$and.push(condition)
+    }
+    if (matched === 'none') addCondition({ $or: [{ timeID: null }, { gender: { $exists: false } }, { gender: null }, { gender: '' }] })
+    else if (matched === 'has') addCondition({ timeID: { $ne: null }, gender: { $type: 'string', $ne: '' } })
     // 기사 저장 여부(saved) 는 아래에서 기사의 media.images 를 보고 거른다.
     // 거르기 전에 limit 을 걸면 해당 사진이 잘려 나가므로, 그때는 거른 뒤에 자른다.
-    const max = Math.min(Number(limit) || 2000, 10000)
+    const requestedLimit = Number(limit)
+    const max = Math.min(Number.isFinite(requestedLimit) && requestedLimit > 0 ? Math.floor(requestedLimit) : 2000, 10000)
+    const requestedSkip = Number(skip)
+    const offset = Number.isFinite(requestedSkip) && requestedSkip > 0 ? Math.floor(requestedSkip) : 0
+    const wantsTotal = withTotal === '1' || withTotal === 'true'
     const savedMode = saved === 'has' || saved === 'none'
-    let cur = (await coll()).find(filter)
-    if (!savedMode) cur = cur.limit(max)
+    const images = await coll()
+    let total
+    let cur = images.find(filter).sort({ _id: 1 })
+    if (!savedMode) {
+      cur = cur.skip(offset).limit(max)
+      if (wantsTotal) total = await images.countDocuments(filter)
+    }
     const docs = await cur.toArray()
     // 기사 사진 여부 — 이 사진의 기사(competitionID + unique==name)에 media.images 가 1장 이상 있는가
     const cids = [...new Set(docs.map((d) => d.competitionID).filter((v) => v != null))]
@@ -365,8 +447,12 @@ router.get('/', async (req, res) => {
     const abs = (p) => (!p ? '' : (/^https?:\/\//.test(p) ? p : publicUrl(p)))
     // 여러 명이 찍힌 사진은 그중 한 명의 기사에라도 사진이 있으면 '있음'
     const hasArt = (d) => namesOf(d).some((nm) => withImages.has(`${d.competitionID}|${nm}`))
-    const picked = !savedMode ? docs
-      : docs.filter((d) => hasArt(d) === (saved === 'has')).slice(0, max)
+    let picked = docs
+    if (savedMode) {
+      const filtered = docs.filter((d) => hasArt(d) === (saved === 'has'))
+      if (wantsTotal) total = filtered.length
+      picked = filtered.slice(offset, offset + max)
+    }
     const out = picked.map((d) => ({
       ...d,
       url: abs(d.url),
@@ -377,7 +463,7 @@ router.get('/', async (req, res) => {
       contributorName: d.contributor ? (nameOf.get(d.contributor) || d.contributor) : '',
       athletes: athletesOut(d, nameOf),
     }))
-    res.json(out)
+    res.json(wantsTotal ? { rows: out, total: total ?? out.length } : out)
   } catch (e) {
     res.status(500).json({ error: e.message })
   }
@@ -501,8 +587,10 @@ router.put('/:id', async (req, res) => {
     // 첫 번째 선수 값으로 맞춘다. timeIDs 는 기록 화면이 이 사진을 찾는 조인 키.
     if (Array.isArray(body.athletes)) {
       const me = req.user?.username || ''
-      const cur = await (await coll()).findOne({ _id }, { projection: { athletes: 1, name: 1, team: 1, ageGroup: 1, timeID: 1, contributor: 1 } })
+      const cur = await (await coll()).findOne({ _id }, { projection: { athletes: 1, name: 1, team: 1, ageGroup: 1, timeID: 1, contributor: 1, gender: 1 } })
       if (!cur) return res.status(404).json({ error: 'not found' })
+      const finalGender = String(Object.prototype.hasOwnProperty.call($set, 'gender') ? $set.gender : cur.gender ?? '').trim()
+      const submittedAthletes = finalGender ? body.athletes : []
       const isAdmin = canAny(req.user, ['users'])          // 관리자는 누가 고른 선수든 정리할 수 있다
       // 내 것인가 — 고른 사람이 나이거나, 고른 사람 기록이 없는(예전) 선수
       const mine = (x) => isAdmin || !x.contributor || x.contributor === me
@@ -511,7 +599,7 @@ router.put('/:id', async (req, res) => {
 
       const list = []
       const seen = new Set()
-      for (const a of body.athletes) {
+      for (const a of submittedAthletes) {
         const name = String(a?.name ?? '').normalize('NFC').trim()
         if (!name || seen.has(name)) continue
         seen.add(name)
@@ -527,7 +615,7 @@ router.put('/:id', async (req, res) => {
         })
       }
       // 빠진 선수 — 남이 고른 선수면 막는다 (이름을 고친 것도 '빼고 새로 넣은 것'이라 여기서 걸린다)
-      const blocked = before.filter((x) => !seen.has(String(x.name || '').trim()) && !mine(x))
+      const blocked = finalGender ? before.filter((x) => !seen.has(String(x.name || '').trim()) && !mine(x)) : []
       if (blocked.length) {
         return res.status(403).json({ error: `다른 사람이 선택한 선수는 뺄 수 없습니다: ${blocked.map((x) => x.name).join(', ')}` })
       }

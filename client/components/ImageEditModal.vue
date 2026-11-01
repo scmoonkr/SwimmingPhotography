@@ -12,10 +12,17 @@ const GENDER_KO: Record<string, string> = { men: '남자', women: '여자', mixe
 const GENDER_OPTS = ['men', 'women', 'mixed']
 const DIST_OPTS = ['25M', '50M', '100M', '200M', '400M', '800M', '1500M']
 const TYPE_OPTS = ['', 'ENTER', 'BLOCK', 'START', 'RACE', 'TOUCHPAD', 'CEREMONY', 'EXIT', 'WALK', 'TEAM']
-// select 에는 '한글(영문)' 으로 보여준다 (예: 경기(RACE)) — 저장 값은 영문 코드 그대로
+// 화면에는 한국어 설명만 보여주고, 저장 값은 기존 영문 코드를 유지한다.
 const TYPE_KO: Record<string, string> = {
-  ENTER: '입장', BLOCK: '출발대', START: '출발', RACE: '경기', TOUCHPAD: '터치패드',
-  CEREMONY: '시상', EXIT: '퇴장', WALK: '이동', TEAM: '단체',
+  ENTER: '입장 중',
+  BLOCK: '블럭에 오르기 전 또는 오른 후',
+  START: '스타트 (블럭에서 발이 떨어진 상태)',
+  RACE: '경기중&역영중',
+  TOUCHPAD: '터치패드를 찍는 중 또는 닿은 후의 장면',
+  CEREMONY: '세레모니를 하는 장면',
+  EXIT: '퇴수하는 장면',
+  WALK: '물 밖에서 걸어나가는 장면',
+  TEAM: '단체사진',
 }
 // 저장된 값이 목록에 없으면(예: 3000M) 그 값도 고를 수 있게 끼워 넣는다
 const withCur = (opts: string[], cur: string) => (cur && !opts.includes(cur) ? [...opts, cur] : opts)
@@ -29,6 +36,7 @@ const draft = ref({
   discipline: '', gender: '', distance: '',
   athletes: [] as Athlete[], type: '', caption: '',
 })
+const hasGender = computed(() => Boolean(String(draft.value.gender || '').trim()))
 // athletes 가 없는 예전 사진은 단일 필드(name·team·ageGroup·timeID)를 한 명짜리 목록으로 본다
 const athletesOf = (r: any): Athlete[] => {
   if (Array.isArray(r?.athletes) && r.athletes.length) {
@@ -44,6 +52,7 @@ const { user } = useAuth()
 // 종목(영법·성별·거리)은 값이 있어도 항상 고칠 수 있다 (서버도 허용한다)
 const locked = (_k: 'discipline' | 'gender' | 'distance') => false
 const mine = (a: Athlete) => !a.contributor || a.contributor === user.value?.username || (user.value?.can || []).includes('users')
+const identifierOf = (a: Athlete) => a.contributorName || a.contributor || props.row?.contributorName || props.row?.contributor || '식별되지않음'
 // updatedAt → KST "yyyy-mm-dd hh:mm"
 const fmtTime = (v: any) => {
   if (!v) return ''
@@ -51,9 +60,26 @@ const fmtTime = (v: any) => {
   if (Number.isNaN(d.getTime())) return String(v)
   return new Date(d.getTime() + 9 * 3600 * 1000).toISOString().slice(0, 16).replace('T', ' ')
 }
+// 파일명 앞의 YYYYMMDD_HHMMSS 를 촬영 시각으로 표시한다.
+const capturedAt = computed(() => {
+  const match = String(props.row?.filename || '').match(/^(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})/)
+  if (!match) return ''
+  const [, ys, mos, ds, hs, mis, ss] = match
+  const [year, month, day, hour, minute, second] = [ys, mos, ds, hs, mis, ss].map(Number)
+  const date = new Date(Date.UTC(year, month - 1, day, hour, minute, second))
+  if (
+    date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day
+    || date.getUTCHours() !== hour || date.getUTCMinutes() !== minute || date.getUTCSeconds() !== second
+  ) return ''
+  const period = hour < 12 ? '오전' : '오후'
+  const displayHour = hour % 12 || 12
+  return `${year}년 ${month}월 ${day}일 ${period} ${displayHour}시 ${minute}분 ${second}초에 촬영된 사진`
+})
 const saving = ref(false)
 const deleting = ref(false)
 const msg = ref('')
+const saveConfirmed = ref(true)
+const onConfirmChange = () => { if (saveConfirmed.value) msg.value = '' }
 
 // ── 선수 찾기 — 같은 (대회 · 영법 · 성별 · 거리) 의 기록 중 검색 칸의 글자가 들어간 선수 ──
 const findQ = ref('')
@@ -61,22 +87,30 @@ const findOpen = ref(false)
 const findLoading = ref(false)
 const findRows = ref<any[]>([])
 const findMsg = ref('')
+const identificationDirty = ref(false)
+const pendingIdentifier = computed(() => identificationDirty.value ? (user.value?.name || user.value?.username || '') : '')
 const closeFind = () => { findOpen.value = false; findRows.value = []; findMsg.value = '' }
 // times.name_unique 는 배열이다 — 개인은 ["홍길동1"], 계영은 멤버 명단. images.name 은 이를 콤마로 이은 값.
 const nuOf = (t: any) => (Array.isArray(t?.name_unique) ? t.name_unique.join(',') : String(t?.name_unique ?? t?.name ?? ''))
 const findAthletes = async () => {
   const r = props.row
   if (!r) return
+  if (!hasGender.value) {
+    closeFind()
+    findMsg.value = '성별을 먼저 선택해 주세요.'
+    return
+  }
   const q = findQ.value.normalize('NFC').trim()
   findOpen.value = true; findLoading.value = true; findMsg.value = ''
   try {
     const d = draft.value
-    const params = { competitionID: r.competitionID ?? '', discipline: d.discipline, gender: d.gender, distance: d.distance }
-    const res = await $fetch<any[]>('/api/times', { params })
-    // 이름 대조는 여기서 한다 — 계영은 name_unique 가 멤버 명단이라 멤버 중 한 명만 맞아도 잡힌다
+    const params = {
+      competitionID: r.competitionID ?? '', discipline: d.discipline,
+      gender: d.gender, distance: d.distance, q: q || undefined,
+    }
+    const res = await $fetch<any[]>('/api/times/athlete-options', { params })
     findRows.value = (res || [])
-      .filter((t) => !q || nuOf(t).includes(q) || String(t.name || '').includes(q))
-      .sort((a, b) => nuOf(a).localeCompare(nuOf(b), 'ko', { numeric: true }))
+      .sort((a, b) => String(a.unique || nuOf(a)).localeCompare(String(b.unique || nuOf(b)), 'ko', { numeric: true }))
     if (!findRows.value.length) {
       findMsg.value = q
         ? `같은 영법·성별·거리에 '${q}' 가 들어간 선수가 없습니다.`
@@ -89,11 +123,19 @@ const findAthletes = async () => {
     findLoading.value = false
   }
 }
+const eventLabel = (event: any) => {
+  const eventName = [DISC_KO[event?.discipline] || event?.discipline, event?.distance].filter(Boolean).join(' ')
+  return eventName && event?.time ? `${eventName} - ${event.time}` : eventName
+}
+const eventLabels = (t: any) => [...new Set<string>((t?.events || []).map(eventLabel).filter(Boolean))]
+  .sort((a, b) => a.localeCompare(b, 'ko', { numeric: true }))
 // 이미 목록에 있는 기록인가 (찾기 결과에 표시 · 중복 추가 방지)
 const isAdded = (t: any) => draft.value.athletes.some((a) => (t.timeID != null ? a.timeID === t.timeID : a.name === nuOf(t)))
 // 고르면 선수 목록에 추가한다 — 이름·팀과 함께 그 기록의 timeID·ageGroup 을 잡아 둔다.
 // 목록은 열어 둔다(여러 명을 이어서 고를 수 있게). 이미 있는 선수를 다시 누르면 뺀다.
 const pickAthlete = (t: any) => {
+  if (!hasGender.value) return
+  identificationDirty.value = true
   if (isAdded(t)) {
     // 다시 누르면 뺀다 — 내가 고른 선수만
     draft.value.athletes = draft.value.athletes.filter((a) => !(t.timeID != null ? a.timeID === t.timeID : a.name === nuOf(t)) || !mine(a))
@@ -101,13 +143,25 @@ const pickAthlete = (t: any) => {
   }
   draft.value.athletes.push({ name: nuOf(t), team: t.team || '', ageGroup: t.ageGroup || '', timeID: t.timeID ?? null, contributor: user.value?.username || '', contributorName: user.value?.name || '' })
 }
-// 기록 없이 직접 적는 선수 — 빈 줄을 하나 붙인다
-const addBlank = () => { draft.value.athletes.push({ name: findQ.value.normalize('NFC').trim(), team: '', ageGroup: '', timeID: null, contributor: user.value?.username || '', contributorName: user.value?.name || '' }) }
-const removeAthlete = (i: number) => { if (mine(draft.value.athletes[i])) draft.value.athletes.splice(i, 1) }
+const removeAthlete = (i: number) => {
+  if (!mine(draft.value.athletes[i])) return
+  identificationDirty.value = true
+  draft.value.athletes.splice(i, 1)
+}
 // 이름을 손으로 고치면 잡아 둔 기록과 어긋나므로 그 선수의 timeID·ageGroup 을 비운다
-const onNameInput = (a: Athlete) => { a.timeID = null; a.ageGroup = '' }
+const onNameInput = (a: Athlete) => { identificationDirty.value = true; a.timeID = null; a.ageGroup = '' }
+const onTeamInput = () => { identificationDirty.value = true }
 // 영법·성별·거리를 바꾸면 모든 선수의 기록 연결이 어긋난다
-const onClassChange = () => { draft.value.athletes.filter(mine).forEach(onNameInput); closeFind() }
+const onClassChange = () => {
+  if (!hasGender.value) {
+    if (draft.value.athletes.length) identificationDirty.value = true
+    draft.value.athletes = []
+    findQ.value = ''
+  } else {
+    draft.value.athletes.filter(mine).forEach(onNameInput)
+  }
+  closeFind()
+}
 
 const close = () => { if (!saving.value && !deleting.value) emit('close') }
 const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close() }
@@ -118,11 +172,13 @@ watch(() => props.row, (r) => {
   if (!r) return
   draft.value = {
     discipline: r.discipline ?? '', gender: r.gender ?? '', distance: r.distance ?? '',
-    athletes: athletesOf(r), type: r.type ?? '',
+    athletes: String(r.gender ?? '').trim() ? athletesOf(r) : [], type: r.type ?? '',
     caption: r.translations?.ko?.caption ?? '',
   }
   findQ.value = ''
   msg.value = ''
+  saveConfirmed.value = true
+  identificationDirty.value = false
   closeFind()
   window.addEventListener('keydown', onKey)
 }, { immediate: true })
@@ -131,13 +187,17 @@ onBeforeUnmount(() => { if (typeof window !== 'undefined') window.removeEventLis
 const onSave = async () => {
   const r = props.row
   if (!r?._id || saving.value) return
+  if (!saveConfirmed.value) {
+    msg.value = '확인 문구에 체크해야 저장할 수 있습니다.'
+    return
+  }
   saving.value = true; msg.value = ''
   try {
     // 직접 입력한 이름·팀은 NFC 로 맞춘다 (자모분리면 times.name_unique 와 어긋난다)
     const body = {
       discipline: draft.value.discipline, gender: draft.value.gender, distance: draft.value.distance,
       // 이름이 빈 줄은 뺀다. 서버가 첫 번째 선수를 name·team·ageGroup·timeID 에도 써 둔다
-      athletes: draft.value.athletes
+      athletes: (hasGender.value ? draft.value.athletes : [])
         .map((a) => ({ name: a.name.normalize('NFC').trim(), team: a.team.normalize('NFC').trim(), ageGroup: a.ageGroup, timeID: a.timeID ?? '' }))
         .filter((a) => a.name),
       type: draft.value.type, caption: draft.value.caption.trim(),
@@ -151,6 +211,8 @@ const onSave = async () => {
     // 저장한 사람 — 서버가 로그인 계정으로 기록한다
     r.contributor = res.contributor; r.contributorName = res.contributorName; r.updatedAt = res.updatedAt
     r.translations = { ...(r.translations || {}), ko: { ...(r.translations?.ko || {}), caption: res.caption ?? body.caption } }
+    saveConfirmed.value = true
+    identificationDirty.value = false
     emit('saved', r)
   } catch (err: any) {
     msg.value = '저장 실패: ' + (err?.data?.error || err?.message || '')
@@ -181,7 +243,10 @@ const onDelete = async () => {
     <div class="im-box" role="dialog" aria-modal="true" aria-label="이미지 상세">
       <!-- 머리줄 — 파일명 -->
       <header class="im-head">
-        <h2 class="im-file">{{ row.filename }}</h2>
+        <div class="im-title">
+          <h2 class="im-file">{{ row.filename }}</h2>
+          <p v-if="capturedAt" class="im-captured">{{ capturedAt }}</p>
+        </div>
         <button class="im-x" type="button" aria-label="닫기" @click="close">×</button>
       </header>
       <div class="im-body">
@@ -214,11 +279,12 @@ const onDelete = async () => {
           <!-- 저장한 사람 · 저장 시각 (표시만) — 이미지 아래 -->
           <div class="fld-row fld-row2 im-meta">
             <div class="fld">
-              <span class="info-l">contributor</span>
-              <span class="meta-v">{{ row.contributorName || row.contributor || user?.name || user?.username || '—' }}</span>
+              <span class="info-l">식별한 사람</span>
+              <span v-if="pendingIdentifier" class="meta-v meta-pending">{{ pendingIdentifier }}(이대로 저장 할 경우 적용 됩니다)</span>
+              <span v-else class="meta-v">{{ row.contributorName || row.contributor || '식별되지않음' }}</span>
             </div>
             <div class="fld">
-              <span class="info-l">updatedAt</span>
+              <span class="info-l">최근 저장된 일시</span>
               <span class="meta-v">{{ fmtTime(row.updatedAt) || '—' }}</span>
             </div>
           </div>
@@ -226,30 +292,25 @@ const onDelete = async () => {
         <div class="im-side">
           <!-- 선수 — 여러 명이 찍힌 사진은 선수마다 한 줄. 각자 자기 기록(timeID)에 붙는다 -->
           <div class="fld">
-            <span class="info-l">선수<template v-if="draft.athletes.length"> {{ draft.athletes.length }}명</template></span>
+            <span class="info-l">선수</span>
             <div v-if="draft.athletes.length" class="ath-list">
               <div v-for="(a, i) in draft.athletes" :key="i" class="ath-row">
                 <input v-model="a.name" class="fld-input ath-name" type="text" placeholder="선수명" aria-label="선수명" :disabled="!mine(a)" @input="onNameInput(a)">
-                <input v-model="a.team" class="fld-input ath-team" type="text" placeholder="소속" aria-label="소속" :disabled="!mine(a)">
-                <span class="ath-link" :class="{ none: !a.timeID }" :title="a.timeID ? `timeID ${a.timeID}` : '기록에 연결되지 않았습니다'">
-                  {{ a.timeID ? (a.ageGroup || a.timeID) : '미연결' }}
-                </span>
-                <!-- 고른 사람 — 남이 고른 선수는 뺄 수 없다 -->
-                <span class="ath-by" :title="`선택한 사람: ${a.contributorName || a.contributor || '기록 없음'}`">{{ a.contributorName || a.contributor || '' }}</span>
+                <input v-model="a.team" class="fld-input ath-team" type="text" placeholder="소속" aria-label="소속" :disabled="!mine(a)" @input="onTeamInput">
+                <span class="ath-by" :title="identifierOf(a)">{{ identifierOf(a) }}</span>
                 <button v-if="mine(a)" class="ath-x" type="button" aria-label="선수 빼기" title="빼기" @click="removeAthlete(i)">×</button>
                 <span v-else class="ath-x ath-lock" title="다른 사람이 선택한 선수는 뺄 수 없습니다">·</span>
               </div>
             </div>
-            <p v-else class="ath-empty">아직 고른 선수가 없습니다. 아래에서 찾아 추가하세요.</p>
+            <p v-else class="ath-empty">{{ hasGender ? '아직 고른 선수가 없습니다. 아래에서 찾아 추가하세요.' : '성별이 분류되지 않아 선수를 선택할 수 없습니다. 성별을 먼저 선택해 주세요.' }}</p>
             <div class="name-ctl">
-              <input v-model="findQ" class="fld-input" type="search" placeholder="선수 찾기 — 이름 일부 (비우면 전체)" aria-label="선수 찾기" @keydown.enter.prevent="findAthletes">
+              <input v-model="findQ" class="fld-input" type="search" placeholder="선수 찾기 — 이름 일부 (비우면 전체)" aria-label="선수 찾기" :disabled="!hasGender" @keydown.enter.prevent="findAthletes">
               <button
-                class="find-btn" type="button" :class="{ on: findOpen }" :disabled="findLoading"
+                class="find-btn" type="button" :class="{ on: findOpen }" :disabled="findLoading || !hasGender"
                 aria-label="선수 찾기" title="같은 대회·영법·성별·거리에서, 검색 칸의 글자가 들어간 선수 찾기" @click="findAthletes"
               >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
               </button>
-              <button class="add-btn" type="button" title="기록 없이 선수를 직접 적습니다" @click="addBlank">직접 추가</button>
             </div>
             <!-- 선수 찾기 결과 — 누르면 선수 목록에 추가(다시 누르면 빠짐). 여러 명을 이어서 고를 수 있다 -->
             <div v-if="findOpen" class="find-panel">
@@ -262,26 +323,34 @@ const onDelete = async () => {
               <p v-else-if="findMsg" class="find-msg">{{ findMsg }}</p>
               <template v-else>
                 <button
-                  v-for="t in findRows" :key="t.timeID ?? t._id" class="find-row" type="button"
+                  v-for="t in findRows" :key="t.unique" class="find-row" type="button"
                   :class="{ cur: isAdded(t) }" @click="pickAthlete(t)"
                 >
                   <span class="fr-chk">{{ isAdded(t) ? '✓' : '' }}</span>
-                  <b>{{ nuOf(t) }}</b>
-                  <span class="fr-team">{{ t.team }}</span>
-                  <span class="fr-meta">{{ [t.ageGroup, t.round, t.time].filter(Boolean).join(' · ') }}</span>
+                  <span class="fr-person">
+                    <b>{{ t.name || nuOf(t) }}</b>
+                    <span>{{ t.team || '팀 정보 없음' }}</span>
+                    <span>{{ GENDER_KO[t.gender] || t.gender || '성별 정보 없음' }}</span>
+                    <span>{{ t.group || t.ageGroup || '그룹 정보 없음' }}</span>
+                    <span class="fr-events">{{ eventLabels(t).join(' · ') || '출전 종목 정보 없음' }}</span>
+                  </span>
                 </button>
               </template>
             </div>
           </div>
           <label class="fld">
-            <span class="info-l">장면 (type)</span>
+            <span class="info-l">어떤 장면인가요?</span>
             <select v-model="draft.type" class="fld-input">
-              <option v-for="t in TYPE_OPTS" :key="t" :value="t">{{ t ? (TYPE_KO[t] ? `${TYPE_KO[t]}(${t})` : t) : '—' }}</option>
+              <option v-for="t in TYPE_OPTS" :key="t" :value="t">{{ t ? (TYPE_KO[t] || t) : '—' }}</option>
             </select>
           </label>
           <label class="fld fld-grow">
             <span class="info-l">caption</span>
             <textarea v-model="draft.caption" class="fld-input fld-area" rows="5" placeholder="사진 설명" />
+          </label>
+          <label class="save-confirm">
+            <input v-model="saveConfirmed" type="checkbox" @change="onConfirmChange">
+            <span>내가 식별한 내용들과 식별한 사람의 실명이 사진에 입력되고, 실제 기사와 연결 됨을 확인 함</span>
           </label>
           <div class="im-foot">
             <button v-if="(user?.can || []).includes('delete')" class="btn btn-danger" type="button" :disabled="deleting || saving" @click="onDelete">
@@ -299,99 +368,115 @@ const onDelete = async () => {
 </template>
 
 <style scoped>
-/* 상세 모달 — 왼쪽 썸네일, 오른쪽 정보·편집 */
-.im { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 24px; font-family: var(--sans); }
-.im-ov { position: absolute; inset: 0; background: rgba(26, 26, 26, .5); }
+/* 상세 모달 — 메인 페이지의 종이·서체·선 중심 디자인 시스템을 그대로 사용한다. */
+.im { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 24px; font-family: var(--serif); }
+.im-ov { position: absolute; inset: 0; background: rgba(26, 26, 26, .34); }
 .im-box {
-  position: relative; display: flex; flex-direction: column; width: min(900px, 100%); max-height: 100%;
-  background: var(--paper); border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
-  box-shadow: 0 24px 60px rgba(26, 26, 26, .25);
+  position: relative; display: flex; flex-direction: column; width: min(960px, 100%); max-height: 100%;
+  background: var(--paper); border: 1px solid var(--line); border-radius: 0; overflow: hidden;
+  box-shadow: 0 18px 50px rgba(26, 26, 26, .18);
 }
-.im-head { flex: 0 0 auto; display: flex; align-items: center; gap: 12px; padding: 12px 16px 12px 20px; border-bottom: 1px solid var(--line); }
+.im-head { flex: 0 0 auto; display: flex; align-items: center; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--line); }
+.im-title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .im-body { flex: 1 1 auto; min-height: 0; display: flex; }
-.im-left { flex: 0 0 380px; min-width: 0; display: flex; flex-direction: column; gap: 12px; padding: 16px; background: var(--paper-deep); overflow-y: auto; }
+.im-left { flex: 0 0 400px; min-width: 0; display: flex; flex-direction: column; gap: 16px; padding: 20px; border-right: 1px solid var(--line); background: var(--paper); overflow-y: auto; }
 .im-x { flex: 0 0 auto; border: none; background: none; cursor: pointer; font-size: 24px; line-height: 1; color: var(--ink-light); padding: 0; }
-.im-x:hover { color: var(--ink); }
-.im-img { display: flex; align-items: center; justify-content: center; }
+.im-x:hover { color: var(--orange-deep); }
+.im-img { display: flex; align-items: center; justify-content: center; background: var(--paper-deep); }
 .im-img img { display: block; max-width: 100%; max-height: 56vh; object-fit: contain; }
-.im-side { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 12px; padding: 20px; overflow-y: auto; }
-.im-file { flex: 1; min-width: 0; margin: 0; font-family: var(--mono); font-size: 13px; font-weight: 500; color: var(--ink); word-break: break-all; }
-.meta-v { font-size: 13.5px; color: var(--ink); font-variant-numeric: tabular-nums; word-break: break-all; }
+.im-side { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 16px; padding: 22px; overflow-y: auto; }
+.im-file { margin: 0; font-family: var(--mono); font-size: 13px; font-weight: 500; color: var(--ink); word-break: break-all; }
+.im-captured { margin: 0; font-size: 12px; line-height: 1.5; color: var(--ink-light); }
+.meta-v { font-size: 13px; line-height: 1.55; color: var(--ink); font-variant-numeric: tabular-nums; word-break: break-all; }
+.meta-pending { color: var(--ink-light); }
 /* 한 줄에 여러 필드 */
-.fld-row { display: grid; gap: 10px; }
+.fld-row { display: grid; gap: 14px; }
 .fld-row3 { grid-template-columns: 1.3fr 1fr 1fr; }
 .fld-row2 { grid-template-columns: 1.4fr 1fr; }
-.fld { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.fld { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .fld-grow { flex: 1; }
 .fld-input {
-  font-family: var(--sans); font-size: 13.5px; color: var(--ink);
-  background: var(--paper); border: 1px solid var(--line); border-radius: 6px; padding: 8px 11px; width: 100%;
+  font-family: var(--serif); font-size: 13.5px; line-height: 1.5; color: var(--ink);
+  background: var(--paper); border: 1px solid var(--line); border-radius: 0; padding: 8px 10px; width: 100%;
 }
-.fld-input:focus { outline: none; border-color: var(--orange); }
+.fld-input:focus { outline: none; border-color: var(--ink-light); box-shadow: inset 0 -2px 0 var(--orange); }
 .fld-area { resize: vertical; line-height: 1.55; min-height: 96px; }
-.info-l { font-size: 11.5px; color: var(--ink-light); }
+.info-l { font-family: var(--sans); font-size: 11px; font-weight: 700; letter-spacing: .04em; color: var(--ink-mute); }
 /* 선수 목록 — 한 줄에 이름 · 소속 · 기록 연결 · 빼기 */
-.ath-list { display: flex; flex-direction: column; gap: 6px; }
+.ath-list { display: flex; flex-direction: column; gap: 8px; }
 .ath-row { display: flex; align-items: center; gap: 6px; }
 .ath-row .ath-name { flex: 1 1 0; min-width: 0; font-weight: 600; }
 .ath-row .ath-team { flex: 1 1 0; min-width: 0; }
-.ath-link { flex: 0 0 auto; min-width: 58px; text-align: center; font-size: 11.5px; font-weight: 600; color: var(--orange); white-space: nowrap; }
-.ath-link.none { color: var(--ink-light); font-weight: 400; }
+.ath-by {
+  flex: 0 1 150px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--sans); font-size: 11px; line-height: 1.4; color: var(--ink-light);
+}
 .ath-x { flex: 0 0 auto; border: none; background: none; cursor: pointer; font-size: 17px; line-height: 1; color: var(--ink-light); padding: 2px 4px; }
 .ath-x:hover { color: var(--bad); }
-.ath-by { flex: 0 0 auto; max-width: 64px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--ink-light); }
 .ath-lock { cursor: default; text-align: center; }
 .ath-lock:hover { color: var(--ink-light); }
 .ath-row .fld-input:disabled { background: var(--paper-deep); color: var(--ink-mute); }
-.ath-empty { margin: 0; font-size: 12.5px; color: var(--ink-light); }
-.add-btn {
-  flex: 0 0 auto; height: 36px; padding: 0 10px; font-family: var(--sans); font-size: 12.5px; color: var(--ink-mute); cursor: pointer; white-space: nowrap;
-  background: var(--paper); border: 1px solid var(--line); border-radius: 6px;
-}
-.add-btn:hover { border-color: var(--orange); color: var(--orange); }
+.ath-empty { margin: 0; font-size: 13px; line-height: 1.6; color: var(--ink-light); }
 .find-row .fr-chk { flex: 0 0 12px; color: var(--orange); font-weight: 700; }
 /* 선수 찾기 */
 .name-ctl { display: flex; align-items: center; gap: 6px; }
 .name-ctl .fld-input { flex: 1; min-width: 0; }
 .find-btn {
   flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px;
-  background: var(--paper); border: 1px solid var(--line); border-radius: 6px; color: var(--ink-light); cursor: pointer;
+  background: var(--paper); border: 1px solid var(--line); border-radius: 0; color: var(--ink-light); cursor: pointer;
 }
 .find-btn svg { width: 16px; height: 16px; }
-.find-btn:hover, .find-btn.on { border-color: var(--orange); color: var(--orange); }
-.find-panel { position: relative; display: flex; flex-direction: column; max-height: 220px; overflow-y: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--paper); }
+.find-btn:hover, .find-btn.on { border-color: var(--ink-light); color: var(--orange-deep); }
+.find-panel { position: relative; display: flex; flex-direction: column; max-height: 220px; overflow-y: auto; border: 1px solid var(--line); border-radius: 0; background: var(--paper); }
 .find-head {
   position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between;
   padding: 5px 6px 5px 12px; font-size: 11.5px; color: var(--ink-light); background: var(--paper-deep); border-bottom: 1px solid var(--line);
 }
-.find-close { font-family: var(--sans); font-size: 12px; color: var(--ink); cursor: pointer; background: var(--paper); border: 1px solid var(--line); border-radius: 5px; padding: 3px 10px; }
-.find-close:hover { border-color: var(--orange); color: var(--orange); }
+.find-close { font-family: var(--serif); font-size: 12px; color: var(--ink-mute); cursor: pointer; background: none; border: none; border-bottom: 1px solid transparent; border-radius: 0; padding: 3px 2px; }
+.find-close:hover { border-bottom-color: var(--orange); color: var(--ink); }
 .find-msg { margin: 0; padding: 10px 12px; font-size: 12.5px; color: var(--ink-mute); }
 .find-row {
   display: flex; align-items: baseline; gap: 8px; text-align: left; cursor: pointer;
-  font-family: var(--sans); font-size: 13px; color: var(--ink);
+  font-family: var(--serif); font-size: 13px; color: var(--ink);
   background: none; border: none; border-bottom: 1px solid var(--line-soft); padding: 8px 12px;
 }
 .find-row:last-child { border-bottom: none; }
 .find-row:hover { background: var(--paper-deep); }
 .find-row.cur { box-shadow: inset 2px 0 0 var(--orange); }
-.find-row .fr-team { color: var(--orange); font-weight: 600; }
-.find-row .fr-meta { margin-left: auto; font-size: 11.5px; color: var(--ink-light); white-space: nowrap; }
+.fr-person { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; }
+.fr-person > span { color: var(--ink-mute); }
+.fr-events { font-size: 11.5px; color: var(--ink-light) !important; line-height: 1.4; }
+.save-confirm {
+  display: flex; align-items: flex-start; gap: 8px; padding: 12px 14px; border: none; border-left: 3px solid var(--orange);
+  border-radius: 0; font-family: var(--sans); font-size: 12px; line-height: 1.55; color: var(--ink-mute); cursor: pointer;
+  background: var(--paper-deep);
+}
+.save-confirm input { flex: 0 0 auto; margin: 2px 0 0; accent-color: var(--orange); }
 .im-foot { display: flex; align-items: center; gap: 10px; padding-top: 4px; }
 .im-foot .btn-primary { margin-left: auto; }
 .foot-msg { flex: 1; font-size: 12px; color: var(--bad); }
-/* 공개 사이트에는 전역 버튼 스타일이 없어 여기서 정의한다 */
-.btn { font-family: var(--sans); font-size: 13.5px; font-weight: 500; border: 1px solid transparent; border-radius: 6px; padding: 8px 16px; cursor: pointer; }
+/* 메인 페이지 CTA와 동일하게 각진 2px 골격을 사용한다. */
+.btn { font-family: var(--sans); font-size: 13px; font-weight: 700; border: 1px solid transparent; border-radius: 2px; padding: 9px 18px; cursor: pointer; }
 .btn-primary { background: var(--orange); color: #fff; }
 .btn-primary:hover:not(:disabled) { background: var(--orange-deep); }
-.btn-danger { background: var(--bad-bg); color: var(--bad); }
-.btn-danger:hover:not(:disabled) { background: var(--bad); color: #fff; }
+.btn-danger { background: none; border-color: var(--line); color: var(--bad); }
+.btn-danger:hover:not(:disabled) { border-color: var(--bad); background: var(--bad-bg); }
 .btn:disabled { opacity: .5; cursor: default; }
 /* 좁은 화면 — 위아래로 쌓는다 */
 @media (max-width: 820px) {
   .im-body { flex-direction: column; overflow-y: auto; }
-  .im-left { flex: 0 0 auto; overflow: visible; }
+  .im-left { flex: 0 0 auto; overflow: visible; border-right: none; border-bottom: 1px solid var(--line); }
   .im-img img { max-height: 40vh; }
   .im-side { flex: 0 0 auto; overflow: visible; }
+}
+
+@media (max-width: 540px) {
+  .im { padding: 0; }
+  .im-box { width: 100%; height: 100%; max-height: none; border: none; }
+  .im-left, .im-side { padding: 18px; }
+  .fld-row3, .fld-row2 { grid-template-columns: 1fr; }
+  .ath-row { flex-wrap: wrap; }
+  .ath-row .ath-name, .ath-row .ath-team { flex-basis: calc(50% - 3px); }
+  .ath-by { flex: 1 1 calc(100% - 30px); padding-left: 2px; }
 }
 </style>
