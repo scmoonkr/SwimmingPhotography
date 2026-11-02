@@ -23,13 +23,18 @@ const competitions = ref<any[]>([])
 const rows = ref<any[]>([])
 const loading = ref(false)
 const errorMsg = ref('')
+const selectedCompetition = computed(() => competitions.value.find((c) => String(c.competitionID) === String(competitionID.value)))
 const competitionLabel = computed(() => {
   if (!competitionID.value) return '대회 전체'
-  const selectedCompetition = competitions.value.find((c) => String(c.competitionID) === String(competitionID.value))
-  return selectedCompetition?.competitionName || String(competitionID.value)
+  return selectedCompetition.value?.competitionName || String(competitionID.value)
 })
 const genderLabel = computed(() => gender.value ? (GENDER_KO[gender.value] || gender.value) : '전체 성별')
-const disciplineLabel = computed(() => discipline.value ? (DISC_KO[discipline.value] || discipline.value) : '전체 종목')
+const disciplineLabel = computed(() => discipline.value ? (DISC_KO[discipline.value] || discipline.value) : '전체 영법')
+const selectedFilterTitle = computed(() => {
+  const date = String(selectedCompetition.value?.datetime || '').slice(0, 10)
+  const competition = date ? `${competitionLabel.value} (${date})` : competitionLabel.value
+  return `${competition} · ${genderLabel.value} · ${disciplineLabel.value} · 전체 거리`
+})
 const facetCounts = ref({
   genders: {} as Record<string, number>,
   genderTotal: 0,
@@ -37,7 +42,43 @@ const facetCounts = ref({
   disciplineTotal: 0,
   identification: {} as Record<string, number>,
   identificationTotal: 0,
+  distribution: {} as Record<string, number>,
+  distributionTotal: 0,
 })
+const visibleGenderOptions = computed(() => Object.entries(GENDER_KO)
+  .map(([code, label]) => ({ code, label, count: Number(facetCounts.value.genders[code]) || 0 }))
+  .filter((option) => option.count > 0 || option.code === gender.value))
+const visibleDisciplineOptions = computed(() => Object.entries(DISC_KO)
+  .map(([code, label]) => ({ code, label, count: Number(facetCounts.value.disciplines[code]) || 0 }))
+  .filter((option) => option.count > 0 || option.code === discipline.value))
+
+const STROKE_GROUPS = [
+  { key: 'FR', label: '자유형', codes: ['FR'], color: '#d96f36' },
+  { key: 'BA', label: '배영', codes: ['BA'], color: '#52798a' },
+  { key: 'BR', label: '평영', codes: ['BR'], color: '#b38a3e' },
+  { key: 'FL', label: '접영', codes: ['FL'], color: '#886579' },
+  { key: 'IM', label: '개인혼영', codes: ['IM'], color: '#6f8064' },
+  { key: 'RELAY', label: '단체전', codes: ['FRR', 'MR'], color: '#515966' },
+] as const
+const strokeDistribution = computed(() => {
+  const counts = facetCounts.value.distribution || {}
+  const items = STROKE_GROUPS.map((group) => ({
+    ...group,
+    count: group.codes.reduce((sum, code) => sum + (Number(counts[code]) || 0), 0),
+  }))
+  const total = items.reduce((sum, item) => sum + item.count, 0)
+  return items.map((item) => {
+    const rawPercent = total ? (item.count / total) * 100 : 0
+    return {
+      ...item,
+      width: `${rawPercent}%`,
+      percent: rawPercent >= 10 ? Math.round(rawPercent).toString() : rawPercent.toFixed(1).replace(/\.0$/, ''),
+    }
+  })
+})
+const strokeDistributionLabel = computed(() => strokeDistribution.value
+  .map((item) => `${item.label} ${item.percent}% ${item.count}장`)
+  .join(', '))
 
 const PAGE_SIZE = 5000
 const page = ref(1)
@@ -90,6 +131,7 @@ const loadFacets = async () => {
     facetCounts.value = {
       genders: {}, genderTotal: 0, disciplines: {}, disciplineTotal: 0,
       identification: {}, identificationTotal: 0,
+      distribution: {}, distributionTotal: 0,
     }
   }
 }
@@ -143,6 +185,26 @@ const onDeleted = async () => {
 
 <template>
   <div class="isel">
+    <header class="isel-overview">
+      <h1 class="isel-title">{{ selectedFilterTitle }}</h1>
+      <div class="stroke-summary">
+        <div class="stroke-meter" role="img" :aria-label="`영법별 사진 분포: ${strokeDistributionLabel}`">
+          <span
+            v-for="item in strokeDistribution" v-show="item.count" :key="item.key"
+            class="stroke-segment" :style="{ width: item.width, backgroundColor: item.color }"
+            :title="`${item.label} ${item.percent}% · ${item.count.toLocaleString()}장`"
+          />
+        </div>
+        <div class="stroke-legend">
+          <span v-for="item in strokeDistribution" :key="item.key" class="stroke-stat">
+            <i class="stroke-dot" :style="{ backgroundColor: item.color }" aria-hidden="true" />
+            <span class="stroke-name">{{ item.label }}</span>
+            <span class="stroke-value">{{ item.percent }}% · {{ item.count.toLocaleString() }}장</span>
+          </span>
+        </div>
+      </div>
+    </header>
+
     <!-- 필터 -->
     <div class="isel-bar">
       <select v-model="competitionID" class="f-sel f-comp" aria-label="대회">
@@ -153,14 +215,14 @@ const onDeleted = async () => {
       </select>
       <select v-model="gender" class="f-sel" aria-label="성별">
         <option value="">전체 {{ facetCounts.genderTotal }}장</option>
-        <option v-for="(ko, code) in GENDER_KO" :key="code" :value="code">
-          {{ ko }} {{ facetCounts.genders[code] || 0 }}장
+        <option v-for="option in visibleGenderOptions" :key="option.code" :value="option.code">
+          {{ option.label }} {{ option.count }}장
         </option>
       </select>
       <select v-model="discipline" class="f-sel" aria-label="영법">
         <option value="">전체 {{ facetCounts.disciplineTotal }}장</option>
-        <option v-for="(ko, code) in DISC_KO" :key="code" :value="code">
-          {{ ko }} {{ facetCounts.disciplines[code] || 0 }}장
+        <option v-for="option in visibleDisciplineOptions" :key="option.code" :value="option.code">
+          {{ option.label }} {{ option.count }}장
         </option>
       </select>
       <select v-model="picked" class="f-sel" aria-label="식별 여부">
@@ -208,6 +270,22 @@ const onDeleted = async () => {
 
 <style scoped>
 .isel { font-family: var(--serif); padding-bottom: 60px; }
+.isel-overview { margin: 0 0 18px; }
+.isel-title {
+  margin: 0 0 9px; font-family: var(--serif); font-size: 13px; font-weight: 700; line-height: 1.6; color: var(--ink);
+  word-break: keep-all;
+}
+.stroke-summary { display: flex; flex-direction: column; gap: 8px; }
+.stroke-meter {
+  display: flex; width: 100%; height: 9px; gap: 1px; overflow: hidden;
+  border-radius: 999px; background: var(--paper-deep); box-shadow: inset 0 0 0 1px rgba(26, 26, 26, .05);
+}
+.stroke-segment { display: block; min-width: 2px; height: 100%; }
+.stroke-legend { display: flex; align-items: center; gap: 5px 16px; flex-wrap: wrap; }
+.stroke-stat { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; font-size: 11.5px; line-height: 1.5; }
+.stroke-dot { width: 6px; height: 6px; border-radius: 50%; flex: 0 0 auto; }
+.stroke-name { color: var(--ink-mute); }
+.stroke-value { color: var(--ink-light); font-variant-numeric: tabular-nums; }
 .isel-bar {
   display: grid; grid-template-columns: minmax(260px, 2fr) repeat(3, minmax(135px, 1fr));
   gap: 18px; align-items: end; padding-bottom: 13px; border-bottom: 1px solid var(--line);
@@ -247,6 +325,9 @@ const onDeleted = async () => {
 .card:hover .card-cap { color: var(--orange-deep); }
 
 @media (max-width: 640px) {
+  .isel-overview { margin-bottom: 16px; }
+  .stroke-legend { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 14px; }
+  .stroke-stat { justify-content: flex-start; }
   .isel-bar { grid-template-columns: 1fr 1fr; gap: 8px 14px; }
   .f-comp { grid-column: 1 / -1; }
   .isel-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 14px; }

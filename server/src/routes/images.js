@@ -352,9 +352,24 @@ router.get('/facets', async (req, res) => {
       },
     })
 
+    // 영법 분포 바는 현재 선택된 필터를 모두 반영한다.
+    // 드롭다운 옵션 수량과 달리 선택 중인 영법도 적용해야 선택 결과의 실제 비율이 된다.
+    const distributionPipeline = []
+    if (matchedFilter) distributionPipeline.push({ $match: matchedFilter })
+    if (gender) distributionPipeline.push({ $match: { gender: String(gender) } })
+    if (discipline) distributionPipeline.push({ $match: { discipline: String(discipline) } })
+    distributionPipeline.push({ $group: { _id: '$discipline', count: { $sum: 1 } } })
+
     const [result = {}] = await (await coll()).aggregate([
       { $match: base },
-      { $facet: { genders: genderPipeline, disciplines: disciplinePipeline, identification: identificationPipeline } },
+      {
+        $facet: {
+          genders: genderPipeline,
+          disciplines: disciplinePipeline,
+          identification: identificationPipeline,
+          distribution: distributionPipeline,
+        },
+      },
     ]).toArray()
     const toCounts = (items) => Object.fromEntries((items || []).map((item) => [String(item._id ?? ''), item.count]))
     const sum = (items) => (items || []).reduce((total, item) => total + item.count, 0)
@@ -365,6 +380,8 @@ router.get('/facets', async (req, res) => {
       disciplineTotal: sum(result.disciplines),
       identification: toCounts(result.identification),
       identificationTotal: sum(result.identification),
+      distribution: toCounts(result.distribution),
+      distributionTotal: sum(result.distribution),
     })
   } catch (e) {
     res.status(500).json({ error: e.message })
