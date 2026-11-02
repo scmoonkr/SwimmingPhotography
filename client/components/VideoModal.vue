@@ -6,7 +6,7 @@
 //   row.athletes 로 선수가 이미 정해져 오면(기록표의 올리기) 선수 고르기 없이 영상·캡션만 받는 간단한 화면이 된다.
 // 파일은 서버를 거치지 않는다 — 서버에서 올릴 주소를 받아 스토리지로 직접 올린 뒤(진행률 표시) 등록한다.
 // 저장·삭제는 서버가 로그인(세션 쿠키)을 요구한다. 저장하면 서버가 updatedAt 과 contributor(로그인 계정)를 남긴다.
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 
 const props = defineProps<{ row: any | null }>()
 const emit = defineEmits<{
@@ -25,7 +25,7 @@ const simpleTitle = computed(() => {
 })
 // 용량 한도(MB) — 서버의 VIDEO_MAX_MB. 한 번 받아 두고 쓴다(받기 전·실패 시 500). 최종 검사는 서버가 한다.
 const maxMB = useState<number>('videos:maxMB', () => 0)
-const MAX_MB = computed(() => maxMB.value || 500)
+const MAX_MB = computed(() => maxMB.value || 499)
 if (import.meta.client && !maxMB.value) {
   $fetch<any>('/api/videos/config').then((c) => { if (Number(c?.maxMB) > 0) maxMB.value = Number(c.maxMB) }).catch(() => {})
 }
@@ -86,6 +86,8 @@ const fileInput = ref<HTMLInputElement | null>(null)
 const uploading = ref(false)
 const progress = ref(0)          // 0~100
 const stage = ref('')            // 진행 단계 문구
+const dragging = ref(false)
+let dragDepth = 0
 let xhr: XMLHttpRequest | null = null
 
 // 첫 화면(썸네일) — 영상에서 한 장면을 뽑아 jpeg 로. 브라우저가 못 읽는 코덱이면 null (썸네일 없이 올린다)
@@ -140,9 +142,36 @@ const choose = (file: File | null | undefined) => {
   clearPending()
   pending.value = file
   previewUrl.value = URL.createObjectURL(file)
+  // /videos 의 기록별 올리기는 선수와 종목이 이미 정해져 있다.
+  // 파일 검증이 끝나면 별도의 '올리기' 단계를 거치지 않고 바로 전송한다.
+  if (simple.value) void nextTick(() => upload())
 }
 const onPick = (e: Event) => choose((e.target as HTMLInputElement).files?.[0])
-const onDrop = (e: DragEvent) => choose(e.dataTransfer?.files?.[0])
+const canDrop = (e: DragEvent) => isNew.value && !uploading.value && !!e.dataTransfer?.types.includes('Files')
+const onDragEnter = (e: DragEvent) => {
+  if (!canDrop(e)) return
+  e.preventDefault()
+  dragDepth += 1
+  dragging.value = true
+}
+const onDragOver = (e: DragEvent) => {
+  if (!canDrop(e)) return
+  e.preventDefault()
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+}
+const onDragLeave = (e: DragEvent) => {
+  if (!dragging.value) return
+  e.preventDefault()
+  dragDepth = Math.max(0, dragDepth - 1)
+  if (!dragDepth) dragging.value = false
+}
+const onDrop = (e: DragEvent) => {
+  if (!isNew.value || uploading.value) return
+  e.preventDefault()
+  dragDepth = 0
+  dragging.value = false
+  choose(e.dataTransfer?.files?.[0])
+}
 const cancelUpload = () => { xhr?.abort() }
 // 올리려면 영상과 선수가 모두 있어야 한다 — 누구의 영상인지 모르는 채로 올라가지 않게
 const canUpload = computed(() => !!pending.value && draft.value.athletes.length > 0 && !uploading.value)
@@ -273,6 +302,8 @@ watch(() => props.row, (r) => {
   }
   fAge.value = ''; fTeam.value = ''; fInit.value = ''
   msg.value = ''
+  dragDepth = 0
+  dragging.value = false
   clearPending()
   loadPool()
   window.addEventListener('keydown', onKey)
@@ -323,7 +354,11 @@ const onDelete = async () => {
 <template>
   <div v-if="row" class="im">
     <div class="im-ov" @click="close" />
-    <div class="im-box" :class="{ 'im-narrow': simple }" role="dialog" aria-modal="true" aria-label="영상 상세">
+    <div
+      class="im-box" :class="{ 'im-narrow': simple, 'is-dragging': dragging }"
+      role="dialog" aria-modal="true" aria-label="영상 상세"
+      @dragenter="onDragEnter" @dragover="onDragOver" @dragleave="onDragLeave" @drop="onDrop"
+    >
       <!-- 머리줄 — 파일명 -->
       <header class="im-head">
         <h2 class="im-file" :class="{ 'im-who': simple }">{{ simple ? simpleTitle : (isNew ? '새 영상 올리기' : row.filename) }}</h2>
@@ -336,7 +371,7 @@ const onDelete = async () => {
           <div class="im-video"><video :key="previewUrl" :src="previewUrl" controls playsinline preload="metadata" /></div>
           <p class="im-up">{{ pending.name }} · {{ fmtSize(pending.size) }} · 아직 올리지 않음</p>
         </template>
-        <div v-else class="im-drop" @dragover.prevent @drop.prevent="onDrop">
+        <div v-else class="im-drop">
           <p class="drop-t">올릴 영상을 선택하세요</p>
           <button class="btn btn-primary" type="button" @click="fileInput?.click()">영상 선택</button>
           <p class="drop-h">mp4 · mov · {{ MAX_MB }}MB 까지 · Wi-Fi 권장</p>
@@ -346,15 +381,15 @@ const onDelete = async () => {
           <textarea v-model="draft.caption" class="fld-input fld-area" rows="3" placeholder="영상 설명" :disabled="uploading" />
         </label>
         <p v-if="msg" class="up-msg">{{ msg }}</p>
-        <div class="im-foot">
+        <div v-if="uploading || (pending && msg)" class="im-foot">
           <template v-if="uploading">
             <div class="bar"><span :style="{ width: progress + '%' }" /></div>
             <span class="up-prog">{{ stage }} {{ progress }}%</span>
             <button class="btn btn-ghost" type="button" @click="cancelUpload">취소</button>
           </template>
           <template v-else>
-            <button v-if="pending" class="btn btn-ghost" type="button" @click="fileInput?.click()">다른 영상 선택</button>
-            <button class="btn btn-primary" type="button" :disabled="!canUpload" @click="upload">올리기</button>
+            <button class="btn btn-ghost" type="button" @click="fileInput?.click()">다른 영상 선택</button>
+            <button class="btn btn-primary" type="button" :disabled="!canUpload" @click="upload">다시 올리기</button>
           </template>
         </div>
         <p v-if="uploading" class="ath-empty">올리는 동안 이 창을 닫거나 다른 앱으로 넘어가면 업로드가 끊길 수 있습니다.</p>
@@ -397,7 +432,7 @@ const onDelete = async () => {
               <p class="im-up">{{ pending.name }} · {{ fmtSize(pending.size) }} · 아직 올리지 않음</p>
               <button class="btn btn-ghost pick-again" type="button" :disabled="uploading" @click="fileInput?.click()">다른 영상 선택</button>
             </template>
-            <div v-else class="im-drop" @dragover.prevent @drop.prevent="onDrop">
+            <div v-else class="im-drop">
               <p class="drop-t">올릴 영상을 선택하세요</p>
               <button class="btn btn-primary" type="button" @click="fileInput?.click()">영상 선택</button>
               <p class="drop-h">mp4 · mov · {{ MAX_MB }}MB 까지 · Wi-Fi 권장</p>
@@ -517,6 +552,13 @@ const onDelete = async () => {
   position: relative; display: flex; flex-direction: column; width: min(1040px, 100%); max-height: 100%;
   background: var(--paper); border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
   box-shadow: 0 24px 60px rgba(26, 26, 26, .25);
+}
+.im-box.is-dragging { border-color: var(--orange); box-shadow: 0 24px 60px rgba(26, 26, 26, .25), 0 0 0 3px rgba(217, 119, 6, .2); }
+.im-box.is-dragging::after {
+  content: '영상을 여기에 놓으세요'; position: absolute; inset: 8px; z-index: 20;
+  display: flex; align-items: center; justify-content: center; pointer-events: none;
+  border: 2px dashed var(--orange); border-radius: 8px; background: rgba(255, 252, 247, .94);
+  color: var(--orange-deep); font-size: 15px; font-weight: 700;
 }
 .im-head { flex: 0 0 auto; display: flex; align-items: center; gap: 12px; padding: 12px 16px 12px 20px; border-bottom: 1px solid var(--line); }
 .im-body { flex: 1 1 auto; min-height: 0; display: flex; }

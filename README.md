@@ -47,6 +47,14 @@ npm install        # 루트에서 한 번 → client/server 의존성 모두 설
 | `npm run client` | 클라이언트만 실행 (http://localhost:6641) |
 | `npm run dashboard` | 클라이언트만 실행 (http://localhost:6642) |
 | `npm run erp` | 업무관리(주문·거래처·물품·재고) API + 관리 화면 (http://localhost:6643) |
+http://localhost:6640
+https://api.swimmingphotography.com
+
+http://localhost:6641
+https://swimmingphotography.com
+
+http://localhost:6642
+https://backend.swimmingphotography.com
 
 접속 주소:
 

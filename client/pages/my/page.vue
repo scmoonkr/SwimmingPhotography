@@ -182,6 +182,7 @@ const save = async () => {
   display: inline-flex; align-items: center; justify-content: center; width: 13px; height: 13px; list-style: none;
   border: 1px solid var(--line); border-radius: 50%; font-family: var(--serif); font-size: 8px; font-style: italic;
   font-weight: 500; line-height: 1; color: var(--ink-light); cursor: pointer; user-select: none;
+  transform: translateY(-2px);
 }
 .mp-info summary::-webkit-details-marker { display: none; }
 .mp-info summary:hover, .mp-info[open] summary { border-color: var(--ink-light); color: var(--ink-mute); }
