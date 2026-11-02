@@ -18,9 +18,9 @@ const toId = (v) => { try { return new ObjectId(String(v)) } catch { return null
 const abs = (p) => (!p ? '' : (/^https?:\/\//.test(p) ? p : publicUrl(p)))
 // 파일명 정리 — 한글은 살리고 나머지 특수문자만 '_' 로 (images 와 같은 규칙)
 const safeName = (s) => String(s).normalize('NFC').replace(/[^\w.\-가-힣]/g, '_')
-// 영상 하나의 용량 한도(MB) — .env 의 VIDEO_MAX_MB, 없으면 500.
+// 영상 하나의 용량 한도(MB) — .env 의 VIDEO_MAX_MB, 없으면 499.
 // env 는 dotenv.config 이후에 읽어야 하므로 호출 시점에 읽는다(import 시점엔 아직 안 올라와 있다).
-const maxMB = () => Number(process.env.VIDEO_MAX_MB) || 500
+const maxMB = () => Number(process.env.VIDEO_MAX_MB) || 499
 const maxBytes = () => maxMB() * 1024 * 1024
 const VIDEO_RE = /\.(mp4|mov|m4v|webm)$/i
 
@@ -39,12 +39,13 @@ const coll = async () => {
 }
 
 // username → 표시 이름
+const igOf = new Map()   // username → 인스타그램 계정(userNames 가 채운다)
 const userNames = async (usernames) => {
   const who = [...new Set((usernames || []).filter(Boolean))]
   const map = new Map()
   if (who.length) {
-    const us = await (await SP()).collection('users').find({ username: { $in: who } }, { projection: { username: 1, name: 1 } }).toArray()
-    for (const u of us) map.set(u.username, u.name || u.username)
+    const us = await (await SP()).collection('users').find({ username: { $in: who } }, { projection: { username: 1, name: 1, instagram: 1 } }).toArray()
+    for (const u of us) { map.set(u.username, u.name || u.username); igOf.set(u.username, String(u.instagram || '').trim()) }
   }
   return map
 }
@@ -54,14 +55,14 @@ const videoOut = (v, nameOf) => {
   return {
     _id: v._id, competitionID: v.competitionID, competition: v.competition || '',
     discipline: v.discipline || '', gender: v.gender || '', distance: v.distance || '',
-    filename: v.filename || '', size: v.size || 0, caption: v.caption || '',
+    filename: v.filename || '', size: v.size || 0, caption: v.caption || '', kind: v.kind === 'cheer' ? 'cheer' : 'match',
     url: abs(v.url), thumbnail: abs(v.thumbnail),
     athletes: (v.athletes || []).map((a) => ({
       name: a.name ?? '', team: a.team ?? '', ageGroup: a.ageGroup ?? '', timeID: a.timeID ?? null,
       contributor: a.contributor ?? '', contributorName: nm(a.contributor),
     })),
     name: v.name || '', team: v.team || '', ageGroup: v.ageGroup || '', timeID: v.timeID ?? null,
-    uploader: v.uploader || '', uploaderName: nm(v.uploader),
+    uploader: v.uploader || '', uploaderName: nm(v.uploader), uploaderInstagram: igOf.get(v.uploader) || '',
     contributor: v.contributor || '', contributorName: nm(v.contributor),
     createdAt: v.createdAt, updatedAt: v.updatedAt,
   }
@@ -126,6 +127,73 @@ router.get('/times', async (req, res) => {
 // 화면이 쓰는 설정 — 용량 한도(올리기 전에 안내·검사한다)
 router.get('/config', (req, res) => res.json({ maxMB: maxMB() }))
 
+// 비디오 페이지의 필터 옵션과 영상 수.
+// 옵션은 대회의 실제 기록(times)에 존재하는 조합만 내리고, 수량은 임시 스토리지에 올라온
+// videos 문서를 영상 하나당 한 건으로 센다. 각 항목은 자기 필터를 제외한 나머지 선택을 반영한다.
+router.get('/facets', async (req, res) => {
+  try {
+    const { competitionID, discipline, gender, distance } = req.query
+    if (!competitionID) {
+      return res.json({
+        genderOptions: [], disciplineOptions: [], distanceOptions: [],
+        genders: {}, genderTotal: 0, disciplines: {}, disciplineTotal: 0,
+        distances: {}, distanceTotal: 0, distribution: {}, distributionTotal: 0,
+      })
+    }
+    const base = { competitionID: Number(competitionID) }
+
+    const facetPipelines = () => ({
+      genders: [
+        ...(discipline ? [{ $match: { discipline: String(discipline) } }] : []),
+        ...(distance ? [{ $match: { distance: String(distance) } }] : []),
+        { $group: { _id: '$gender', count: { $sum: 1 } } },
+      ],
+      disciplines: [
+        ...(gender ? [{ $match: { gender: String(gender) } }] : []),
+        ...(distance ? [{ $match: { distance: String(distance) } }] : []),
+        { $group: { _id: '$discipline', count: { $sum: 1 } } },
+      ],
+      distances: [
+        ...(gender ? [{ $match: { gender: String(gender) } }] : []),
+        ...(discipline ? [{ $match: { discipline: String(discipline) } }] : []),
+        { $group: { _id: '$distance', count: { $sum: 1 } } },
+      ],
+    })
+    const optionFacets = facetPipelines()
+    const videoFacets = facetPipelines()
+    videoFacets.distribution = [
+      ...(gender ? [{ $match: { gender: String(gender) } }] : []),
+      ...(discipline ? [{ $match: { discipline: String(discipline) } }] : []),
+      ...(distance ? [{ $match: { distance: String(distance) } }] : []),
+      { $group: { _id: '$discipline', count: { $sum: 1 } } },
+    ]
+
+    const sp = await SP()
+    const [[available = {}], [counts = {}]] = await Promise.all([
+      sp.collection('times').aggregate([{ $match: base }, { $facet: optionFacets }]).toArray(),
+      (await coll()).aggregate([{ $match: base }, { $facet: videoFacets }]).toArray(),
+    ])
+    const values = (items) => (items || []).map((item) => String(item._id ?? '')).filter(Boolean)
+    const toCounts = (items) => Object.fromEntries((items || []).map((item) => [String(item._id ?? ''), item.count]))
+    const sum = (items) => (items || []).reduce((total, item) => total + item.count, 0)
+    res.json({
+      genderOptions: values(available.genders),
+      disciplineOptions: values(available.disciplines),
+      distanceOptions: values(available.distances),
+      genders: toCounts(counts.genders),
+      genderTotal: sum(counts.genders),
+      disciplines: toCounts(counts.disciplines),
+      disciplineTotal: sum(counts.disciplines),
+      distances: toCounts(counts.distances),
+      distanceTotal: sum(counts.distances),
+      distribution: toCounts(counts.distribution),
+      distributionTotal: sum(counts.distribution),
+    })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
 // 목록 — 대회·영법·성별·거리 + 선택 여부(matched: has = 선수 기록에 연결됨 · none = 아직 안 됨)
 router.get('/', async (req, res) => {
   try {
@@ -189,7 +257,7 @@ router.post('/presign', async (req, res) => {
 // 등록 — 스토리지에 올린 뒤 호출. 실제로 올라갔는지(크기) 확인하고 문서를 만든다. 선수는 아직 없다.
 router.post('/', async (req, res) => {
   try {
-    const { competitionID, discipline, gender, distance, key, thumbKey, filename } = req.body || {}
+    const { competitionID, discipline, gender, distance, key, thumbKey, filename, kind } = req.body || {}
     const cid = Number(competitionID)
     const prefix = `SP-videos-${cid}/`
     if (!Number.isFinite(cid) || !String(key || '').startsWith(prefix) || String(key).includes('..')) {
@@ -212,7 +280,7 @@ router.post('/', async (req, res) => {
       competitionID: cid, competition: comp?.competitionName || '',
       discipline: String(discipline ?? ''), gender: String(gender ?? ''), distance: String(distance ?? ''),
       filename: safeName(filename || '') || String(key).split('/').pop(),
-      url: String(key), thumbnail: thumb, size: head.size, caption: '',
+      url: String(key), thumbnail: thumb, size: head.size, caption: '', kind: kind === 'cheer' ? 'cheer' : 'match',
       athletes: [], timeIDs: [], name: '', team: '', ageGroup: '', timeID: null,
       uploader: req.user?.username || '', createdAt: now, updatedAt: now,
     }
