@@ -3,7 +3,7 @@
 // 필터: 대회 · 성별 · 종목(영법) · 거리 — 성별·종목·거리는 '전체'가 기본.
 // 종목(부 · 그룹 · 성별 · 영법 · 거리 · 코스 · 예선/결선)마다 표 하나, 표 안은 기록 빠른 순(같으면 순위 → 이름).
 //   열: no · name · ageGroup · gender · team · discipline · distance · time · rank · status · 영상(있으면) · 올리기 (코스는 종목 제목에만)
-// 행(영상 아이콘 포함)을 누르면 오른쪽 드로어(VideoDrawer)에서 영상 보기·올리기.
+// 행(영상 아이콘 포함)을 누르면 영상 보기 모달(VideoDrawer), 올리기 아이콘은 올리기 모달(VideoUpload).
 // 카드로 훑어보는 화면은 videoscard 페이지. 내부 작업용이라 메뉴에 걸지 않고 검색 노출도 막는다.
 import { computed, onMounted, ref, watch } from 'vue'
 
@@ -179,6 +179,7 @@ const groups = computed(() => {
 })
 const videoTotal = computed(() => Number(facetCounts.value.distributionTotal) || 0)
 const drawerRow = ref<any | null>(null)
+const uploadRow = ref<any | null>(null)
 const openDrawer = (row: any) => { drawerRow.value = row }
 const refreshDrawer = async () => {
   const timeID = drawerRow.value?.timeID
@@ -280,6 +281,9 @@ const onDrawerDeleted = async () => { await refreshDrawer() }
                 <span v-else class="ico ico-play ico-off" aria-hidden="true">
                   <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5Z" /></svg>
                 </span>
+                <button class="ico ico-up" type="button" :title="`${r.name} 영상 올리기`" aria-label="영상 올리기" @click.stop="uploadRow = r">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V5" /><path d="m7 10 5-5 5 5" /><path d="M5 20h14" /></svg>
+                </button>
               </td>
             </tr>
           </tbody>
@@ -288,9 +292,10 @@ const onDrawerDeleted = async () => { await refreshDrawer() }
     </section>
     <p v-if="!loading && !errorMsg && !rows.length" class="vt-empty">조건에 맞는 기록이 없습니다.</p>
 
+    <VideoUpload v-if="uploadRow" :row="uploadRow" @close="uploadRow = null" @uploaded="refreshDrawer" />
     <VideoDrawer
       v-if="drawerRow" :row="drawerRow"
-      @close="drawerRow = null" @deleted="onDrawerDeleted" @uploaded="refreshDrawer"
+      @close="drawerRow = null" @deleted="onDrawerDeleted"
     />
   </div>
 </template>
@@ -354,6 +359,7 @@ const onDrawerDeleted = async () => { await refreshDrawer() }
 }
 .ico svg { width: 15px; height: 15px; }
 .ico:hover { border-color: var(--orange); color: var(--orange); }
+.ic .ico + .ico, .ic .ico-off + .ico { margin-left: 5px; }
 .ico-play { color: #fff; background: var(--orange); border-color: var(--orange); }
 .ico-play:hover { color: #fff; background: var(--orange-deep); border-color: var(--orange-deep); }
 .ico-play.ico-off { opacity: .18; pointer-events: none; }

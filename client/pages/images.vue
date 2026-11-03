@@ -164,6 +164,27 @@ const caption = (r: any) => [
 const isIdentified = (r: any) => Boolean(String(r.gender || '').trim()) && r.timeID != null
 const cardCaption = (r: any) => isIdentified(r) ? (caption(r) || '—') : '식별되지않음'
 
+// ── 여러 장 선택 — 썸네일 왼쪽 위 동그라미를 눌러 체크하고 한번에 식별한다 ──
+const checked = ref<Set<string>>(new Set())
+const toggleCheck = (r: any) => {
+  const next = new Set(checked.value)
+  if (next.has(String(r._id))) next.delete(String(r._id)); else next.add(String(r._id))
+  checked.value = next
+}
+const uncheckOne = (id: string) => {
+  const next = new Set(checked.value)
+  next.delete(id)
+  checked.value = next
+}
+const clearChecked = () => { checked.value = new Set() }
+const checkedRows = computed(() => rows.value.filter((r) => checked.value.has(String(r._id))))
+const openBulk = () => {
+  const list = checkedRows.value
+  if (!list.length) return
+  selected.value = { ...list[0], _bulk: true, _rows: list, filename: `선택한 ${list.length}장 사진 한번에 식별하기` }
+}
+watch([competitionID, discipline, gender, picked, page], clearChecked)
+
 // ── 상세 모달 ──
 const selected = ref<any | null>(null)
 // 저장하면 식별 여부가 바뀔 수 있다 — 식별완료/식별되지않음 필터 중이면 현재 목록을 다시 불러온다
@@ -174,6 +195,7 @@ const removeAndReload = async () => {
 }
 const onSaved = async (r: any) => {
   selected.value = null
+  if (r._bulk) { clearChecked(); await reload(); return }
   const has = isIdentified(r)
   if ((picked.value === 'has' && !has) || (picked.value === 'none' && has)) await removeAndReload()
 }
@@ -244,13 +266,19 @@ const onDeleted = async () => {
 
     <!-- 이미지 카드 -->
     <div class="isel-grid">
-      <button
-        v-for="r in rows" :key="r._id" class="card" type="button"
-        :class="{ picked: isIdentified(r), unidentified: !isIdentified(r) }" :title="r.filename" @click="selected = r"
-      >
-        <span class="card-img"><img :src="r.thumbnail || r.url" alt="" loading="lazy" decoding="async"></span>
-        <span class="card-cap">{{ cardCaption(r) }}</span>
-      </button>
+      <div v-for="r in rows" :key="r._id" class="card-wrap">
+        <button
+          class="card" type="button"
+          :class="{ picked: isIdentified(r), unidentified: !isIdentified(r) }" :title="r.filename" @click="selected = r"
+        >
+          <span class="card-img"><img :src="r.thumbnail || r.url" alt="" loading="lazy" decoding="async"></span>
+          <span class="card-cap">{{ cardCaption(r) }}</span>
+        </button>
+        <button
+          class="card-check" :class="{ on: checked.has(String(r._id)) }" type="button"
+          :aria-pressed="checked.has(String(r._id))" aria-label="사진 선택" @click="toggleCheck(r)"
+        ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5" /></svg></button>
+      </div>
     </div>
     <p v-if="!loading && !errorMsg && !rows.length" class="isel-empty">조건에 맞는 사진이 없습니다.</p>
 
@@ -264,7 +292,12 @@ const onDeleted = async () => {
       <button type="button" class="pg" :disabled="page === pageCount" @click="goPage(page + 1)">다음</button>
     </nav>
 
-    <ImageEditModal :row="selected" @close="selected = null" @saved="onSaved" @deleted="onDeleted" />
+    <div v-if="checked.size" class="bulk-bar">
+      <button class="bulk-go" type="button" @click="openBulk">선택한 {{ checked.size }}장 사진 한번에 식별하기</button>
+      <button class="bulk-clear" type="button" @click="clearChecked">전체 선택 취소하기</button>
+    </div>
+
+    <ImageEditModal :row="selected" @uncheck="uncheckOne" @close="selected = null" @saved="onSaved" @deleted="onDeleted" />
   </div>
 </template>
 
@@ -310,6 +343,29 @@ const onDeleted = async () => {
 .pg:disabled { opacity: .4; cursor: default; }
 
 .isel-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 20px; }
+.card-wrap { position: relative; min-width: 0; }
+.card-check {
+  position: absolute; top: 8px; left: 8px; z-index: 2; display: flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; padding: 0; border: 2px solid rgba(255, 255, 255, .9); border-radius: 50%;
+  background: rgba(26, 26, 26, .28); color: transparent; cursor: pointer; transition: background .12s;
+}
+.card-check svg { width: 14px; height: 14px; }
+.card-check:hover { background: rgba(26, 26, 26, .5); }
+.card-check.on { background: var(--orange); border-color: #fff; color: #fff; }
+.bulk-bar {
+  position: fixed; left: 50%; bottom: 28px; z-index: 900; display: flex; align-items: center; gap: 10px;
+  max-width: calc(100vw - 24px); transform: translateX(-50%);
+}
+.bulk-go {
+  padding: 13px 22px; border: 0; border-radius: 999px; background: var(--ink); color: #fff;
+  font: 700 14px var(--sans); box-shadow: 0 8px 24px rgba(26, 26, 26, .28); cursor: pointer; white-space: nowrap;
+}
+.bulk-go:hover { background: var(--orange-deep); }
+.bulk-clear {
+  padding: 11px 16px; border: 1px solid rgba(26, 26, 26, .18); border-radius: 999px; background: rgba(255, 255, 255, .6);
+  color: var(--ink-mute); font: 600 12.5px var(--sans); cursor: pointer; white-space: nowrap; backdrop-filter: blur(6px);
+}
+.bulk-clear:hover { background: rgba(255, 255, 255, .92); color: var(--ink); }
 .card {
   display: flex; flex-direction: column; gap: 9px; padding: 0; text-align: left; cursor: pointer;
   font-family: var(--serif); color: var(--ink); background: none; border: none;

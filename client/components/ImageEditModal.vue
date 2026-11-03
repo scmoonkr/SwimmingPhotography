@@ -5,7 +5,7 @@
 import { computed, ref, watch } from 'vue'
 
 const props = defineProps<{ row: any | null }>()
-const emit = defineEmits<{ (e: 'close'): void; (e: 'saved', row: any): void; (e: 'deleted', row: any): void }>()
+const emit = defineEmits<{ (e: 'uncheck', id: string): void; (e: 'close'): void; (e: 'saved', row: any): void; (e: 'deleted', row: any): void }>()
 
 const DISC_KO: Record<string, string> = { FR: '자유형', BA: '배영', BR: '평영', FL: '접영', IM: '개인혼영', FRR: '계영', MR: '혼계영' }
 const GENDER_KO: Record<string, string> = { men: '남자', women: '여자', mixed: '혼성' }
@@ -35,7 +35,16 @@ const draft = ref({
   discipline: '', gender: '', distance: '',
   athletes: [] as Athlete[], type: '', caption: '',
 })
+// 여러 장 모드 — 선택한 사진 목록. 필요 없는 사진은 썸네일의 × 로 뺀다
+const bulkRows = ref<any[]>([])
+const dropBulk = (img: any) => {
+  bulkRows.value = bulkRows.value.filter((x) => x !== img)
+  emit('uncheck', String(img._id))
+  if (!bulkRows.value.length) emit('close')
+}
 const hasGender = computed(() => Boolean(String(draft.value.gender || '').trim()))
+// 선수 찾기는 영법·성별을 모두 골라야 쓸 수 있다 — 아니면 회색으로 비활성 표시
+const canFind = computed(() => hasGender.value && Boolean(String(draft.value.discipline || '').trim()))
 // athletes 가 없는 예전 사진은 단일 필드(name·team·ageGroup·timeID)를 한 명짜리 목록으로 본다
 const athletesOf = (r: any): Athlete[] => {
   if (Array.isArray(r?.athletes) && r.athletes.length) {
@@ -183,11 +192,14 @@ watch(() => props.row, (r) => {
   if (typeof window === 'undefined') return
   window.removeEventListener('keydown', onKey)
   if (!r) return
-  draft.value = {
-    discipline: r.discipline ?? '', gender: r.gender ?? '', distance: r.distance ?? '',
-    athletes: String(r.gender ?? '').trim() ? athletesOf(r) : [], type: r.type ?? '',
-    caption: r.translations?.ko?.caption ?? '',
-  }
+  bulkRows.value = r._bulk ? [...r._rows] : []
+  draft.value = r._bulk
+    ? { discipline: '', gender: '', distance: '', athletes: [], type: '', caption: '' }
+    : {
+      discipline: r.discipline ?? '', gender: r.gender ?? '', distance: r.distance ?? '',
+      athletes: String(r.gender ?? '').trim() ? athletesOf(r) : [], type: r.type ?? '',
+      caption: r.translations?.ko?.caption ?? '',
+    }
   findQ.value = ''
   addingAthlete.value = false
   msg.value = ''
@@ -206,6 +218,32 @@ const onSave = async () => {
     return
   }
   saving.value = true; msg.value = ''
+  if (r._bulk) {
+    // 여러 장 한번에 — 영법·성별·거리·선수만 같은 값으로 저장한다(장면·캡션은 건드리지 않는다)
+    try {
+      const body = {
+        discipline: draft.value.discipline, gender: draft.value.gender, distance: draft.value.distance,
+        athletes: (hasGender.value ? draft.value.athletes : [])
+          .map((a) => ({ name: a.name.normalize('NFC').trim(), team: a.team.normalize('NFC').trim(), ageGroup: a.ageGroup, timeID: a.timeID ?? '' }))
+          .filter((a) => a.name),
+        allowEmptyName: true,
+      }
+      const failed: string[] = []
+      for (const img of bulkRows.value) {
+        try {
+          const res = await $fetch<any>(`/api/images/${img._id}`, { method: 'PUT', body })
+          img.name = res.name; img.team = res.team; img.timeID = res.timeID; img.ageGroup = res.ageGroup
+          img.athletes = res.athletes || []; img.discipline = res.discipline; img.gender = res.gender; img.distance = res.distance
+          img.contributor = res.contributor; img.contributorName = res.contributorName; img.updatedAt = res.updatedAt
+        } catch { failed.push(img.filename) }
+      }
+      if (failed.length) msg.value = `${failed.length}장은 저장하지 못했습니다.`
+      else emit('saved', r)
+    } finally {
+      saving.value = false
+    }
+    return
+  }
   try {
     // 직접 입력한 이름·팀은 NFC 로 맞춘다 (자모분리면 times.name_unique 와 어긋난다)
     const body = {
@@ -258,16 +296,22 @@ const onDelete = async () => {
       <!-- 머리줄 — 파일명 -->
       <header class="im-head">
         <div class="im-title">
-          <h2 class="im-file">{{ row.filename }}</h2>
+          <h2 class="im-file">{{ row._bulk ? `선택한 ${bulkRows.length}장 사진 한번에 식별하기` : row.filename }}</h2>
           <p v-if="capturedAt" class="im-captured">{{ capturedAt }}</p>
         </div>
         <button class="im-x" type="button" aria-label="닫기" @click="close">×</button>
       </header>
       <div class="im-body">
         <div class="im-left">
-          <div class="im-img"><img :src="row.thumbnail || row.url" :alt="row.filename"></div>
+          <div v-if="row._bulk" class="im-multi">
+            <div v-for="img in bulkRows" :key="img._id" class="im-multi-item">
+              <img :src="img.thumbnail || img.url" :alt="img.filename" loading="lazy">
+              <button class="im-multi-x" type="button" aria-label="선택 취소" title="선택 취소" @click="dropBulk(img)">×</button>
+            </div>
+          </div>
+          <div v-else class="im-img"><img :src="row.thumbnail || row.url" :alt="row.filename"></div>
           <!-- 저장한 사람 · 저장 시각 (표시만) — 이미지 아래 -->
-          <div class="fld-row fld-row2 im-meta">
+          <div v-if="!row._bulk" class="fld-row fld-row2 im-meta">
             <div class="fld">
               <span class="info-l">식별한 사람</span>
               <span v-if="pendingIdentifier" class="meta-v meta-pending">{{ pendingIdentifier }}(이대로 저장 할 경우 적용 됩니다)</span>
@@ -280,8 +324,25 @@ const onDelete = async () => {
           </div>
         </div>
         <div class="im-side">
+          <!-- 영법 · 성별 먼저 — 이 둘을 골라야 선수를 찾을 수 있다 -->
+          <div class="fld-row fld-row2">
+            <label class="fld">
+              <span class="info-l">영법</span>
+              <select v-model="draft.discipline" class="fld-input" :disabled="locked('discipline')" @change="onClassChange">
+                <option value="">—</option>
+                <option v-for="d in withCur(Object.keys(DISC_KO), draft.discipline)" :key="d" :value="d">{{ DISC_KO[d] || d }}</option>
+              </select>
+            </label>
+            <label class="fld">
+              <span class="info-l">성별</span>
+              <select v-model="draft.gender" class="fld-input" :disabled="locked('gender')" @change="onClassChange">
+                <option value="">—</option>
+                <option v-for="g in withCur(GENDER_OPTS, draft.gender)" :key="g" :value="g">{{ GENDER_KO[g] || g }}</option>
+              </select>
+            </label>
+          </div>
           <!-- 선수 — 여러 명이 찍힌 사진은 선수마다 한 줄. 각자 자기 기록(timeID)에 붙는다 -->
-          <div class="fld">
+          <div class="fld" :class="{ 'fld-off': !canFind }">
             <span class="info-l">선수 찾기</span>
             <div v-if="draft.athletes.length" class="ath-list">
               <div v-for="(a, i) in draft.athletes" :key="i" class="ath-row">
@@ -295,12 +356,11 @@ const onDelete = async () => {
                 >+</button>
               </div>
             </div>
-            <p v-else-if="!hasGender" class="ath-empty">성별이 분류되지 않아 선수를 선택할 수 없습니다. 성별을 먼저 선택해 주세요.</p>
             <template v-if="!draft.athletes.length || addingAthlete">
               <div class="name-ctl">
-                <input v-model="findQ" class="fld-input" type="search" placeholder="선수 찾기 — 이름 일부 (비우면 전체)" aria-label="선수 찾기" :disabled="!hasGender" @keydown.enter.prevent="findAthletes">
+                <input v-model="findQ" class="fld-input" type="search" placeholder="선수 찾기 — 이름 일부 (비우면 전체)" aria-label="선수 찾기" :disabled="!canFind" @keydown.enter.prevent="findAthletes">
                 <button
-                  class="find-btn" type="button" :class="{ on: findOpen }" :disabled="findLoading || !hasGender"
+                  class="find-btn" type="button" :class="{ on: findOpen }" :disabled="findLoading || !canFind"
                   aria-label="선수 찾기" title="같은 대회·영법·성별·거리에서, 검색 칸의 글자가 들어간 선수 찾기" @click="findAthletes"
                 >
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
@@ -333,35 +393,19 @@ const onDelete = async () => {
               </div>
             </template>
           </div>
-          <label class="fld">
+          <label v-if="!row._bulk" class="fld">
             <span class="info-l">어떤 장면인가요?</span>
             <select v-model="draft.type" class="fld-input">
               <option v-for="t in TYPE_OPTS" :key="t" :value="t">{{ t ? (TYPE_KO[t] || t) : '—' }}</option>
             </select>
           </label>
-          <div class="fld-row fld-row2">
-            <label class="fld">
-              <span class="info-l">영법</span>
-              <select v-model="draft.discipline" class="fld-input" :disabled="locked('discipline')" @change="onClassChange">
-                <option value="">—</option>
-                <option v-for="d in withCur(Object.keys(DISC_KO), draft.discipline)" :key="d" :value="d">{{ DISC_KO[d] || d }}</option>
-              </select>
-            </label>
-            <label class="fld">
-              <span class="info-l">성별</span>
-              <select v-model="draft.gender" class="fld-input" :disabled="locked('gender')" @change="onClassChange">
-                <option value="">—</option>
-                <option v-for="g in withCur(GENDER_OPTS, draft.gender)" :key="g" :value="g">{{ GENDER_KO[g] || g }}</option>
-              </select>
-            </label>
-          </div>
           <!-- caption 입력은 당분간 숨긴다. 기존 값은 draft에 보존해 저장 시 지워지지 않게 한다. -->
           <label class="save-confirm">
             <input v-model="saveConfirmed" type="checkbox" @change="onConfirmChange">
             <span>이 사진을 식별한 사람으로 내 이름이 공개적으로 저장되며, 내가 식별한 내용이 사진과 실제 기사와 연결 됨을 확인 함.</span>
           </label>
           <div class="im-foot">
-            <button v-if="(user?.can || []).includes('delete')" class="btn btn-danger" type="button" :disabled="deleting || saving" @click="onDelete">
+            <button v-if="!row._bulk && (user?.can || []).includes('delete')" class="btn btn-danger" type="button" :disabled="deleting || saving" @click="onDelete">
               {{ deleting ? '삭제 중…' : '삭제' }}
             </button>
             <span class="foot-msg">{{ msg }}</span>
@@ -390,6 +434,15 @@ const onDelete = async () => {
 .im-left { flex: 0 0 400px; min-width: 0; display: flex; flex-direction: column; gap: 16px; padding: 20px; border-right: 1px solid var(--line); background: var(--paper); overflow-y: auto; }
 .im-x { flex: 0 0 auto; border: none; background: none; cursor: pointer; font-size: 24px; line-height: 1; color: var(--ink-light); padding: 0; }
 .im-x:hover { color: var(--orange-deep); }
+.im-multi { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; max-height: 62vh; overflow-y: auto; }
+.im-multi-item { position: relative; aspect-ratio: 4 / 3; background: var(--paper-deep); }
+.im-multi-item img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.im-multi-x {
+  position: absolute; top: 4px; right: 4px; display: flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; padding: 0; border: 0; border-radius: 50%;
+  background: rgba(26, 26, 26, .6); color: #fff; font-size: 15px; line-height: 1; cursor: pointer;
+}
+.im-multi-x:hover { background: var(--bad); }
 .im-img { display: flex; align-items: center; justify-content: center; background: var(--paper-deep); }
 .im-img img { display: block; max-width: 100%; max-height: 56vh; object-fit: contain; }
 .im-side { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 16px; padding: 22px; overflow-y: auto; }
@@ -420,6 +473,8 @@ const onDelete = async () => {
 .ath-lock { cursor: default; text-align: center; }
 .ath-lock:hover { color: var(--ink-light); }
 .ath-row .fld-input:disabled { background: var(--paper-deep); color: var(--ink-mute); }
+.fld-off { padding: 8px 10px 10px; background: #efeeec; opacity: .62; }
+.fld-off .fld-input, .fld-off .find-btn { background: #e6e4e1; cursor: not-allowed; }
 .ath-empty { margin: 0; font-size: 13px; line-height: 1.6; color: var(--ink-light); }
 .find-row .fr-chk { flex: 0 0 12px; color: var(--orange); font-weight: 700; }
 /* 선수 찾기 */
