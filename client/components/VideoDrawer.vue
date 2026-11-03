@@ -10,6 +10,11 @@ const DISC_KO: Record<string, string> = { FR: '자유형', BA: '배영', BR: '�
 const GENDER_KO: Record<string, string> = { men: '남자', women: '여자', mixed: '혼성' }
 const KIND_KO: Record<string, string> = { match: '경기 영상', cheer: '응원 영상' }
 
+// 로그인 계정 — 본인이 올린 영상만 지울 수 있다(관리자는 모두). 서버도 같은 규칙으로 막는다.
+const { user } = useAuth()
+const canRemove = (video: any) => !video.youtube
+  && (!video.uploader || video.uploader === user.value?.username || (user.value?.can || []).includes('users'))
+
 const playId = ref('')
 const deletingId = ref('')
 const message = ref('')
@@ -50,7 +55,10 @@ watch(() => props.row, () => { playId.value = ''; message.value = '' })
 const closePlay = () => { playId.value = '' }
 const close = () => { if (!deletingId.value) emit('close') }
 const remove = async (video: any) => {
-  if (!video || video.youtube || deletingId.value) return
+  if (!video || !canRemove(video) || deletingId.value) {
+    if (video && !video.youtube) message.value = '본인이 올린 영상만 삭제할 수 있습니다.'
+    return
+  }
   if (!confirm(`'${video.filename || '이 영상'}'을 삭제하시겠습니까?\n업로드된 영상 파일도 함께 삭제됩니다.`)) return
   deletingId.value = String(video._id)
   message.value = ''
@@ -94,7 +102,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                   <video v-else :src="`${video.url}#t=0.1`" muted playsinline preload="metadata" />
                 </button>
                 <button
-                  v-if="!video.youtube" class="vd-remove" type="button" aria-label="영상 삭제" title="영상 삭제"
+                  v-if="canRemove(video)" class="vd-remove" type="button" aria-label="영상 삭제" title="영상 삭제"
                   :disabled="!!deletingId" @click.stop="remove(video)"
                 >×</button>
               </div>
