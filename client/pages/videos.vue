@@ -294,8 +294,8 @@ const onDrawerDeleted = async () => { await refreshDrawer() }
 
     <VideoUpload v-if="uploadRow" :row="uploadRow" @close="uploadRow = null" @uploaded="refreshDrawer" />
     <VideoDrawer
-      v-if="drawerRow" :row="drawerRow"
-      @close="drawerRow = null" @deleted="onDrawerDeleted"
+      v-if="drawerRow && !uploadRow" :row="drawerRow"
+      @close="drawerRow = null" @deleted="onDrawerDeleted" @add="uploadRow = drawerRow"
     />
   </div>
 </template>

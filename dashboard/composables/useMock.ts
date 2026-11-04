@@ -7,7 +7,7 @@ export interface Column {
   key: string
   label: string
   cls?: 'strong' | 'mono' | 'muted' | 'num'
-  type?: 'badge' | 'thumb' | 'image'
+  type?: 'badge' | 'thumb' | 'image' | 'play'
   // 중첩 데이터(article 스키마 등)에서 표시값을 뽑는 접근자. 없으면 row[key] 사용.
   get?: (row: any) => any
 }

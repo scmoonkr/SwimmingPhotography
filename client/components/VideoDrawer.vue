@@ -4,7 +4,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 const props = defineProps<{ row: any | null }>()
-const emit = defineEmits<{ (e: 'close'): void; (e: 'deleted'): void }>()
+const emit = defineEmits<{ (e: 'close'): void; (e: 'deleted'): void; (e: 'add'): void }>()
 
 const DISC_KO: Record<string, string> = { FR: '자유형', BA: '배영', BR: '평영', FL: '접영', IM: '개인혼영', FRR: '계영', MR: '혼계영' }
 const GENDER_KO: Record<string, string> = { men: '남자', women: '여자', mixed: '혼성' }
@@ -36,6 +36,14 @@ const parts = computed(() => {
   ].filter(Boolean)
 })
 const title = computed(() => parts.value.join(' '))
+// 영상 이름 — 남자_계영_200M_LCM_스윔온_신우진_강현수_김기훤_주의현.mp4
+const fileLabel = computed(() => {
+  const row = props.row || {}
+  const names = String(row.name || '').split(',').map((name) => name.trim()).filter(Boolean)
+  const distance = /^\d+$/.test(String(row.distance || '')) ? `${row.distance}M` : row.distance
+  return [GENDER_KO[row.gender] || row.gender, DISC_KO[row.discipline] || row.discipline, distance, row.course, row.team, ...names]
+    .filter(Boolean).join('_').replace(/\s+/g, '') + '.mp4'
+})
 const kindOf = (video: any) => video.youtube ? 'YouTube' : (KIND_KO[video.kind] || KIND_KO.match)
 const uploaderOf = (video: any) => {
   const name = video.uploaderName || video.uploader
@@ -47,7 +55,9 @@ const fmtTime = (value: any) => {
   if (!value) return ''
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return String(value)
-  return new Intl.DateTimeFormat('ko-KR', { dateStyle: 'medium', timeStyle: 'short' }).format(date)
+  // 2026년 11월 3일 오전 2시 18분
+  const h = date.getHours()
+  return `${date.getFullYear()}년 ${date.getMonth() + 1}월 ${date.getDate()}일 ${h < 12 ? '오전' : '오후'} ${h % 12 || 12}시 ${date.getMinutes()}분`
 }
 
 watch(() => props.row, () => { playId.value = ''; message.value = '' })
@@ -108,12 +118,23 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
               </div>
               <div class="vd-meta">
                 <b :class="{ cheer: video.kind === 'cheer' && !video.youtube, yt: video.youtube }">{{ kindOf(video) }}</b>
-                <span v-if="uploaderOf(video)">올린 사람 {{ uploaderOf(video) }}</span>
+                <span v-if="!video.youtube" class="vd-file">{{ fileLabel }}</span>
+                <span v-if="uploaderOf(video)">영상제공 {{ uploaderOf(video) }}</span>
                 <span v-if="video.updatedAt" class="vd-time">{{ fmtTime(video.updatedAt) }}</span>
               </div>
             </li>
+            <!-- 마지막 — 영상 추가(올리기 모달) -->
+            <li class="vd-item">
+              <button class="vd-thumb-wrap vd-add" type="button" aria-label="영상 추가" @click="emit('add')">
+                <span class="vd-add-plus">+</span>
+                <span class="vd-add-txt">영상 추가</span>
+              </button>
+            </li>
           </ul>
-          <p v-else class="vd-empty">올라온 영상이 없습니다.</p>
+          <template v-else>
+            <p class="vd-empty">올라온 영상이 없습니다.</p>
+            <button class="vd-add vd-add-solo" type="button" @click="emit('add')"><span class="vd-add-plus">+</span><span class="vd-add-txt">영상 추가</span></button>
+          </template>
           <p v-if="message" class="vd-err">{{ message }}</p>
         </div>
       </div>
@@ -146,7 +167,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 <style scoped>
 .vd-wrap { position: fixed; inset: 0; z-index: 1100; display: flex; align-items: center; justify-content: center; }
 .vd-overlay { position: absolute; inset: 0; width: 100%; border: 0; background: rgba(26, 26, 26, .42); cursor: default; }
-.vd { position: relative; display: flex; flex-direction: column; width: min(560px, calc(100vw - 24px)); max-height: calc(100vh - 40px); background: var(--paper); border: 1px solid var(--line); box-shadow: 0 18px 48px rgba(26, 26, 26, .25); }
+.vd { position: relative; display: flex; flex-direction: column; width: min(720px, calc(100vw - 24px)); max-height: calc(100vh - 40px); background: var(--paper); border: 1px solid var(--line); box-shadow: 0 18px 48px rgba(26, 26, 26, .25); }
 .vd-head { display: flex; align-items: flex-start; gap: 16px; padding: 18px 20px; border-bottom: 1px solid var(--line); }
 .vd-head h2 { flex: 1; min-width: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 6px; font-family: var(--serif); }
 .vd-chip { padding: 2px 10px; border: 1px solid var(--line); background: var(--paper-deep); font-size: 15px; line-height: 1.5; }
@@ -174,6 +195,15 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 .vd-meta b.cheer { background: var(--orange-deep); }
 .vd-meta b.yt { background: #000; }
 .vd-item .vd-meta { flex-direction: column; align-items: flex-start; }
+.vd-file { white-space: nowrap; }
+.vd-add {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  aspect-ratio: 16 / 9; padding: 0; border: 1px dashed var(--line); background: var(--paper-deep); color: var(--ink-mute); cursor: pointer;
+}
+.vd-add:hover { border-color: var(--orange); color: var(--orange-deep); background: var(--paper); }
+.vd-add-plus { font-size: 28px; font-weight: 300; line-height: 1; }
+.vd-add-txt { font: 600 12px var(--sans); }
+.vd-add-solo { width: 168px; }
 .vd-time { color: var(--ink-light); font-size: 11.5px; }
 .vd-empty { margin: 0; padding: 16px 0; color: var(--ink-light); font-size: 13px; }
 .vd-err { margin: 12px 0 0; color: var(--bad); font-size: 12px; }
@@ -191,6 +221,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 @media (max-width: 640px) {
   .vd-item { flex-direction: column; align-items: stretch; }
   .vd-thumb-wrap { flex-basis: auto; }
+  .vd-file { white-space: normal; word-break: break-all; }
   .vp-x { top: 6px; right: 6px; }
 }
 </style>

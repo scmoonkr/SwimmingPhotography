@@ -195,6 +195,23 @@ router.get('/facets', async (req, res) => {
 })
 
 // 목록 — 대회·영법·성별·거리 + 선택 여부(matched: has = 선수 기록에 연결됨 · none = 아직 안 됨)
+// 대시보드 — videos 컬렉션 표. 최근 올린 순, skip/limit 으로 쪽을 나눈다(limit 최대 500).
+router.get('/dir', async (req, res) => {
+  try {
+    const limit = Math.min(Math.max(Number(req.query.limit) || 500, 1), 500)
+    const skip = Math.max(Number(req.query.skip) || 0, 0)
+    const c = await coll()
+    const [docs, total] = await Promise.all([
+      c.find({}).sort({ createdAt: -1, _id: -1 }).skip(skip).limit(limit).toArray(),
+      c.countDocuments({}),
+    ])
+    const nameOf = await userNames(docs.flatMap(whoOf))
+    res.json({ total, rows: docs.map((d) => videoOut(d, nameOf)) })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
 router.get('/', async (req, res) => {
   try {
     const { competitionID, discipline, gender, distance, matched, limit = 2000 } = req.query

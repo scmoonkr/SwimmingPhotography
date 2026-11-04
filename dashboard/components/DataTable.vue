@@ -122,6 +122,10 @@ const toggleAll = () => emit('update:selected', allSel.value ? [] : [...filtered
               <!-- 작은 이미지 — 값이 이미지 URL -->
               <img v-else-if="c.type === 'image' && cellVal(r, c)" class="cell-img" :src="cellVal(r, c)" alt="" loading="lazy">
               <template v-else-if="c.type === 'image'" />
+              <!-- 재생 버튼 — 행 클릭(rowClick)과 같다 -->
+              <button v-else-if="c.type === 'play'" class="play-btn" type="button" title="재생" aria-label="재생">
+                <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5Z" /></svg>
+              </button>
               <!-- 일반 -->
               <template v-else>{{ cellVal(r, c) }}</template>
             </td>
@@ -167,6 +171,10 @@ const toggleAll = () => emit('update:selected', allSel.value ? [] : [...filtered
 .data th.chk, .data td.chk { width: 34px; text-align: center; padding-right: 0; }
 .data td.chk input, .data th.chk input { width: 15px; height: 15px; cursor: pointer; accent-color: var(--orange); }
 .data tr.sel td { background: var(--orange-bg); }
+/* 재생 버튼 셀 (columns[].type === 'play') */
+.play-btn { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 50%; background: var(--orange); color: #fff; cursor: pointer; }
+.play-btn:hover { background: var(--orange-deep, var(--orange)); }
+.play-btn svg { width: 14px; height: 14px; }
 /* 작은 이미지 셀 (columns[].type === 'image') */
 .cell-img { display: block; width: 44px; height: 44px; object-fit: cover; border-radius: 4px; background: var(--paper-deep); border: 1px solid var(--line); }
 </style>

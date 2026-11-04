@@ -43,8 +43,8 @@ const dropBulk = (img: any) => {
   if (!bulkRows.value.length) emit('close')
 }
 const hasGender = computed(() => Boolean(String(draft.value.gender || '').trim()))
-// 선수 찾기는 영법·성별을 모두 골라야 쓸 수 있다 — 아니면 회색으로 비활성 표시
-const canFind = computed(() => hasGender.value && Boolean(String(draft.value.discipline || '').trim()))
+// 선수 찾기는 성별만 고르면 쓸 수 있다(영법은 '—' 여도 된다 — 수영 중 사진이 아닐 수 있다). 성별이 없으면 회색으로 비활성 표시
+const canFind = computed(() => hasGender.value)
 // athletes 가 없는 예전 사진은 단일 필드(name·team·ageGroup·timeID)를 한 명짜리 목록으로 본다
 const athletesOf = (r: any): Athlete[] => {
   if (Array.isArray(r?.athletes) && r.athletes.length) {
@@ -126,8 +126,8 @@ const findAthletes = async () => {
       .sort((a, b) => String(a.unique || nuOf(a)).localeCompare(String(b.unique || nuOf(b)), 'ko', { numeric: true }))
     if (!findRows.value.length) {
       findMsg.value = q
-        ? `같은 영법·성별·거리에 '${q}' 가 들어간 선수가 없습니다.`
-        : '이 대회에 같은 영법·성별·거리의 기록이 없습니다.'
+        ? `같은 성별${d.discipline ? '·영법' : ''}${d.distance ? '·거리' : ''}에 '${q}' 가 들어간 선수가 없습니다.`
+        : '이 대회에 같은 조건의 기록이 없습니다.'
     }
   } catch (err: any) {
     findRows.value = []
