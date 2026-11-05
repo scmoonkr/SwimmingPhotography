@@ -746,7 +746,7 @@ table.data td .ss-wrap.memo { min-width: 140px; max-width: 260px; }
 .ws-page.one .ws-cp { display: inline-flex; align-items: center; gap: 4px; margin-right: 12px; font-weight: 700; }
 .ws-page.one .ws-cp img { width: 16px; height: 16px; object-fit: cover; border: 1px solid #bbb; }
 .ws-page.one .ws-main td.mm { white-space: normal; text-align: left; padding: 2px 5px; }
-.ws-page.one .ws-memo-c { max-height: 28px; overflow: hidden; font-size: 10px; line-height: 1.3; white-space: pre-wrap; }
+.ws-page.one .ws-memo-c { max-height: 52px; overflow: hidden; font-size: 10px; line-height: 1.3; white-space: pre-wrap; }
 .ws-page.one .ws-main td.wk { text-align: left; font-size: 10px; vertical-align: top; padding-top: 2px; }
 .ws-page.one .ws-main td.nd { height: 24px; }
 .ss-cu { display: inline-block; padding: 0 6px; margin-right: 2px; border-radius: 3px; background: var(--orange); color: #fff; font-size: 10.5px; font-weight: 700; line-height: 1.6; vertical-align: 1px; }
@@ -759,3 +759,4 @@ table.data td .ss-wrap.memo { min-width: 140px; max-width: 260px; }
 .cu-add:hover:not(:disabled) { border-color: var(--orange); color: var(--orange-deep); }
 .cu-add:disabled { opacity: .5; cursor: progress; }
 table.data td .ss-wrap.wide { min-width: 320px; max-width: 780px; }
+.ws-page.one .ws-main td.mm, .ws-page.one .ws-main td.wk, .ws-page.one .ws-main td.l.bg { height: 58px; vertical-align: top; }

@@ -550,7 +550,7 @@ const onDelete = async () => {
 .im-ov { position: absolute; inset: 0; background: rgba(26, 26, 26, .5); }
 .im-box {
   position: relative; display: flex; flex-direction: column; width: min(1040px, 100%); max-height: 100%;
-  background: var(--paper); border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
+  background: var(--paper); border: none; border-radius: 10px; overflow: hidden;
   box-shadow: 0 24px 60px rgba(26, 26, 26, .25);
 }
 .im-box.is-dragging { border-color: var(--orange); box-shadow: 0 24px 60px rgba(26, 26, 26, .25), 0 0 0 3px rgba(217, 119, 6, .2); }
