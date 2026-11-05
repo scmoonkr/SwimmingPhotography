@@ -425,7 +425,7 @@ const onDelete = async () => {
 .im-ov { position: absolute; inset: 0; background: rgba(26, 26, 26, .34); }
 .im-box {
   position: relative; display: flex; flex-direction: column; width: min(960px, 100%); max-height: 100%;
-  background: var(--paper); border: none; border-radius: 0; overflow: hidden;
+  background: var(--paper); border: 1px solid var(--line); border-radius: 0; overflow: hidden;
   box-shadow: 0 18px 50px rgba(26, 26, 26, .18);
 }
 .im-head { flex: 0 0 auto; display: flex; align-items: center; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--line); }
@@ -473,7 +473,7 @@ const onDelete = async () => {
 .ath-lock { cursor: default; text-align: center; }
 .ath-lock:hover { color: var(--ink-light); }
 .ath-row .fld-input:disabled { background: var(--paper-deep); color: var(--ink-mute); }
-.fld-off .fld-input, .fld-off .find-btn { opacity: .62; }
+.fld-off { padding: 8px 10px 10px; background: #efeeec; opacity: .62; }
 .fld-off .fld-input, .fld-off .find-btn { background: #e6e4e1; cursor: not-allowed; }
 .ath-empty { margin: 0; font-size: 13px; line-height: 1.6; color: var(--ink-light); }
 .find-row .fr-chk { flex: 0 0 12px; color: var(--orange); font-weight: 700; }

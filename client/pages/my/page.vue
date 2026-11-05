@@ -114,36 +114,18 @@ const save = async () => {
         </div>
 
         <form class="mp-form" @submit.prevent="save">
-          <div class="mp-fld mp-fld-disabled">
-            <div class="mp-label-row">
-              <span class="mp-l">이름</span>
-              <details class="mp-info">
-                <summary aria-label="이름 안내">i</summary>
-                <div class="mp-info-pop">네이버 로그인으로 받은 정보라 직접 수정할 수 없습니다.</div>
-              </details>
-            </div>
+          <label class="mp-fld mp-fld-disabled">
+            <span class="mp-l">이름 <i>수정 불가</i></span>
             <input class="mp-in" :value="data.name" disabled>
-          </div>
-          <div class="mp-fld mp-fld-disabled">
-            <div class="mp-label-row">
-              <span class="mp-l">생년월일</span>
-              <details class="mp-info">
-                <summary aria-label="생년월일 안내">i</summary>
-                <div class="mp-info-pop">네이버 로그인으로 받은 정보라 직접 수정할 수 없습니다.</div>
-              </details>
-            </div>
+          </label>
+          <label class="mp-fld mp-fld-disabled">
+            <span class="mp-l">생년월일 <i>수정 불가</i></span>
             <input class="mp-in" :value="birth || '네이버에서 받은 정보가 없습니다'" disabled>
-          </div>
-          <div class="mp-fld mp-fld-disabled">
-            <div class="mp-label-row">
-              <span class="mp-l">성별</span>
-              <details class="mp-info">
-                <summary aria-label="성별 안내">i</summary>
-                <div class="mp-info-pop">네이버 로그인으로 받은 정보라 직접 수정할 수 없습니다.</div>
-              </details>
-            </div>
+          </label>
+          <label class="mp-fld mp-fld-disabled">
+            <span class="mp-l">성별 <i>수정 불가</i></span>
             <input class="mp-in" :value="GENDER[data.gender] || '네이버에서 받은 정보가 없습니다'" disabled>
-          </div>
+          </label>
 
           <div class="mp-fld mp-fld-disabled">
             <div class="mp-label-row">
