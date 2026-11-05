@@ -91,6 +91,16 @@ const COLORS = new Set([
   'black', 'white', 'navy', 'red', 'blue', 'pink', 'orange', 'green', 'yellow', 'purple', 'maroon', 'gray', 'grey', 'brown', 'mint',
 ])
 const MAX_EXPAND = 100
+// 색 이름인가 — 목록에 있거나, 앞에 진·연·짙은·밝은… 이 붙은 색(진보라 · 연핑크), 또는 '○○색'(분홍색 · 하늘색)
+const COLOR_MOD = /^(?:진|연|짙은|옅은|밝은|어두운|찐|딥|라이트|다크|연한|진한)\s*/
+const isColorWord = (c) => {
+  const w = String(c || '').trim().toLowerCase()
+  if (!w) return false
+  if (COLORS.has(w)) return true
+  const base = w.replace(COLOR_MOD, '')
+  if (base !== w && (COLORS.has(base) || (base.length >= 1 && base.length <= 4 && /색$/.test(base)))) return true
+  return /^[가-힣]{1,4}색$/.test(w) || ['연두', '분홍', '자주', '갈색', '금색', '은색'].includes(base)
+}
 
 function classifyRow(cells) {
   const p = { no: 0, person: '', color: '', size: '', position: '', initials: '', initialsRight: '', initialColor: '', note: '' }
@@ -104,7 +114,7 @@ function classifyRow(cells) {
     if ((m = c.match(SIZE_QTY_RE)) && SIZE_RE.test(m[1]) && !p.size) { p.size = m[1]; qty = Number(m[2]); continue }
     if ((m = c.match(QTY_SIZE_RE)) && SIZE_RE.test(m[2]) && !p.size) { p.size = m[2]; qty = Number(m[1]); continue }
     if (!p.size && SIZE_RE.test(c)) { p.size = c; continue }
-    if (COLORS.has(c.toLowerCase())) {
+    if (isColorWord(c)) {
       if (!p.color) { p.color = c; continue }
       if (!p.initialColor) { p.initialColor = c; continue }      // 색상이 이미 있으면 두 번째 색상은 이니셜색상
     }
@@ -146,7 +156,8 @@ function looksFree(rows) {
 }
 
 // ── 표 → pieces ──────────────────────────────────────────
-export function parsePieces(text) {
+// opts.keepQty — 수량이 2 이상인 줄을 펼치지 않고 한 줄에 qty 로 둔다(화면의 수량 열에 보이고, 저장할 때 그 수만큼 나뉜다)
+export function parsePieces(text, opts = {}) {
   const rows = parseRows(text).filter((r) => r.some((c) => String(c).trim()))
   const warnings = []
   if (!rows.length) return { pieces: [], mapping: [], warnings: ['붙여넣은 내용이 비어 있습니다.'] }
@@ -184,8 +195,8 @@ export function parsePieces(text) {
       })
       p.note = extra.join(' / ')
       if (!PIECE_KEYS.some((k) => p[k])) continue
-      for (let n = 0; n < qty; n++) pieces.push({ ...p })
-      if (qty > 1) expanded += qty - 1
+      if (opts.keepQty) pieces.push(qty > 1 ? { ...p, qty } : { ...p })
+      else { for (let n = 0; n < qty; n++) pieces.push({ ...p }); if (qty > 1) expanded += qty - 1 }
     }
     pieces.forEach((p, i) => { p.no = i + 1 })
     warnings.push(`주문자 · 사이즈 · 컬러 · 수량 · 이니셜 · 이니셜컬러 · 위치 순서로 인식했습니다.${expanded ? ` 수량이 2 이상인 줄은 그 수만큼 펼쳤습니다(+${expanded}줄).` : ''}`)
@@ -198,8 +209,8 @@ export function parsePieces(text) {
     for (const r of rows) {
       const { piece, qty } = classifyRow(r)
       if (!PIECE_KEYS.some((k) => piece[k])) continue
-      for (let n = 0; n < qty; n++) pieces.push({ ...piece })
-      if (qty > 1) expanded += qty - 1
+      if (opts.keepQty) pieces.push(qty > 1 ? { ...piece, qty } : { ...piece })
+      else { for (let n = 0; n < qty; n++) pieces.push({ ...piece }); if (qty > 1) expanded += qty - 1 }
     }
     pieces.forEach((p, i) => { p.no = i + 1 })
     warnings.push(`자유 형식으로 인식했습니다(주문자 · 사이즈 · 수량 · 이니셜 …).${expanded ? ` 수량이 2 이상인 줄은 그 수만큼 펼쳤습니다(+${expanded}줄).` : ''} 색상·위치는 표에서 채워 주세요.`)
@@ -229,8 +240,8 @@ export function parsePieces(text) {
     })
     p.note = [p.note, ...extra].filter(Boolean).join(' / ')
     if (!PIECE_KEYS.some((k) => p[k])) continue
-    for (let n = 0; n < qty; n++) pieces.push({ ...p })
-    if (qty > 1) expanded += qty - 1
+    if (opts.keepQty) pieces.push(qty > 1 ? { ...p, qty } : { ...p })
+    else { for (let n = 0; n < qty; n++) pieces.push({ ...p }); if (qty > 1) expanded += qty - 1 }
   }
   if (expanded) {                         // 수량을 펼쳤으면 번호를 처음부터 다시 매긴다
     pieces.forEach((p, i) => { p.no = i + 1 })

@@ -10,7 +10,7 @@ const router = Router()
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 1 } })
 export const EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif' }
 
-router.post('/image', requireCap('stock'), (req, res) => {
+router.post('/image', requireCap('stock', 'orders'), (req, res) => {
   upload.single('file')(req, res, async (err) => {
     try {
       if (err) return res.status(400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? '이미지는 10MB 이하만 올릴 수 있습니다.' : err.message })

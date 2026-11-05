@@ -9,18 +9,27 @@ const router = Router()
 const str = (v, n = 500) => String(v ?? '').trim().slice(0, n)
 const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0)
 
-// 목록: ?q=(주문번호·주문자·수취인·상품·주소·톡톡 내용) &limit (기본 300)
+// 커스텀 주문 — 상품명에 "커스텀"이 들어 있으면 커스텀 주문. 사람이 바꿔 둔 값(custom: true/false)이 있으면 그것이 우선한다.
+const CUSTOM_RE = /커스텀/
+const isCustom = (o) => (typeof o.custom === 'boolean' ? o.custom : CUSTOM_RE.test(o.product || ''))
+const customFilter = (on) => (on
+  ? { $or: [{ custom: true }, { custom: { $exists: false }, product: { $regex: '커스텀' } }] }
+  : { $or: [{ custom: false }, { custom: { $exists: false }, product: { $not: { $regex: '커스텀' } } }] })
+
+// 목록: ?q=(주문번호·주문자·수취인·상품·주소·톡톡 내용) &custom=1(커스텀만)|0(커스텀 제외) &limit (기본 300)
 router.get('/', async (req, res) => {
   try {
-    const q = {}
+    const and = []
     if (req.query.q) {
       const re = { $regex: escRe(req.query.q), $options: 'i' }
-      q.$or = [{ orderId: re }, { productOrderId: re }, { orderer: re }, { receiver: re }, { product: re }, { option: re }, { address: re }, { talk: re }]
+      and.push({ $or: [{ orderId: re }, { productOrderId: re }, { orderer: re }, { receiver: re }, { product: re }, { option: re }, { address: re }, { talk: re }] })
     }
+    if (req.query.custom === '1' || req.query.custom === '0') and.push(customFilter(req.query.custom === '1'))
+    const q = and.length ? { $and: and } : {}
     const limit = Math.max(1, Math.min(1000, Math.round(num(req.query.limit)) || 300))
     const c = await col('smartstoreOrders')
     const [items, total] = await Promise.all([c.find(q).sort({ paidAt: -1, _id: -1 }).limit(limit).toArray(), c.countDocuments(q)])
-    res.json({ items, total })
+    res.json({ items: items.map((o) => ({ ...o, isCustom: isCustom(o) })), total })
   } catch (e) { res.status(e.status || 500).json({ error: e.message }) }
 })
 
@@ -128,6 +137,50 @@ router.put('/:productOrderId/talk', requireCap('orders'), async (req, res) => {
     const set = { talk, talkAt: new Date(), talkBy: req.user.username }
     await c.updateMany(o.orderId ? { orderId: o.orderId } : { productOrderId: o.productOrderId }, { $set: set })
     res.json({ ok: true, ...set })
+  } catch (e) { res.status(e.status || 500).json({ error: e.message }) }
+})
+
+// 커스텀 주문 상세 저장 — 주문명 · 커스텀 여부 · 이미지 · 옵션 · 톡톡. body { customName, custom, images[], options, talk }
+router.put('/:productOrderId/custom-info', requireCap('orders'), async (req, res) => {
+  try {
+    const c = await col('smartstoreOrders')
+    const o = await c.findOne({ productOrderId: str(req.params.productOrderId, 40) }, { projection: { orderId: 1, productOrderId: 1, talk: 1 } })
+    if (!o) return res.status(404).json({ error: '주문을 찾지 못했습니다.' })
+    const b = req.body || {}
+    const own = {}                                                  // 이 상품주문에만
+    if (b.customName !== undefined) own.customName = str(b.customName, 200)
+    if (b.customDesign !== undefined) own.customDesign = str(b.customDesign, 200)
+    if (b.options !== undefined) own.customOptions = String(b.options ?? '').replace(/\r\n/g, '\n').trim().slice(0, 5000)
+    // 옵션(제작 명세) — 주문의 제작 명세와 같은 줄 형식. 장마다 한 줄
+    if (Array.isArray(b.pieces)) {
+      own.customPieces = b.pieces.slice(0, 1000).map((p, i) => {
+        const o2 = { no: i + 1 }
+        for (const k of ['person', 'color', 'size', 'position', 'initials', 'initialsRight', 'initialColor', 'note']) o2[k] = str(p?.[k], 200)
+        return o2
+      })
+    }
+    if (Array.isArray(b.images)) own.customImages = b.images.map((x) => str(x, 300)).filter((x) => x && !x.includes('..') && !x.startsWith('/')).slice(0, 40)
+    const where = o.orderId ? { orderId: o.orderId } : { productOrderId: o.productOrderId }
+    if (b.custom === true || b.custom === false) await c.updateMany(where, { $set: { custom: b.custom } })   // 같은 주문번호 모두
+    if (b.talk !== undefined) {
+      const talk = String(b.talk ?? '').replace(/\r\n/g, '\n').trim().slice(0, 50000)
+      if (talk !== String(o.talk || '')) await c.updateMany(where, { $set: { talk, talkAt: new Date(), talkBy: req.user.username } })
+    }
+    if (Object.keys(own).length) await c.updateOne({ productOrderId: o.productOrderId }, { $set: { ...own, updatedAt: new Date() } })
+    res.json({ ok: true, ...own })
+  } catch (e) { res.status(e.status || 500).json({ error: e.message }) }
+})
+
+// 커스텀 ↔ 일반 바꾸기 — 같은 주문번호(orderId)의 상품주문 모두에 적용한다. body { custom: true | false | null(상품명 규칙으로 되돌림) }
+router.put('/:productOrderId/custom', requireCap('orders'), async (req, res) => {
+  try {
+    const c = await col('smartstoreOrders')
+    const o = await c.findOne({ productOrderId: str(req.params.productOrderId, 40) }, { projection: { orderId: 1, productOrderId: 1 } })
+    if (!o) return res.status(404).json({ error: '주문을 찾지 못했습니다.' })
+    const v = req.body?.custom
+    const where = o.orderId ? { orderId: o.orderId } : { productOrderId: o.productOrderId }
+    await c.updateMany(where, v === true || v === false ? { $set: { custom: v } } : { $unset: { custom: '' } })
+    res.json({ ok: true, custom: v === true || v === false ? v : null })
   } catch (e) { res.status(e.status || 500).json({ error: e.message }) }
 })
 

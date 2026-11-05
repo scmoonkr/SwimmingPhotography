@@ -200,10 +200,11 @@ const MENU = [
   ]],
   ['smartstore', [
     ['ssorders', '주문', '<path d="M4 3h16v18l-3-2-3 2-3-2-3 2-3-2-1 1V3Z"/><path d="M8 8h8M8 12h8M8 16h4"/>'],
+    ['sscustom', '커스텀 주문', '<path d="M4 3h16v18l-3-2-3 2-3-2-3 2-3-2-1 1V3Z"/><path d="M12 7v6M9 10h6"/>'],
   ]],
 ]
 const VIEWS = {
-  materials: () => viewItems('materials'), goods: () => viewItems('goods'), ssorders: () => viewSsOrders(),
+  materials: () => viewItems('materials'), goods: () => viewItems('goods'), ssorders: () => viewSsOrders('normal'), sscustom: () => viewSsOrders('custom'),
   settings: () => viewSettings(), worksheets: () => viewWorksheets(), designs: () => viewDesigns(), dmap: () => viewDesignMap(), machines: () => viewMachines(), assign: () => viewAssign(), schedule: () => viewSchedule(), stock: () => viewStock(), po: () => viewPO(), ship: () => viewShip(), stocktake: () => viewStocktake(),
 }
 
@@ -341,36 +342,137 @@ async function viewList(E) {
 }
 
 // 스마트스토어 > 주문 — import 로 가져온 주문 목록. 기존 주문과는 따로 운영한다(나중에 통합).
-async function viewSsOrders() {
+// kind: 'normal' = 상품명에 "커스텀"이 없는 주문(스마트스토어 > 주문) / 'custom' = "커스텀"이 들어 있는 주문(스마트스토어 > 커스텀 주문). 사람이 옮긴 것은 그대로 따른다.
+async function viewSsOrders(kind = 'normal') {
+  const isCu = kind === 'custom'
   pageShell({
-    en: 'Smartstore Orders', title: '스마트스토어 주문', addLabel: '',
+    en: isCu ? 'Smartstore Custom Orders' : 'Smartstore Orders', title: isCu ? '스마트스토어 커스텀 주문' : '스마트스토어 주문', addLabel: '',
     tools: '<input id="q" class="table-search" placeholder="주문번호 · 주문자 · 수취인 · 상품 · 주소 · 톡톡 검색…" type="search"><span style="flex:1"></span><button type="button" class="btn btn-ghost" id="ss_open" title="스마트스토어의 최근 주문을 불러와 보고, import 로 가져옵니다">스마트스토어에서 불러오기</button>',
   })
   const load = async () => {
     try {
-      const p = new URLSearchParams({ limit: '500' })
+      const p = new URLSearchParams({ limit: '500', custom: isCu ? '1' : '0' })
       if ($('#q')?.value) p.set('q', $('#q').value)
       const { items, total } = await api(`/smartstore-orders?${p}`)
       paintTable(items, [
         ['paid', '결제일시 · 주문번호', (o) => `${esc(String(o.paidAt).replace('T', ' ').slice(0, 16))}<div class="field-hint mono">${esc(o.orderId)}</div>`],
         ['invoice', '송장', (o) => `<button type="button" class="btn btn-ghost inv-btn${o.invoice ? ' on' : ''}" title="${o.invoice ? '송장 보기 · 인쇄' : '송장번호 등록 · 인쇄'}">${o.invoice ? esc(o.invoice.carrierName) : '송장'}</button>${o.invoice ? `<div class="field-hint mono">${esc(o.invoice.trackingNo)}</div>` : ''}`],
-        ['orderer', '주문자', (o) => esc(o.orderer)],
-        ['receiver', '수취인 · 연락처', (o) => `${esc(o.receiver)}<div class="field-hint">${esc(o.receiverTel)}</div>`],
-        ['product', '상품', (o) => `<div class="ss-wrap"><b>${esc(o.product)}</b>${o.option ? ` <span class="ss-opt">${esc(o.option)}</span>` : ''}<div class="field-hint">${o.zip ? `(${esc(o.zip)}) ` : ''}${esc(o.address)}</div></div>`],
+        // 주문자와 수취인(같으면 한 번만) · 각자의 연락처를 한 칸에
+        ['who', '주문자/수취인 · 연락처', (o) => {
+          const same = o.orderer === o.receiver
+          const names = same ? o.receiver : [o.orderer, o.receiver].filter(Boolean).join(' / ')
+          const tels = (same || !o.ordererTel ? [o.receiverTel] : [o.ordererTel, o.receiverTel]).filter(Boolean)
+          return `${esc(names)}<div class="field-hint">${esc([...new Set(tels)].join(' / '))}</div>`
+        }],
+        ['product', '상품', (o) => `<div class="ss-wrap wide"><b>${esc(o.product)}</b>${o.option ? ` <span class="ss-opt">${esc(o.option)}</span>` : ''}${isCu ? `<div class="field-hint">${esc(ssOrderName(o))}</div>` : ''}</div>`],
         ['qty', '수량', (o) => o.qty, 'r'],
         ['amount', '결제금액', (o) => `${Number(o.amount || 0).toLocaleString()}원`, 'r'],
         ['status', '상태', (o) => esc(o.status)],
         ['memo', '배송 메모', (o) => `<div class="ss-wrap memo">${esc(o.memo)}</div>`],
         ['talk', '톡톡', (o) => `<button type="button" class="btn btn-ghost talk-btn${o.talk ? ' on' : ''}" title="${o.talk ? '저장된 톡톡 메시지 보기 · 고치기' : '톡톡 메시지 붙여 넣기'}">톡톡</button>`],
-      ], null, '가져온 주문이 없습니다. "스마트스토어에서 불러오기"로 주문을 불러와 import 하세요.')
-      $('#tbl').querySelectorAll('tr[data-i] .talk-btn').forEach((b) => { b.onclick = () => openTalk(items[b.closest('tr').dataset.i], load) })
-      $('#tbl').querySelectorAll('tr[data-i] .inv-btn').forEach((b) => { b.onclick = () => openInvoice(items[b.closest('tr').dataset.i], load) })
+      ].filter((c) => c[0] !== 'memo'), (o) => openCustomDetail(o, load, kind), isCu ? '커스텀 주문이 없습니다. 상품명에 "커스텀"이 들어 있는 주문이 여기에 모입니다.' : '가져온 주문이 없습니다. "스마트스토어에서 불러오기"로 주문을 불러와 import 하세요.')
+      $('#tbl').querySelectorAll('tr[data-i] .talk-btn').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); openTalk(items[b.closest('tr').dataset.i], load) } })
+      $('#tbl').querySelectorAll('tr[data-i] .inv-btn').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); openInvoice(items[b.closest('tr').dataset.i], load) } })
       $('#ft').textContent = `${items.length} / ${total}`
     } catch (e) { $('#tbl').innerHTML = emptyTable(e.message) }
   }
   $('#q')?.addEventListener('input', debounce(load))
   $('#ss_open')?.addEventListener('click', () => openSmartstore(load))
   load()
+}
+
+// 스마트스토어 주문의 디자인명(옵션 문구의 "디자인명: ○○") · 주문명(저장한 값, 없으면 "상품명 - 주문자 : 디자인명. N장")
+const ssDesignOf = (o) => String(o.option || '').split(/\s\/\s|\n/).map((x) => x.trim()).find((x) => /^디자인명\s*[:：]/.test(x))?.replace(/^디자인명\s*[:：]\s*/, '') || ''
+const ssDefName = (o) => `${o.product || ''}${o.orderer ? ` - ${o.orderer}` : ''}${ssDesignOf(o) ? ` : ${ssDesignOf(o)}.` : ''}${o.qty ? ` ${o.qty}장` : ''}`.trim()
+const ssOrderName = (o) => o.customName || ssDefName(o)
+
+// 스마트스토어 옵션 문구에서 사람별 줄만 뽑는다 — 디자인명 항목은 빼고, "항목명: " 머리를 떼고, 줄마다 "주문자, 색상, 사이즈, 이니셜"(구분자·순서는 달라도 됨)
+const ssOptionLines = (o) => {
+  const lines = []
+  for (const ln of String(o.option || '').split('\n')) {
+    const segs = ln.split(' / ')
+    // "항목: 값 / 항목: 값" 처럼 항목이 ' / ' 로 이어진 줄이면 나눈다("강채운 / 흰색 / M" 같은 값 구분은 그대로 둔다)
+    if (segs.length > 1 && segs.filter((x) => /^[^,:：\n]{1,15}[:：]/.test(x.trim())).length >= 2) lines.push(...segs); else lines.push(ln)
+  }
+  return lines.map((x) => x.trim()).filter((x) => x && !/^디자인명\s*[:：]/.test(x))
+    .map((x) => x.replace(/^[^,:：\n]{1,15}[:：]\s*(?=.*[,\t/])/, ''))
+    .filter((x) => /[,\t/]/.test(x)).join('\n')
+}
+
+// 주문 상세 드로어 — 커스텀 주문(kind 'custom') · 일반 주문(kind 'normal') 공용. 주문 정보(읽기) + 주문명 · 이미지 · 옵션 · 톡톡(수정) → 저장.
+//   커스텀: [커스텀아님][저장] — 커스텀아님은 일반 주문으로 옮기며 저장 / 일반: [송장][커스텀으로 옮기기][저장]
+function openCustomDetail(o, done, kind = 'custom') {
+  const isCu = kind === 'custom'
+  const t = (v) => (v ? String(v).replace('T', ' ').slice(0, 16) : '')
+  const row = (k, v) => `<tr><th style="width:96px;text-align:left;white-space:nowrap">${k}</th><td style="word-break:break-all">${v}</td></tr>`
+  let imgs = [...(o.customImages || [])]
+  const designOf = ssDesignOf(o)
+  const defName = ssDefName(o)
+  // 4줄: [결제일시 · 주문번호] [주문자 · 디자인명] [상품명] [수량 · 금액]
+  const th = (k) => `<th style="width:76px;text-align:left;white-space:nowrap">${k}</th>`
+  const two = (k1, v1, k2, v2) => `<tr>${th(k1)}<td style="word-break:break-all">${v1}</td>${th(k2)}<td style="word-break:break-all">${v2}</td></tr>`
+  const info = `<table class="data" style="table-layout:fixed"><tbody>
+    ${two('결제일시', esc(t(o.paidAt)), '주문번호', `<span class="mono">${esc(o.orderId)}</span>`)}
+    ${two('주문자', esc([o.orderer, o.ordererTel].filter(Boolean).join(' · ')), '디자인명', esc(designOf) || '<span class="field-hint">—</span>')}
+    <tr>${th('상품명')}<td colspan="3" style="word-break:break-all"><b>${esc(o.product)}</b></td></tr>
+    ${two('수량', esc(String(o.qty ?? '')), '금액', `${Number(o.amount || 0).toLocaleString()}원`)}
+    ${isCu ? '' : `${two('상태', esc(o.status), '송장', o.invoice ? `${esc(o.invoice.carrierName)} <span class="mono">${esc(o.invoice.trackingNo)}</span>` : '<span class="field-hint">등록 전</span>')}
+    <tr>${th('수취인')}<td colspan="3" style="word-break:break-all">${esc([o.receiver, o.receiverTel].filter(Boolean).join(' · '))}</td></tr>
+    <tr>${th('배송지')}<td colspan="3" style="word-break:break-all">${esc(`${o.zip ? `(${o.zip}) ` : ''}${o.address || ''}`)}</td></tr>
+    ${o.memo ? `<tr>${th('배송 메모')}<td colspan="3" style="word-break:break-all">${esc(o.memo)}</td></tr>` : ''}`}
+  </tbody></table>`
+  const body = `<div style="grid-column:1/-1">${info}</div>
+    <div style="grid-column:1/-1;margin:6px 0 2px;border-top:2px solid var(--line)"></div>
+    <div style="grid-column:1/-1;display:grid;gap:16px">
+      ${fieldHtml('주문명', `<input class="field-input" id="cu_name" maxlength="200" placeholder="예: 홍길동 수모 10장" value="${esc(o.customName || defName)}">`, true)}
+      <div class="field full"><span class="field-label">이미지</span><div id="cu_imgs" class="cu-imgs"></div></div>
+      <div class="field full"><span class="field-label">옵션 — 주문자별 색상·사이즈·위치·이니셜</span><div id="pc_box"></div></div>
+      ${fieldHtml('톡톡', `<textarea class="field-input" id="cu_talk" rows="6" placeholder="스마트스토어 톡톡 대화를 붙여 넣으세요">${esc(o.talk || '')}</textarea>`, true)}
+    </div>
+    <input type="file" id="cu_file" accept="image/jpeg,image/png,image/webp,image/gif" multiple hidden>`
+  const foot = isCu
+    ? ['<button type="button" class="btn btn-ghost" id="cu_not" title="이 주문을 일반 주문으로 옮기고 닫습니다">커스텀아님</button>', '<button type="button" class="btn btn-primary" id="cu_save">저장</button>']
+    : ['<button type="button" class="btn btn-ghost" id="cu_inv">송장</button>', '<button type="button" class="btn btn-ghost" id="cu_to" title="이 주문을 커스텀 주문으로 옮기고 닫습니다">커스텀으로 옮기기</button>', '<button type="button" class="btn btn-primary" id="cu_save">저장</button>']
+  const dlg = shell(esc(defName) || (isCu ? '커스텀 주문' : '주문'), body, closeFoot(...foot))
+  dlg.classList.add('wide')                                   // 옵션 표가 넓어서 드로어도 넓게
+  const getPieces = wirePieces(o.customPieces || [], true, { noItems: true, source: () => ssOptionLines(o) })     // 주문 드로어의 제작 명세와 같은 표 · 붙여넣기
+  const url = (p) => (/^https?:|^\//.test(p) ? p : `/api/files/${p}`)
+  const paint = () => {
+    $('#cu_imgs').innerHTML = imgs.map((p, i) => `<div class="cu-im"><a href="${esc(url(p))}" target="_blank" rel="noopener"><img src="${esc(url(p))}" alt=""></a><button type="button" data-rm="${i}" aria-label="이미지 삭제" title="삭제">×</button></div>`).join('')
+      + '<button type="button" class="cu-add" id="cu_add" title="이미지 추가" aria-label="이미지 추가">+</button>'
+    $('#cu_add').onclick = () => $('#cu_file').click()
+    $('#cu_imgs').querySelectorAll('[data-rm]').forEach((b) => { b.onclick = () => { imgs.splice(Number(b.dataset.rm), 1); paint() } })
+  }
+  paint()
+  $('#cu_file').onchange = async (ev) => {
+    setErr('')
+    const add = $('#cu_add'); if (add) add.disabled = true
+    try {
+      for (const file of [...ev.target.files]) {
+        const fd = new FormData(); fd.append('file', file)
+        const r = await fetch('/api/uploads/image', { method: 'POST', body: fd, credentials: 'same-origin' })
+        const j = await r.json().catch(() => ({}))
+        if (!r.ok) throw new Error(j.error || r.statusText)
+        imgs.push(j.path)
+        paint()
+      }
+    } catch (e) { setErr(e.message) } finally { ev.target.value = ''; paint() }
+  }
+  const save = async (btn, custom) => {
+    btn.disabled = true; setErr('')
+    try {
+      const body = { customName: $('#cu_name').value, images: imgs, pieces: getPieces(), talk: $('#cu_talk').value }
+      if (custom === true || custom === false) body.custom = custom          // 옮기기 — 입력한 내용도 함께 저장
+      await api(`/smartstore-orders/${encodeURIComponent(o.productOrderId)}/custom-info`, { method: 'PUT', body })
+      dlg.close(); await done?.()
+    } catch (e) { setErr(e.message); btn.disabled = false }
+  }
+  $('#cu_save').onclick = () => save($('#cu_save'))
+  if (isCu) $('#cu_not').onclick = () => save($('#cu_not'), false)
+  else {
+    $('#cu_to').onclick = () => save($('#cu_to'), true)
+    $('#cu_inv').onclick = () => { dlg.close(); openInvoice(o, done) }
+  }
 }
 
 // 송장 — 딜리버리API 로 택배를 접수해 송장번호를 받거나(롯데 · CJ), 받은 번호를 직접 입력하고, 배송을 조회하고, 송장(배송 라벨)을 인쇄한다.
@@ -550,7 +652,7 @@ function openSmartstore(done) {
       dlg.querySelector('#ss_xlsx').disabled = !j.items.length
       dlg.querySelector('#ss_imp').disabled = !j.items.length
       dlg.querySelector('#ss_res').innerHTML = j.items.length ? `<table class="data ss-t"><thead><tr><th style="width:30px"><input type="checkbox" id="ss_all" title="전체 선택"></th><th>결제일시 · 주문번호</th><th>주문자</th><th>수취인 · 연락처</th><th>상품</th><th class="num">수량</th><th class="num">결제금액</th><th>상태</th><th>배송 메모</th></tr></thead><tbody>${
-        j.items.map((o) => `<tr class="ss-r1"><td rowspan="2" style="vertical-align:top;padding-top:14px"><input type="checkbox" class="ss-chk" value="${esc(o.productOrderId)}"></td><td>${esc(String(o.paidAt).replace('T', ' ').slice(0, 16))}<div class="field-hint mono">${esc(o.orderId)}</div></td><td>${esc(o.orderer)}</td><td>${esc(o.receiver)}<div class="field-hint">${esc(o.receiverTel)}</div></td><td><b>${esc(o.product)}</b>${o.option ? ` <span class="ss-opt">${esc(o.option)}</span>` : ''}</td><td class="num">${o.qty}</td><td class="num">${won0(o.amount)}원</td><td>${esc(o.status)}</td><td>${esc(o.memo)}</td></tr><tr class="ss-r2"><td colspan="8">${o.invoiceNo ? `<b>송장 ${esc(o.invoiceCompany)} <span class="mono">${esc(o.invoiceNo)}</span></b> · ` : ''}배송지 ${o.zip ? `<span class="mono">(${esc(o.zip)})</span> ` : ''}${esc(o.address) || '<span class="field-hint">주소 없음</span>'}</td></tr>`).join('')}</tbody></table>` : '<div class="sch-hint">이 기간에 결제된 주문이 없습니다.</div>'
+        j.items.map((o) => `<tr class="ss-r1"><td rowspan="2" style="vertical-align:top;padding-top:14px"><input type="checkbox" class="ss-chk" value="${esc(o.productOrderId)}"></td><td>${esc(String(o.paidAt).replace('T', ' ').slice(0, 16))}<div class="field-hint mono">${esc(o.orderId)}</div></td><td>${esc(o.orderer)}</td><td>${esc(o.receiver)}<div class="field-hint">${esc(o.receiverTel)}</div></td><td>${/커스텀/.test(o.product || '') ? '<span class="ss-cu">커스텀</span> ' : ''}<b>${esc(o.product)}</b>${o.option ? ` <span class="ss-opt">${esc(o.option)}</span>` : ''}</td><td class="num">${o.qty}</td><td class="num">${won0(o.amount)}원</td><td>${esc(o.status)}</td><td>${esc(o.memo)}</td></tr><tr class="ss-r2"><td colspan="8">${o.invoiceNo ? `<b>송장 ${esc(o.invoiceCompany)} <span class="mono">${esc(o.invoiceNo)}</span></b> · ` : ''}배송지 ${o.zip ? `<span class="mono">(${esc(o.zip)})</span> ` : ''}${esc(o.address) || '<span class="field-hint">주소 없음</span>'}</td></tr>`).join('')}</tbody></table>` : '<div class="sch-hint">이 기간에 결제된 주문이 없습니다.</div>'
       dlg.querySelectorAll('.ss-chk').forEach((c) => { c.onchange = upd })
       const all = dlg.querySelector('#ss_all'); if (all) all.onchange = () => { dlg.querySelectorAll('.ss-chk').forEach((c) => { c.checked = all.checked }); upd() }
       upd()
@@ -933,13 +1035,16 @@ function pcImg(k, v) {
 }
 const pcThumb = (k, v) => { const u = pcImg(k, v); return u ? `<img src="${esc(u)}" alt="" title="${esc(u)}" style="width:30px;height:30px;object-fit:cover;border-radius:4px;border:1px solid var(--line)" onerror="this.style.display='none'">` : '' }
 // 제작 명세 읽기 전용 표 — 색상(수모)·이니셜색상(자수사)은 번호 이미지를 함께 보여 준다
-function pcReadTable(ps, maxH = 340) {
+// opt.summary(기본 true): 위의 '총 N줄 · 색상별 개수' 요약 / opt.qty: 사이즈 뒤에 수량 열
+function pcReadTable(ps, maxH = 340, opt = {}) {
   const g = new Map()
   ps.forEach((p) => { const k = `${p.color || '-'} ${p.size || '-'}`; g.set(k, (g.get(k) || 0) + 1) })
-  return `<div class="field-hint" style="margin-bottom:6px">총 ${ps.length}줄 · ${[...g].map(([k, n]) => `${esc(k)} ${n}`).join(' · ')}</div>
-    <div class="table-scroll" style="max-height:${maxH}px;overflow:auto"><table class="data"><thead><tr><th class="num">#</th>${PC_COLS.map((c) => `<th>${c[1]}</th>`).join('')}</tr></thead><tbody>${
-      ps.map((p, i) => `<tr><td class="num">${p.no || i + 1}</td>${PC_COLS.map(([k]) => `<td>${PC_IMG_DIR[k]
-        ? `<span style="display:inline-flex;align-items:center;gap:6px">${esc(p[k] ?? '')}${pcThumb(k, p[k])}</span>` : esc(p[k] ?? '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`
+  const cols = opt.qty ? [...PC_COLS.slice(0, 3), ['qty', '수량'], ...PC_COLS.slice(3)] : PC_COLS
+  const cell = (p, k) => (k === 'qty' ? String(Math.max(1, Math.floor(Number(p.qty)) || 1))
+    : PC_IMG_DIR[k] ? `<span style="display:inline-flex;align-items:center;gap:6px">${esc(p[k] ?? '')}${pcThumb(k, p[k])}</span>` : esc(p[k] ?? ''))
+  return `${opt.summary === false ? '' : `<div class="field-hint" style="margin-bottom:6px">총 ${ps.length}줄 · ${[...g].map(([k, n]) => `${esc(k)} ${n}`).join(' · ')}</div>`}
+    <div class="table-scroll" style="max-height:${maxH}px;overflow:auto"><table class="data"><thead><tr><th class="num">#</th>${cols.map((c) => `<th${c[0] === 'qty' ? ' class="num"' : ''}>${c[1]}</th>`).join('')}</tr></thead><tbody>${
+      ps.map((p, i) => `<tr><td class="num">${p.no || i + 1}</td>${cols.map(([k]) => `<td${k === 'qty' ? ' class="num"' : ''}>${cell(p, k)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`
 }
 const pcThumbS = (k, v) => { const u = pcImg(k, v); return u ? `<img src="${esc(u)}" alt="" style="display:inline-block;width:18px;height:18px;object-fit:cover;vertical-align:middle;margin-left:4px;border:1px solid #999" onerror="this.style.display='none'">` : '' }
 const PC_COLS = [['person', '주문자', 92], ['color', '색상', 72], ['size', '사이즈', 62], ['position', '위치', 96], ['initials', '이니셜(왼쪽)', 110], ['initialsRight', '오른쪽 이니셜', 110], ['initialColor', '이니셜색상', 60], ['note', '비고', 170]]
@@ -975,7 +1080,7 @@ function wirePieces(initial, canW, opt = {}) {
     renumber()
     box.innerHTML = `<div class="drawer-note" id="pc_sum" style="margin-bottom:8px"></div>${
       canW ? `<textarea class="field-input" id="pc_paste" placeholder="엑셀·구글시트·Notion 표를 복사해서 여기에 붙여넣으세요.&#10;첫 줄이 제목 행이면 열 이름(주문자, 색상, 사이즈, 위치, 이니셜, 이니셜색상, 비고 …)으로 자동 매핑합니다." style="min-height:72px"></textarea>
-        <div style="display:flex;gap:8px;margin:8px 0;flex-wrap:wrap"><button type="button" class="btn btn-ghost" id="pc_add">붙여넣은 표 추가</button><button type="button" class="btn btn-ghost" id="pc_rep">전체 바꾸기</button><button type="button" class="btn btn-ghost" id="pc_row">+ 줄 추가</button>${opt.designs && canW ? `<select class="field-input" id="pc_all_design" style="width:auto;min-width:200px" title="고르면 모든 줄의 디자인이 이 디자인으로 바뀝니다"><option value="">디자인 선택 (전체 적용)</option>${
+        <div style="display:flex;gap:8px;margin:8px 0;flex-wrap:wrap"><button type="button" class="btn btn-ghost" id="pc_add">붙여넣은 표 추가</button><button type="button" class="btn btn-ghost" id="pc_rep">전체 바꾸기</button><button type="button" class="btn btn-ghost" id="pc_row">+ 줄 추가</button>${opt.source ? '<button type="button" class="btn btn-ghost" id="pc_src" title="스마트스토어 옵션 문구를 읽어 줄로 추가합니다">스마트스토어 옵션에서 줄 추가</button>' : ''}${opt.designs && canW ? `<select class="field-input" id="pc_all_design" style="width:auto;min-width:200px" title="고르면 모든 줄의 디자인이 이 디자인으로 바뀝니다"><option value="">디자인 선택 (전체 적용)</option>${
           [...new Set(opt.designs.map((d) => d.group || ''))].map((g) => { const body = opt.designs.filter((d) => (d.group || '') === g).map((d) => `<option value="${esc(d.code)}">${esc(d.label)}</option>`).join(''); return g ? `<optgroup label="${esc(g)}">${body}</optgroup>` : body }).join('')}</select>` : ''}<span style="flex:1"></span>${opt.noItems ? '' : '<button type="button" class="btn btn-ghost" id="pc_items">품목 요약에 반영</button>'}</div>
         <div class="field-hint" id="pc_info"></div>` : ''}
       ${list.length ? `<div class="table-scroll" style="max-height:420px;overflow:auto"><table class="data"><thead><tr><th class="num">#</th>${cols.map((c) => `<th>${c[1]}${c[0] === 'color' ? ' <button type="button" class="help-btn" id="pc_cap_help" title="수모 색상표 보기" aria-label="수모 색상표 보기">?</button>' : ''}</th>`).join('')}<th></th></tr></thead><tbody>${
@@ -1012,12 +1117,12 @@ function wirePieces(initial, canW, opt = {}) {
       }
     })
     box.querySelectorAll('[data-rr]').forEach((b) => { b.onclick = () => { list.splice(Number(b.dataset.rr), 1); paint() } })
-    const convert = async (replace) => {
-      const text = $('#pc_paste').value
+    const convert = async (replace, textArg) => {
+      const text = textArg ?? $('#pc_paste')?.value ?? ''
       if (!text.trim()) return
       setErr('')
       try {
-        const r = await api('/orders/parse-pieces', { method: 'POST', body: { text } })
+        const r = await api('/orders/parse-pieces', { method: 'POST', body: { text, keepQty: true } })
         if (!r.pieces.length) { $('#pc_info').textContent = (r.warnings || []).join(' ') || '인식된 줄이 없습니다.'; return }
         if (replace && list.length && !confirm(`기존 ${list.length}줄을 지우고 ${r.pieces.length}줄로 바꿀까요?`)) return
         list = replace ? r.pieces : list.concat(r.pieces)
@@ -1034,6 +1139,7 @@ function wirePieces(initial, canW, opt = {}) {
       paint()
     })
     $('#pc_add')?.addEventListener('click', () => convert(false))
+    $('#pc_src')?.addEventListener('click', () => convert(false, opt.source()))
     $('#pc_rep')?.addEventListener('click', () => convert(true))
     $('#pc_cap_help')?.addEventListener('click', () => openColorTable('/images/caps_color.png', '수모 색상표'))
     $('#pc_row')?.addEventListener('click', () => { list.push({ no: 0, qty: 1, person: '', color: '', size: '', position: '', initials: '', initialsRight: '', initialColor: '', note: '', design: '' }); paint() })
@@ -2691,11 +2797,11 @@ function wireDesigns(initial, canW, partnerOf) {
   return () => list.map((l) => ({ designId: l.designId, version: l.version, role: l.role, note: l.note }))
 }
 
-// ── 작업지시서 (A4 한 장에 2개, PDF) ─────────────────────────────
+// ── 작업지시서 (A4 한 장에 4개 — 한 줄에 하나씩 4줄, PDF) ─────────────────────────────
 // 작업일자 기준으로 배정된 주문을 보여 주고, 체크한 주문의 작업지시서를 만든다.
 // 양식: 왼쪽 표(주문번호·주문명·작업일자, 수모 컬러/사이즈, 이니셜 좌/우, 로고 침·색상, 작업자) + 오른쪽 디자인 이미지·메모.
 // 제작 명세가 여러 줄인 주문은 지시서에 색상×사이즈 합계를 싣고, 개별 내역은 별지(표)로 뒤에 붙인다.
-const WS = { date: '', all: false, rows: [], sel: new Set() }
+const WS = { date: '', all: false, rows: [], sel: new Set(), open: new Set(), det: new Map() }
 const WS_LIBS = [
   'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js',
@@ -2739,7 +2845,8 @@ async function viewWorksheets() {
       <label class="table-check"><input type="checkbox" id="ws_all" ${WS.all ? 'checked' : ''}> 미완료 배정 전체(오늘부터 30일)</label>
       <span style="flex:1"></span>
       <span id="ws_cnt" class="field-hint"></span>
-      <button class="btn btn-ghost" id="ws_print" type="button">인쇄</button>
+      <button class="btn btn-ghost" id="ws_print2" type="button" title="한 장에 2×2로 4개">인쇄 2×2</button>
+      <button class="btn btn-ghost" id="ws_print" type="button" title="한 줄에 하나씩 4줄(왼쪽 디자인)">인쇄 1×4</button>
       <button class="btn btn-primary" id="ws_pdf" type="button">작업지시서 PDF</button>`,
   })
   const keyOf = (r) => `${r.orderId}|${r.date}`
@@ -2755,7 +2862,9 @@ async function viewWorksheets() {
       ['tasks', '공정 · 수량', (r) => r.tasks.map((t) => `${esc(t.task || '전체')} ${won(t.qty)}장`).join(' · ')],
       ['st', '상태', (r) => badge(r.status, r.status === '완료' ? 'b-good' : r.status === '진행' ? 'b-info' : 'b-warn')],
       ['dz', '디자인', (r) => { const m = { ready: ['확정', 'b-good'], working: ['작업 중', 'b-warn'], none: ['없음', 'b-bad'], na: ['불필요', 'b-mute'] }[r.designState] || ['없음', 'b-bad']; return badge(m[0], m[1]) }],
+      ['xp', '', (r) => `<button type="button" class="ws-xp" data-xp="${esc(keyOf(r))}" title="제작 명세 보기/숨기기" aria-label="제작 명세 보기/숨기기">${WS.open.has(keyOf(r)) ? '−' : '+'}</button>`],
     ], null, '이 날짜에 배정된 주문이 없습니다.')
+    wireDetail()
     $('#ft').textContent = `${WS.rows.length}건`
     const all = $('#ws_chk_all')
     if (all) {
@@ -2766,6 +2875,46 @@ async function viewWorksheets() {
       c.onchange = () => { c.checked ? WS.sel.add(c.dataset.ws) : WS.sel.delete(c.dataset.ws); count(); if (all) all.checked = WS.rows.every((r) => WS.sel.has(keyOf(r))) }
     })
     count()
+  }
+
+  // 오른쪽 끝 '+' — 그 주문의 제작 명세(장마다 이니셜·컬러 등)를 행 아래에 펼치거나 접는다
+  const detailRow = (tr, r) => {
+    const td = document.createElement('td')
+    td.colSpan = tr.cells.length
+    td.innerHTML = '<div class="field-hint">불러오는 중…</div>'
+    const ex = document.createElement('tr')
+    ex.className = 'ws-exp'
+    ex.appendChild(td)
+    tr.after(ex)
+    if (!WS.det.has(r.orderId)) WS.det.set(r.orderId, api(`/orders/${r.orderId}`))
+    WS.det.get(r.orderId).then((d) => {
+      // 이 날짜에 작업하는 장(전체 N장)마다 한 줄씩 — 제작 명세 줄 수가 달라도 작업지시서와 같은 규칙으로 대응시킨다
+      //   (명세가 N줄보다 적으면 균등하게 나눠 같은 내용을 반복하고, 명세가 없으면 빈 줄)
+      const ps = d.pieces || []
+      const off = r.offset || 0
+      const count = Math.max(1, ...r.tasks.map((x) => x.qty))
+      const total = Math.max(r.total || 0, off + count, ps.length)
+      const list = []
+      for (let g = off; g < off + count; g++) {
+        const p = ps.length ? (ps.length >= total ? (ps[g] || ps[ps.length - 1]) : ps[Math.min(ps.length - 1, Math.floor((g * ps.length) / total))]) : null
+        list.push({ ...(p || {}), no: g + 1, qty: 1 })
+      }
+      const note = !ps.length ? '제작 명세가 없습니다.' : ps.length < total ? `제작 명세 ${ps.length}줄 — ${total}장에 맞춰 같은 내용을 나눠 보여줍니다.` : ''
+      td.innerHTML = (note ? `<div class="field-hint" style="margin-bottom:6px">${esc(note)}</div>` : '') + pcReadTable(list, 360, { summary: false, qty: true })
+    }).catch((e) => { WS.det.delete(r.orderId); td.innerHTML = `<div class="field-hint">${esc(e.message)}</div>` })
+  }
+  const wireDetail = () => {
+    document.querySelectorAll('#tbl tr[data-i]').forEach((tr) => {
+      const r = WS.rows[tr.dataset.i]
+      const b = tr.querySelector('[data-xp]')
+      if (!r || !b) return
+      const k = keyOf(r)
+      if (WS.open.has(k)) detailRow(tr, r)
+      b.onclick = () => {
+        if (WS.open.has(k)) { WS.open.delete(k); tr.nextElementSibling?.classList.contains('ws-exp') && tr.nextElementSibling.remove(); b.textContent = '+' }
+        else { WS.open.add(k); detailRow(tr, r); b.textContent = '−' }
+      }
+    })
   }
 
   const load = async () => {
@@ -2780,6 +2929,9 @@ async function viewWorksheets() {
       // 목록에서 사라진 행은 선택에서 뺀다
       const keys = new Set(WS.rows.map(keyOf))
       for (const k of [...WS.sel]) if (!keys.has(k)) WS.sel.delete(k)
+      // 기본은 모두 선택 — 처음 보이는 행은 자동으로 체크한다(사용자가 푼 체크는 같은 행이 다시 로드돼도 유지)
+      WS.seen = WS.seen || new Set()
+      for (const k of keys) if (!WS.seen.has(k)) { WS.seen.add(k); WS.sel.add(k) }
       paint()
     } catch (e) { $('#tbl').innerHTML = emptyTable(e.message) }
   }
@@ -2791,7 +2943,8 @@ async function viewWorksheets() {
   $('#ws_prev').onclick = () => shift(-1)
   $('#ws_next').onclick = () => shift(1)
   $('#ws_pdf').onclick = () => makeWorksheets('pdf')
-  $('#ws_print').onclick = () => makeWorksheets('print')
+  $('#ws_print').onclick = () => makeWorksheets('print', null, 'one')
+  $('#ws_print2').onclick = () => makeWorksheets('print', $('#ws_print2'), 'two')
   load()
 }
 
@@ -2814,7 +2967,17 @@ const capCell = (v, big) => {
 // 컬러코드 + 이미지(남는 칸을 가득) — 이니셜 컬러 칸용
 const codeImgCell = (v, sw) => { const c = String(v ?? '').trim(); if (!c) return ''; const u = pcImg('initialColor', c); return `<div class="ws-ci"><span>${esc(c)}${sw && sw.has(c) ? ' <b class="ws-sw">교체</b>' : ''}</span>${u ? `<img src="${esc(u)}" alt="" onerror="this.style.visibility='hidden'">` : ''}</div>` }
 
-function wsSheet(row, o, pos, probe) {
+// 색상번호를 칸에 쓰고, 칸 배경은 그 컬러(자수사 컬러 이미지)로 채운다. lead 가 있으면 칸 왼쪽 위에 작게(침 번호).
+const ndCell = (v, sw, lead) => {
+  const c = String(v ?? '').trim()
+  const u = c ? pcImg('initialColor', c) : ''
+  const swap = c && sw && sw.has(c) ? '<span class="ws-sw">교체</span>' : ''
+  // 배경은 CSS background 가 아니라 칸을 가득 채우는 <img> — 인쇄에서 '배경 그래픽'을 꺼 둬도 색이 나오게
+  return `<td class="nd">${u ? `<img class="ndbg" src="${esc(u)}" alt="" onerror="this.style.visibility='hidden'">` : ''}${lead ? `<i>${esc(lead)}</i>` : ''}<b>${esc(c)}</b>${swap}</td>`
+}
+
+// layout: 'one' = 한 줄에 하나씩 4줄(왼쪽 디자인) / 'two' = 2×2 (이전 배치) — 인쇄 버튼 둘로 비교한다
+function wsSheet(row, o, pos, probe, layout = 'one') {
   const ps = o.pieces || []
   const grp = !!row.groupMode                                // 디자인·컬러 세트·이니셜이 같은 장을 묶은 시트
   const one = ps.length === 1 || (grp && ps.length) ? ps[0] : null
@@ -2856,46 +3019,84 @@ function wsSheet(row, o, pos, probe) {
     : (mae === 1 ? row.tasks.filter((t) => t.task).map((t) => t.task).join(' · ') : row.tasks.map((t) => `${t.task || '전체'} ${won(t.qty)}장`).join(' · '))
   const tr = (cells) => `<tr>${cells.join('')}</tr>`
 
-  const capRows = shown.map((g, i) => tr([`<td class="l">${i === 0 ? '컬러' : ''}</td>`, capCell(g.color, shown.length === 1), `<td>${esc(g.size)}${groups.length > 1 || g.n > 1 ? ` ×${g.n}` : ''}</td>`])).join('')
-    + (groups.length > shown.length ? tr(['<td class="l"></td>', `<td colspan="2">외 ${groups.length - shown.length}종</td>`]) : '')
+  // 수모: 컬러(+컬러 이미지 조각) · 사이즈를 한 줄로 — 종류가 많으면 앞의 몇 개만 보이고 "외 N종"
+  const capTxt = shown.map((g) => {
+    const u = g.color ? pcImg('color', g.color) : ''
+    return `<span class="ws-cp">${u ? `<img src="${esc(u)}" alt="" onerror="this.style.display='none'">` : ''}${esc(g.color || '')} ${esc(g.size || '')}${groups.length > 1 || g.n > 1 ? ` ×${g.n}` : ''}</span>`
+  }).join('') + (groups.length > shown.length ? `<span class="ws-cp">외 ${groups.length - shown.length}종</span>` : '')
+  // 이니셜: 좌측/우측 글자 + 이니셜 색(칸 배경이 그 컬러)
+  const initTr = (side, text) => `<tr>${side === '좌측' ? '<td rowspan="2" class="l">이니셜</td>' : ''}<td class="l2">${side}</td><td colspan="2" class="it">${esc(text)}</td>${text ? ndCell(one?.initialColor, swapSet) : '<td></td>'}</tr>`
   const initRows = many
-    ? tr(['<td class="l">좌측</td>', `<td colspan="2">개별 ${ps.length}건 — 별지 참조</td>`]) + tr(['<td class="l">우측</td>', '<td></td><td></td>'])
-    : tr(['<td class="l">좌측</td>', `<td>${esc(one?.initials || '')}</td>`, `<td class="cim">${codeImgCell(one?.initialColor, swapSet)}</td>`])
-      + tr(['<td class="l">우측</td>', `<td>${esc(one?.initialsRight || '')}</td>`, `<td class="cim">${one?.initialsRight ? codeImgCell(one?.initialColor, swapSet) : ''}</td>`])
-  // 로고: 침(1~7) · 컬러코드 · 컬러 이미지(칸을 가득 채움). 번호가 없는 옛 컬러는 이름 글자로 보여 준다.
-  const logoRows = [0, 1, 2, 3, 4, 5, 6].map((i) => {
+    ? `<tr><td rowspan="2" class="l">이니셜</td><td class="l2">좌측</td><td colspan="3">개별 ${ps.length}건 — 별지 참조</td></tr><tr><td class="l2">우측</td><td colspan="3"></td></tr>`
+    : initTr('좌측', one?.initials || '') + initTr('우측', one?.initialsRight || '')
+  // 디자인: 침 1~7 의 색상번호(칸 배경이 그 컬러) — 4칸 + 3칸
+  const needle = (i) => {
     const c = colors[i] && (colors[i].no || colors[i].code || colors[i].label) ? colors[i] : null
-    const u = c?.no ? pcImg('initialColor', c.no) : ''
-    return tr([`<td class="n">${i + 1}</td>`, `<td class="cc">${c ? esc(c.no || c.code || c.label || '') + swTag(c.no || c.code) : ''}</td>`,
-      `<td class="cim">${u ? `<img src="${esc(u)}" alt="" onerror="this.style.visibility='hidden'">` : (c && !c.no ? esc(colorText(c)) : '')}</td>`])
-  }).join('')
+    return c ? ndCell(c.no || c.code || c.label, swapSet, `침${i + 1}`) : `<td class="nd"><i>침${i + 1}</i></td>`
+  }
+  const logoRows = `<tr><td rowspan="2" class="l">디자인</td>${[0, 1, 2, 3].map(needle).join('')}</tr><tr>${[4, 5, 6].map(needle).join('')}<td class="nd"></td></tr>`
+  const person = one ? [row.personText ?? one.person, one.position].filter(Boolean).join(' · ') : ''
+  const mach = (row.machines || []).map((n) => (/\d+/.exec(n) ? `#${/\d+/.exec(n)[0]}` : n)).join('·')
 
-  return `<div class="ws-sheet ${pos}">
+  if (layout === 'two') {
+    const capRows2 = shown.map((g, i) => tr([`<td class="l">${i === 0 ? '컬러' : ''}</td>`, capCell(g.color, shown.length === 1), `<td>${esc(g.size)}${groups.length > 1 || g.n > 1 ? ` ×${g.n}` : ''}</td>`])).join('')
+      + (groups.length > shown.length ? tr(['<td class="l"></td>', `<td colspan="2">외 ${groups.length - shown.length}종</td>`]) : '')
+    const initRows2 = many
+      ? tr(['<td class="l">좌측</td>', `<td colspan="2">개별 ${ps.length}건 — 별지 참조</td>`]) + tr(['<td class="l">우측</td>', '<td></td><td></td>'])
+      : tr(['<td class="l">좌측</td>', `<td>${esc(one?.initials || '')}</td>`, one?.initials ? ndCell(one?.initialColor, swapSet) : '<td></td>'])
+        + tr(['<td class="l">우측</td>', `<td>${esc(one?.initialsRight || '')}</td>`, one?.initialsRight ? ndCell(one?.initialColor, swapSet) : '<td></td>'])
+    const logoRows2 = tr([0, 1, 2, 3].map(needle)) + tr([4, 5, 6].map(needle).concat('<td class="nd"></td>'))
+    return `<div class="ws-sheet ${pos}">
     <div class="ws-left">
       <table class="ws-t ws-head"><tbody>
-        <tr><td class="no">#${row.orderNo}</td><td colspan="2" class="ti">${esc(row.title)}${row.seq ? ` <span class="ws-seq">${esc(row.seq)}</span>` : ''}</td></tr>
+        <tr><td class="no">#${row.orderNo}</td><td colspan="2" class="ti"><div class="ws-tr"><span>${esc(row.title)}${row.seq ? ` <span class="ws-seq">${esc(row.seq)}</span>` : ''}</span><b class="ws-mno">${esc(mach)}</b></div></td></tr>
         <tr><td class="l2">작업일자</td><td>${esc(row.date)}</td><td class="sub">${esc(taskTxt)}</td></tr>
-        ${(row.seq || grp) && one && ((row.personText ?? one.person) || one.position) ? `<tr><td class="l2">주문자</td><td colspan="2"><div class="ws-pr"><span>${esc([row.personText ?? one.person, one.position].filter(Boolean).join(' · '))}</span><b>${one.design && logo ? esc(logo.name) + (dset ? ` (${esc(dset.name)})` : '') : ''}</b></div></td></tr>` : ''}
+        ${(row.seq || grp) && one && ((row.personText ?? one.person) || one.position) ? `<tr><td class="l2">주문자</td><td colspan="2"><div class="ws-pr"><span>${esc(person)}</span><b>${one.design && logo ? esc(logo.name) + (dset ? ` (${esc(dset.name)})` : '') : ''}</b></div></td></tr>` : ''}
       </tbody></table>
-      <table class="ws-t"><thead><tr><th>수모</th><th>컬러</th><th>사이즈</th></tr></thead><tbody>${capRows || tr(['<td class="l">컬러</td>', '<td></td>', '<td></td>'])}</tbody></table>
-      <table class="ws-t"><thead><tr><th>이니셜</th><th>이니셜</th><th>컬러</th></tr></thead><tbody>${initRows}</tbody></table>
-      <table class="ws-t"><thead><tr><th>로고</th><th>color</th><th>색상</th></tr></thead><tbody>${logoRows}</tbody></table>
+      <table class="ws-t"><thead><tr><th>수모</th><th>컬러</th><th>사이즈</th></tr></thead><tbody>${capRows2 || tr(['<td class="l">컬러</td>', '<td></td>', '<td></td>'])}</tbody></table>
+      <table class="ws-t"><thead><tr><th>이니셜</th><th>이니셜</th><th>컬러</th></tr></thead><tbody>${initRows2}</tbody></table>
+      <table class="ws-t ws-nd"><thead><tr><th colspan="4">로고 · 침별 색상번호</th></tr></thead><tbody>${logoRows2}</tbody></table>
       <table class="ws-t"><tbody><tr><td class="l">작업자</td><td></td><td></td></tr></tbody></table>
-      <table class="ws-t ws-mach"><tbody><tr><td class="l">자수기</td><td colspan="2" class="mno">${esc((row.machines || []).map((n) => (/\d+/.exec(n) ? `${/\d+/.exec(n)[0]}번` : n)).join(' · '))}</td></tr></tbody></table>
     </div>
     <div class="ws-right">
-      <div class="ws-img">${img ? `<img src="${esc(imgSrc(img))}" alt="">` : '<span>디자인 이미지 없음</span>'}</div>
+      <div class="ws-dz">
       <div class="ws-cap">${used.length > 1 ? used.map((u) => `${esc(u.code)}${u.d ? ' ' + esc(u.d.name) : ''} ×${u.n}`).join(' · ') : logo ? `${esc(logo.code)} ${esc(logo.name)} v${logo.version}${logo.status ? ` (${esc(logo.status)})` : ''}${dset ? ` · ${esc(dset.name)}` : ''}` : ''}</div>
-      <div class="ws-memo-l">메모</div>
-      <div class="ws-memo">${esc(memo)}</div>
+      <div class="ws-img">${img ? `<img src="${esc(imgSrc(img))}" alt="">` : '<span>디자인 이미지 없음</span>'}</div>
+      </div>
+      <div class="ws-mm">
+        <div class="ws-memo-l">메모</div>
+        <div class="ws-memo">${esc(memo)}</div>
+      </div>
+    </div>
+  </div>`
+  }
+
+  // 한 장 = 한 줄: 왼쪽에 디자인 이미지, 오른쪽에 표(번호·제목 / 날짜·주문자·매수·자수기 / 수모 / 디자인(침 색) / 이니셜 / 비고·작업자)
+  return `<div class="ws-sheet ${pos}">
+    <div class="ws-dz">
+      <div class="ws-cap">${used.length > 1 ? used.map((u) => `${esc(u.code)}${u.d ? ' ' + esc(u.d.name) : ''} ×${u.n}`).join(' · ') : logo ? `${esc(logo.code)} ${esc(logo.name)} v${logo.version}${logo.status ? ` (${esc(logo.status)})` : ''}${dset ? ` · ${esc(dset.name)}` : ''}` : ''}</div>
+      <div class="ws-img">${img ? `<img src="${esc(imgSrc(img))}" alt="">` : '<span>디자인 이미지 없음</span>'}</div>
+    </div>
+    <div class="ws-info">
+      <table class="ws-t ws-main">
+        <colgroup><col style="width:72px"><col><col><col><col></colgroup>
+        <tbody>
+        <tr class="hd"><td class="no">#${row.orderNo}</td><td colspan="3" class="ti">${esc(row.title)}</td><td class="seq">${esc(row.seq || '')}</td></tr>
+        <tr class="hd"><td class="d">${esc(row.date)}</td><td colspan="2" class="pn">${esc(person)}</td><td class="mae">${esc(taskTxt)}</td><td class="mno">${esc(mach)}</td></tr>
+        <tr><td class="l">수모</td><td colspan="4" class="cap">${capTxt}</td></tr>
+        ${logoRows}
+        ${initRows}
+        <tr><td class="l">비고</td><td colspan="3" class="mm"><div class="ws-memo-c">${esc(memo)}</div></td><td class="wk">작업자</td></tr>
+        </tbody>
+      </table>
     </div>
   </div>`
 }
 
-async function makeWorksheets(mode, btnEl) {
+async function makeWorksheets(mode, btnEl, layout = 'one') {
   const picked = WS.rows.filter((r) => WS.sel.has(`${r.orderId}|${r.date}`))
   if (!picked.length) return alert('작업지시서를 만들 주문을 체크하세요.')
-  const btn = btnEl || $(mode === 'pdf' ? '#ws_pdf' : '#ws_print')
+  const btn = btnEl || $(mode === 'pdf' ? '#ws_pdf' : (layout === 'two' ? '#ws_print2' : '#ws_print'))
   const label = btn.textContent
   btn.disabled = true; btn.textContent = '준비 중…'
   try {
@@ -2976,10 +3177,13 @@ async function makeWorksheets(mode, btnEl) {
       if (d0 >= todayK) saves.push({ id: m._id, date: d0, before, after })
     }
     for (const d of [...new Set(saves.map((x) => x.date))]) await api('/machines/ws-state', { method: 'POST', body: { date: d, states: saves.filter((x) => x.date === d) } }).catch(() => {})
-    const sheets = specs.map((sp) => wsSheet(sp[0], sp[1], ''))
+    const sheets = specs.map((sp) => wsSheet(sp[0], sp[1], '', false, layout))
     const pages = []
-    for (let i = 0; i < sheets.length; i += 2) {
-      pages.push(`<div class="ws-page">${sheets[i].replace('class="ws-sheet "', 'class="ws-sheet top"')}${sheets[i + 1] ? sheets[i + 1].replace('class="ws-sheet "', 'class="ws-sheet bottom"') : ''}<div class="ws-cut"></div></div>`)
+    for (let i = 0; i < sheets.length; i += 4) {
+      const four = sheets.slice(i, i + 4).map((h, k) => h.replace('class="ws-sheet "', `class="ws-sheet p${k + 1}"`)).join('')
+      pages.push(layout === 'two'
+        ? `<div class="ws-page two">${four}<div class="ws-cut"></div><div class="ws-cut ws-cut-v"></div></div>`
+        : `<div class="ws-page one">${four}<div class="ws-cut c1"></div><div class="ws-cut c2"></div><div class="ws-cut c3"></div></div>`)
     }
 
     let host = document.getElementById('ws_render')

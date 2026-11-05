@@ -142,7 +142,7 @@ async function attachNames(orders) {
 router.post('/parse-pieces', requireCap('orders'), (req, res) => {
   const text = String(req.body?.text ?? '')
   if (text.length > 400000) return res.status(400).json({ error: '붙여넣은 내용이 너무 큽니다.' })
-  const r = parsePieces(text)
+  const r = parsePieces(text, { keepQty: !!req.body?.keepQty })
   if (r.pieces.length > 1000) return res.status(400).json({ error: '한 번에 1000줄까지 넣을 수 있습니다.' })
   res.json(r)
 })
