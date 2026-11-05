@@ -230,15 +230,44 @@ router.get('/', async (req, res) => {
   }
 })
 
-// 내려받기 — 저장용 주소로 넘긴다(파일은 서버를 거치지 않는다). 파일 이름은 올릴 때의 이름.
+// 내려받기 파일 이름 — 20261106_남자_계영_200M_LCM_서브마린진수_조준성_김아론_구태규_유성찬_스위밍포토그래피_영상제공_홍길동.mp4
+//   날짜는 올린 날이 아니라 대회가 열린 날(competitions.datetime). 알 수 없는 항목은 건너뛴다.
+const DISC_KO = { FR: '자유형', BA: '배영', BR: '평영', FL: '접영', IM: '개인혼영', FRR: '계영', MR: '혼계영' }
+const GENDER_KO = { men: '남자', women: '여자', mixed: '혼성' }
+const BRAND = '스위밍포토그래피'
+const downloadName = async (v) => {
+  const sp = await SP()
+  const comp = v.competitionID != null
+    ? await sp.collection('competitions').findOne({ competitionID: v.competitionID }, { projection: { datetime: 1 } })
+    : null
+  const m = String(comp?.datetime || '').match(/(\d{4})\D?(\d{2})\D?(\d{2})/)
+  const date = m ? m[1] + m[2] + m[3] : ''
+  // 코스(LCM·SCM)는 영상이 아니라 기록(times)에 있다
+  const timeID = (v.timeIDs || []).find((id) => id != null) ?? v.timeID
+  const time = timeID != null ? await sp.collection('times').findOne({ timeID }, { projection: { course: 1 } }) : null
+  const athletes = (v.athletes && v.athletes.length ? v.athletes : [{ name: v.name, team: v.team }])
+  const uniq = (list) => [...new Set(list.filter(Boolean))]
+  const names = uniq(athletes.flatMap((a) => String(a.name || '').split(',').map((n) => n.trim())))
+  const teams = uniq(athletes.map((a) => String(a.team || '').trim()))
+  const distance = /^\d+$/.test(String(v.distance || '')) ? `${v.distance}M` : v.distance
+  const who = v.uploader ? ((await userNames([v.uploader])).get(v.uploader) || v.uploader) : ''
+  const ext = (String(v.filename || '').match(/\.(mp4|mov|m4v|webm)$/i) || ['.mp4'])[0].toLowerCase()
+  const base = [
+    date, GENDER_KO[v.gender] || v.gender, DISC_KO[v.discipline] || v.discipline, distance, time?.course,
+    ...teams, ...names, BRAND, who && '영상제공', who,
+  ].filter(Boolean).join('_').normalize('NFC').replace(/\s+/g, '').replace(/[\\/:*?"<>|]/g, '_')
+  return base + ext
+}
+
+// 내려받기 — 저장용 주소로 넘긴다(파일은 서버를 거치지 않는다). 파일 이름은 downloadName() 규칙.
 router.get('/:id/download', async (req, res) => {
   try {
     const _id = toId(req.params.id)
     if (!_id) return res.status(400).json({ error: 'invalid id' })
-    const v = await (await coll()).findOne({ _id }, { projection: { url: 1, filename: 1 } })
+    const v = await (await coll()).findOne({ _id })
     if (!v || !v.url) return res.status(404).json({ error: 'not found' })
     if (/^https?:\/\//.test(v.url)) return res.redirect(v.url)
-    res.redirect(await presignDownload(v.url, v.filename))
+    res.redirect(await presignDownload(v.url, await downloadName(v).catch(() => v.filename)))
   } catch (e) {
     res.status(500).json({ error: e.message })
   }

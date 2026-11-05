@@ -10,6 +10,9 @@ const GENDER_KO: Record<string, string> = { men: '남자', women: '여자', mixe
 
 const caption = ref('')
 const agreed = ref(true)
+const agreedDownload = ref(true)
+// 두 안내를 모두 확인해야 올릴 수 있다 — 안 하면 올리기 버튼이 비활성화된다
+const confirmed = computed(() => agreed.value && agreedDownload.value)
 const addKind = ref<'match' | 'cheer'>('match')
 const message = ref('')
 const fileInput = ref<HTMLInputElement | null>(null)
@@ -93,7 +96,7 @@ const uploadFile = async (file: File | null | undefined) => {
   const row = props.row
   if (!file || !row || uploading.value) return
   message.value = ''
-  if (!agreed.value) { message.value = '체크해야 영상을 올릴 수 있습니다.'; if (fileInput.value) fileInput.value.value = ''; return }
+  if (!confirmed.value) { if (fileInput.value) fileInput.value.value = ''; return }
   const name = file.name.normalize('NFC')
   if (!VIDEO_RE.test(name)) { message.value = '영상 파일(mp4·mov·m4v·webm)만 올릴 수 있습니다.'; return }
   if (file.size > MAX_MB.value * 1048576) {
@@ -137,7 +140,7 @@ const uploadFile = async (file: File | null | undefined) => {
 }
 const pickKind = (kind: 'match' | 'cheer') => { addKind.value = kind; pickFile() }
 const pickFile = () => {
-  if (!agreed.value) { message.value = '체크해야 영상을 올릴 수 있습니다.'; return }
+  if (!confirmed.value) return
   fileInput.value?.click()
 }
 const onPick = (event: Event) => uploadFile((event.target as HTMLInputElement).files?.[0])
@@ -177,7 +180,7 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', onKeydown); xhr?.a
       <button class="vu-overlay" type="button" aria-label="닫기" @click="close" />
       <div class="vu" role="dialog" aria-modal="true" :aria-label="`${title} 영상 올리기`" @dragenter="onDragEnter" @dragover="onDragOver" @dragleave="onDragLeave" @drop="onDrop">
         <header class="vu-head">
-          <h2><span v-for="(part, i) in parts" :key="i" class="vu-chip">{{ part }}</span></h2>
+          <h2>{{ title }}</h2>
           <button class="vu-close" type="button" aria-label="닫기" :disabled="uploading" @click="close">×</button>
         </header>
         <div class="vu-body">
@@ -187,20 +190,23 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', onKeydown); xhr?.a
             <input v-model="agreed" type="checkbox" :disabled="uploading">
             <span>지금 여기서 업로드해주시는 내용은 영상을 업로드하신 분의 성함과 함께 메달뱅크아쿠아틱스 유투브 채널에 공개 될 수 있습니다.</span>
           </label>
-          <p v-if="!agreed" class="vu-warn">체크해야 영상을 올릴 수 있습니다.</p>
+          <label class="vu-agree">
+            <input v-model="agreedDownload" type="checkbox" :disabled="uploading">
+            <span>업로드된 영상은 대회 당일과 추후 1~3일간은 원본 다운로드가 가능하지만, 추후 메달뱅크아쿠아틱스 유투브 채널로 이동될 예정입니다. 이동 후에는 영상 원본을 다운로드 할 수 없을 수 있으니 필요한 내용은 기한 내에 다운로드 하시도록 참고 바랍니다.</span>
+          </label>
+          <p v-if="!confirmed" class="vu-warn">위 내용을 확인해주셔야 진행 가능합니다.</p>
           <div class="vu-pick">
             <template v-if="uploading">
               <span class="vu-t">동영상 올리는 중</span>
               <span class="vu-btn">{{ progress ? `${progress}%` : '준비 중…' }}</span>
             </template>
             <template v-else>
-              <span class="vu-t">올릴 영상을 선택하세요</span>
-              <button class="vu-btn" type="button" @click="pickKind('match')">경기 영상 업로드하기</button>
-              <button class="vu-btn vu-faint" type="button" @click="pickKind('cheer')">응원 영상 올리기</button>
+              <button class="vu-btn" type="button" :disabled="!confirmed" @click="pickKind('match')">경기 영상 업로드하기</button>
+              <button class="vu-btn vu-faint" type="button" :disabled="!confirmed" @click="pickKind('cheer')">응원 영상 올리기</button>
               <span class="vu-hint">mp4 · mov · {{ MAX_MB }}MB 까지 · Wi-Fi 권장</span>
             </template>
           </div>
-          <p v-if="message || uploading" class="vu-msg" :class="{ error: !uploading }">{{ uploading ? `동영상 올리는 중 ${progress}%` : message }}</p>
+          <p v-if="message && !uploading" class="vu-msg error">{{ message }}</p>
         </div>
       </div>
     </div>
@@ -210,10 +216,10 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', onKeydown); xhr?.a
 <style scoped>
 .vu-wrap { position: fixed; inset: 0; z-index: 1100; display: flex; align-items: center; justify-content: center; }
 .vu-overlay { position: absolute; inset: 0; width: 100%; border: 0; background: rgba(26, 26, 26, .42); cursor: default; }
-.vu { position: relative; width: min(520px, calc(100vw - 24px)); max-height: calc(100vh - 40px); overflow-y: auto; background: var(--paper); border: 1px solid var(--line); box-shadow: 0 18px 48px rgba(26, 26, 26, .25); }
+.vu { position: relative; width: min(520px, calc(100vw - 24px)); max-height: calc(100vh - 40px); overflow-y: auto; background: var(--paper); box-shadow: 0 18px 48px rgba(26, 26, 26, .25); }
 .vu-head { display: flex; align-items: flex-start; gap: 16px; padding: 18px 20px; border-bottom: 1px solid var(--line); }
-.vu-head h2 { flex: 1; min-width: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 6px; font-family: var(--serif); }
-.vu-chip { padding: 2px 10px; border: 1px solid var(--line); background: var(--paper-deep); font-size: 15px; line-height: 1.5; }
+/* 제목 — 영상 목록 모달·/videos 종목 제목과 같은 스타일 */
+.vu-head h2 { flex: 1; min-width: 0; margin: 0; font-family: var(--sans); font-size: 14.5px; font-weight: 700; color: var(--ink); }
 .vu-close { padding: 0; border: 0; background: none; color: var(--ink-light); font-size: 27px; line-height: 1; cursor: pointer; }
 .vu-close:disabled { opacity: .35; cursor: default; }
 .vu-body { position: relative; padding: 20px; }
@@ -223,10 +229,11 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', onKeydown); xhr?.a
 .vu-warn { margin: -4px 0 10px; color: var(--bad); font-size: 12px; }
 .vu-pick { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 28px 24px; border: 1px solid var(--line-soft); background: #fff; color: var(--ink-mute); font-family: var(--sans); }
 .vu-t { font-size: 17px; font-weight: 500; line-height: 1.3; }
-.vu-btn { padding: 14px 24px; border: 0; border-radius: 9px; background: #ff5108; color: #fff; font: 700 15px var(--sans); line-height: 1; cursor: pointer; }
-.vu-btn:hover { background: var(--orange-deep); }
+.vu-btn { width: min(260px, 100%); padding: 14px 24px; border: 0; border-radius: 9px; background: #ff5108; color: #fff; font: 700 15px var(--sans); line-height: 1; cursor: pointer; }
+.vu-btn:hover:not(:disabled) { background: var(--orange-deep); }
+.vu-btn:disabled { opacity: .35; cursor: default; }
 .vu-faint { opacity: .45; }
-.vu-faint:hover { opacity: .8; }
+.vu-faint:hover:not(:disabled) { opacity: .8; }
 .vu-hint { color: var(--ink-light); font-size: 13px; }
 .vu-msg { margin: 12px 0 0; color: var(--ink-mute); font-size: 12px; }
 .vu-msg.error { color: var(--bad); }

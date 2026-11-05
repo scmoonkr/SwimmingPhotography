@@ -28,13 +28,13 @@ const loading = ref(false)
 const errorMsg = ref('')
 const selectedCompetition = computed(() => competitions.value.find((c) => String(c.competitionID) === String(competitionID.value)))
 const competitionLabel = computed(() => selectedCompetition.value?.competitionName || String(competitionID.value || '대회 전체'))
-const genderLabel = computed(() => gender.value ? (GENDER_KO[gender.value] || gender.value) : '전체 성별')
-const disciplineLabel = computed(() => discipline.value ? (DISC_KO[discipline.value] || discipline.value) : '전체 영법')
-const distanceLabel = computed(() => distance.value || '전체 거리')
+const genderLabel = computed(() => gender.value ? (GENDER_KO[gender.value] || gender.value) : '')
+const disciplineLabel = computed(() => discipline.value ? (DISC_KO[discipline.value] || discipline.value) : '')
+const distanceLabel = computed(() => distance.value || '')
 const selectedFilterTitle = computed(() => {
   const date = String(selectedCompetition.value?.datetime || '').slice(0, 10)
   const competition = date ? `${competitionLabel.value} (${date})` : competitionLabel.value
-  return `${competition} · ${genderLabel.value} · ${disciplineLabel.value} · ${distanceLabel.value}`
+  return [competition, genderLabel.value, disciplineLabel.value, distanceLabel.value].filter(Boolean).join(' · ')
 })
 const emptyFacets = () => ({
   genderOptions: [] as string[], disciplineOptions: [] as string[], distanceOptions: [] as string[],
@@ -180,7 +180,11 @@ const groups = computed(() => {
 const videoTotal = computed(() => Number(facetCounts.value.distributionTotal) || 0)
 const drawerRow = ref<any | null>(null)
 const uploadRow = ref<any | null>(null)
-const openDrawer = (row: any) => { drawerRow.value = row }
+// 행 클릭 — 영상이 있으면 영상 목록 모달, 없으면 바로 영상 올리기 모달
+const openDrawer = (row: any) => {
+  if (row.videos?.length) drawerRow.value = row
+  else uploadRow.value = row
+}
 const refreshDrawer = async () => {
   const timeID = drawerRow.value?.timeID
   await reload()
@@ -253,8 +257,8 @@ const onDrawerDeleted = async () => { await refreshDrawer() }
         <table class="vt-table">
           <thead>
             <tr>
-              <th class="num">{{ g.hasRank ? '순위' : '#' }}</th><th>선수명</th><th>그룹</th><th>성별</th><th>소속</th>
-              <th>종목</th><th>-</th><th class="num">경기실적</th><th>-</th>
+              <th class="num rk">{{ g.hasRank ? '순위' : '#' }}</th><th>선수명</th><th class="hide-m">그룹</th>
+              <th class="hide-m">종목</th><th class="num">경기실적</th><th>-</th>
               <th class="ic" aria-label="영상">-</th>
             </tr>
           </thead>
@@ -263,13 +267,11 @@ const onDrawerDeleted = async () => { await refreshDrawer() }
               v-for="(r, i) in g.rows" :key="r.timeID" :class="{ has: r.videos.length, selected: drawerRow?.timeID === r.timeID }"
               tabindex="0" @click="openDrawer(r)" @keydown.enter.prevent="openDrawer(r)"
             >
-              <td class="num">{{ g.hasRank ? (r.rank || '—') : Number(i) + 1 }}</td>
-              <td class="strong">{{ r.name }}</td>
-              <td>{{ r.ageGroup }}</td>
-              <td>{{ GENDER_KO[r.gender] || r.gender }}</td>
-              <td>{{ r.team }}</td>
-              <td>{{ DISC_KO[r.discipline] || r.discipline }}</td>
-              <td>{{ r.distance }}</td>
+              <td class="num rk">{{ g.hasRank ? (r.rank || '—') : Number(i) + 1 }}</td>
+              <!-- 소속은 이름 옆에 흐린 회색으로, 성별은 종목 제목에 이미 있어 열을 두지 않는다 -->
+              <td class="strong">{{ r.name }} <span v-if="r.team" class="team">{{ r.team }}</span></td>
+              <td class="hide-m">{{ r.ageGroup }}</td>
+              <td class="hide-m">{{ DISC_KO[r.discipline] || r.discipline }} {{ r.distance }}</td>
               <td class="num mono">{{ r.time }}</td>
               <td class="st">{{ r.status }}</td>
               <!-- 영상 — 있으면 재생 아이콘(여러 개면 개수) -->
@@ -334,7 +336,7 @@ const onDrawerDeleted = async () => { await refreshDrawer() }
 .vt-empty { margin: 40px 0; text-align: center; font-size: 13.5px; color: var(--ink-light); }
 
 /* 종목 하나 = 제목 + 표 */
-.vt-group { margin-bottom: 26px; }
+.vt-group { margin-bottom: 26px; max-width: 760px; } /* 열 사이가 벌어지지 않도록 표 너비를 제한 */
 .vt-title { margin: 0 0 6px; font-size: 14.5px; font-weight: 700; color: var(--ink); }
 .vt-n { margin-left: 4px; font-size: 12px; font-weight: 400; color: var(--ink-light); }
 .vt-scroll { overflow-x: auto; border-top: 2px solid var(--ink); }
@@ -344,6 +346,11 @@ const onDrawerDeleted = async () => { await refreshDrawer() }
 .vt-table .num { text-align: right; font-variant-numeric: tabular-nums; }
 .vt-table .mono { font-family: var(--mono); }
 .vt-table td.strong { font-weight: 700; }
+.vt-table .team { margin-left: 2px; font-weight: 400; color: var(--ink-light); }
+/* 순위 — 숫자 폭만큼만 차지한다 */
+.vt-table th.rk, .vt-table td.rk { width: 1%; padding-left: 8px; padding-right: 2px; }
+/* 영상이 없는 기록 — 글씨만 20% 흐리게 (영상 열의 아이콘은 그대로) */
+.vt-table tbody tr:not(.has) td:not(.ic) { opacity: .8; }
 .vt-table td.st { color: var(--bad); font-weight: 600; }
 .vt-table .ic { width: 34px; padding: 3px 4px; text-align: center; }
 .vt-table tbody tr { cursor: pointer; }
@@ -393,5 +400,7 @@ const onDrawerDeleted = async () => { await refreshDrawer() }
   .vt-bar { grid-template-columns: 1fr 1fr; gap: 8px 14px; }
   .f-comp { grid-column: 1 / -1; }
   .vt-table th, .vt-table td { padding: 7px 7px; }
+  .vt-table th.rk, .vt-table td.rk { padding-left: 6px; padding-right: 2px; }
+  .vt-table .hide-m { display: none; } /* 그룹 · 종목(자유형 100M)은 모바일에서 숨긴다 */
 }
 </style>

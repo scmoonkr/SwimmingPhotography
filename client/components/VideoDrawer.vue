@@ -51,6 +51,13 @@ const uploaderOf = (video: any) => {
   const ig = String(video.uploaderInstagram || '')
   return ig ? `${name} (${ig.startsWith('@') ? '' : '@'}${ig})` : name
 }
+// 마이페이지에 인스타그램을 입력한 사람만 링크가 있다 (@ 제거 · URL 이면 그대로)
+const igUrl = (video: any) => {
+  const ig = String(video.uploaderInstagram || '').trim()
+  if (!ig) return ''
+  if (/^https?:\/\//i.test(ig)) return ig
+  return `https://instagram.com/${ig.replace(/^@/, '')}`
+}
 const fmtTime = (value: any) => {
   if (!value) return ''
   const date = new Date(value)
@@ -98,7 +105,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
       <button class="vd-overlay" type="button" aria-label="닫기" @click="close" />
       <div class="vd" role="dialog" aria-modal="true" :aria-label="`${title} 영상`">
         <header class="vd-head">
-          <h2><span v-for="(part, i) in parts" :key="i" class="vd-chip">{{ part }}</span></h2>
+          <h2>{{ title }}</h2>
           <button class="vd-close" type="button" aria-label="닫기" @click="close">×</button>
         </header>
         <div class="vd-body">
@@ -119,7 +126,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
               <div class="vd-meta">
                 <b :class="{ cheer: video.kind === 'cheer' && !video.youtube, yt: video.youtube }">{{ kindOf(video) }}</b>
                 <span v-if="!video.youtube" class="vd-file">{{ fileLabel }}</span>
-                <span v-if="uploaderOf(video)">영상제공 {{ uploaderOf(video) }}</span>
+                <a v-if="uploaderOf(video) && igUrl(video)" class="vd-by" :href="igUrl(video)" target="_blank" rel="noopener">영상제공 {{ uploaderOf(video) }}</a>
+                <span v-else-if="uploaderOf(video)">영상제공 {{ uploaderOf(video) }}</span>
                 <span v-if="video.updatedAt" class="vd-time">{{ fmtTime(video.updatedAt) }}</span>
               </div>
             </li>
@@ -127,13 +135,12 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
             <li class="vd-item">
               <button class="vd-thumb-wrap vd-add" type="button" aria-label="영상 추가" @click="emit('add')">
                 <span class="vd-add-plus">+</span>
-                <span class="vd-add-txt">영상 추가</span>
               </button>
             </li>
           </ul>
           <template v-else>
             <p class="vd-empty">올라온 영상이 없습니다.</p>
-            <button class="vd-add vd-add-solo" type="button" @click="emit('add')"><span class="vd-add-plus">+</span><span class="vd-add-txt">영상 추가</span></button>
+            <button class="vd-add vd-add-solo" type="button" @click="emit('add')"><span class="vd-add-plus">+</span></button>
           </template>
           <p v-if="message" class="vd-err">{{ message }}</p>
         </div>
@@ -167,10 +174,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 <style scoped>
 .vd-wrap { position: fixed; inset: 0; z-index: 1100; display: flex; align-items: center; justify-content: center; }
 .vd-overlay { position: absolute; inset: 0; width: 100%; border: 0; background: rgba(26, 26, 26, .42); cursor: default; }
-.vd { position: relative; display: flex; flex-direction: column; width: min(720px, calc(100vw - 24px)); max-height: calc(100vh - 40px); background: var(--paper); border: 1px solid var(--line); box-shadow: 0 18px 48px rgba(26, 26, 26, .25); }
+.vd { position: relative; display: flex; flex-direction: column; width: min(720px, calc(100vw - 24px)); max-height: calc(100vh - 40px); background: var(--paper); box-shadow: 0 18px 48px rgba(26, 26, 26, .25); }
 .vd-head { display: flex; align-items: flex-start; gap: 16px; padding: 18px 20px; border-bottom: 1px solid var(--line); }
-.vd-head h2 { flex: 1; min-width: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 6px; font-family: var(--serif); }
-.vd-chip { padding: 2px 10px; border: 1px solid var(--line); background: var(--paper-deep); font-size: 15px; line-height: 1.5; }
+/* 제목 — /videos 목록의 종목 제목(.vt-title)과 같은 스타일 */
+.vd-head h2 { flex: 1; min-width: 0; margin: 0; font-family: var(--sans); font-size: 14.5px; font-weight: 700; color: var(--ink); }
 .vd-close { flex: 0 0 auto; padding: 0; border: 0; background: none; color: var(--ink-light); font-size: 27px; line-height: 1; cursor: pointer; }
 .vd-close:hover { color: var(--ink); }
 .vd-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 20px; }
@@ -193,6 +200,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 .vd-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-width: 0; color: var(--ink-mute); font-size: 12.5px; line-height: 1.5; }
 .vd-meta b { padding: 2px 9px; background: var(--ink); color: #fff; font-size: 12px; }
 .vd-meta b.cheer { background: var(--orange-deep); }
+.vd-by { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
+.vd-by:hover { color: var(--orange-deep); }
 .vd-meta b.yt { background: #000; }
 .vd-item .vd-meta { flex-direction: column; align-items: flex-start; }
 .vd-file { white-space: nowrap; }
@@ -202,7 +211,6 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 }
 .vd-add:hover { border-color: var(--orange); color: var(--orange-deep); background: var(--paper); }
 .vd-add-plus { font-size: 28px; font-weight: 300; line-height: 1; }
-.vd-add-txt { font: 600 12px var(--sans); }
 .vd-add-solo { width: 168px; }
 .vd-time { color: var(--ink-light); font-size: 11.5px; }
 .vd-empty { margin: 0; padding: 16px 0; color: var(--ink-light); font-size: 13px; }
