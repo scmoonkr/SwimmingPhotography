@@ -118,13 +118,22 @@ router.get('/source', async (req, res) => {
   try {
     const { q, year, limit = 50 } = req.query
     const filter = {}
-    if (q) filter.competitionName = { $regex: String(q), $options: 'i' }
+    // competitionName 이 없는 원본은 fullname 으로도 찾는다
+    if (q) {
+      const re = { $regex: String(q), $options: 'i' }
+      filter.$or = [{ competitionName: re }, { fullname: re }, { fullName: re }]
+    }
     if (year) filter.datetime = { $regex: `^${String(year)}` }
     const docs = await (await BR()).collection('competitions')
       .find(filter)
       .sort({ competitionID: -1 })
       .limit(Math.min(Number(limit) || 50, 200))
       .toArray()
+    // competitionName 이 비어 있으면 fullname, datetime 이 비어 있으면 dateStart 값을 복사해 내려준다 (SP 로 등록할 때도 그대로 쓰인다)
+    for (const d of docs) {
+      if (!d.competitionName) d.competitionName = d.fullname || d.fullName || ''
+      if (!d.datetime && d.dateStart) d.datetime = d.dateStart   // datetime 이 없으면 dateStart
+    }
     res.json(docs)
   } catch (e) {
     res.status(500).json({ error: e.message })
