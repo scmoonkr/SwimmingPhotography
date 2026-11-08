@@ -114,8 +114,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
             <li v-for="video in videos" :key="video._id" class="vd-item">
               <div class="vd-thumb-wrap">
                 <button class="vd-thumb" type="button" :aria-label="`${kindOf(video)} 재생`" @click="playId = String(video._id)">
-                  <span v-if="video.youtube" class="vd-no-thumb vd-yt">▶ YouTube</span>
-                  <img v-else-if="video.thumbnail" :src="video.thumbnail" alt="">
+                  <img v-if="video.thumbnail" :src="video.thumbnail" alt="">
+                  <span v-else-if="video.youtube" class="vd-no-thumb vd-yt">▶ YouTube</span>
                   <video v-else :src="`${video.url}#t=0.1`" muted playsinline preload="metadata" />
                 </button>
                 <button
@@ -124,8 +124,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                 >×</button>
               </div>
               <div class="vd-meta">
-                <b :class="{ cheer: video.kind === 'cheer' && !video.youtube, yt: video.youtube }">{{ kindOf(video) }}</b>
-                <span v-if="!video.youtube" class="vd-file">{{ fileLabel }}</span>
+                <b :class="{ cheer: video.kind === 'cheer' && !video.youtube, yt: video.youtube }">{{ video.youtube ? '시청 가능' : '다운로드 가능' }}</b>
+                <span class="vd-file">{{ video.youtube ? '영상제공 메달뱅크' : fileLabel }}</span>
                 <a v-if="uploaderOf(video) && igUrl(video)" class="vd-by" :href="igUrl(video)" target="_blank" rel="noopener">영상제공 {{ uploaderOf(video) }}</a>
                 <span v-else-if="uploaderOf(video)">영상제공 {{ uploaderOf(video) }}</span>
                 <span v-if="video.updatedAt" class="vd-time">{{ fmtTime(video.updatedAt) }}</span>
@@ -202,7 +202,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 .vd-meta b.cheer { background: var(--orange-deep); }
 .vd-by { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
 .vd-by:hover { color: var(--orange-deep); }
-.vd-meta b.yt { background: #000; }
+.vd-meta b.yt { background: #d62b1f; }
 .vd-item .vd-meta { flex-direction: column; align-items: flex-start; }
 .vd-file { white-space: nowrap; }
 .vd-add {

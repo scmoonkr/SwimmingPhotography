@@ -136,7 +136,7 @@ const marqueeItems = computed(() => [NOTICE()])
 .foot-modal .box {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%);
   width: calc(100% - 40px); max-width: 440px; background: var(--paper);
-  border: 1px solid var(--line); border-radius: 0; padding: 30px 30px 26px;
+  border: none; border-radius: 0; padding: 30px 30px 26px;
   box-shadow: 0 18px 50px rgba(26,26,26,.18); font-family: var(--serif);
 }
 .foot-modal .modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }

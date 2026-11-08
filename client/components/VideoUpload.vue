@@ -198,7 +198,10 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', onKeydown); xhr?.a
           <div class="vu-pick">
             <template v-if="uploading">
               <span class="vu-t">동영상 올리는 중</span>
-              <span class="vu-btn">{{ progress ? `${progress}%` : '준비 중…' }}</span>
+              <span class="vu-btn vu-gauge" role="progressbar" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="progress">
+                <i class="vu-gauge-fill" :style="{ width: `${progress}%` }"></i>
+                <span class="vu-gauge-t">{{ progress ? `${progress}%` : '준비 중…' }}</span>
+              </span>
             </template>
             <template v-else>
               <button class="vu-btn" type="button" :disabled="!confirmed" @click="pickKind('match')">경기 영상 업로드하기</button>
@@ -230,6 +233,9 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', onKeydown); xhr?.a
 .vu-pick { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 28px 24px; border: 1px solid var(--line-soft); background: #fff; color: var(--ink-mute); font-family: var(--sans); }
 .vu-t { font-size: 17px; font-weight: 500; line-height: 1.3; }
 .vu-btn { width: min(260px, 100%); padding: 14px 24px; border: 0; border-radius: 9px; background: #ff5108; color: #fff; font: 700 15px var(--sans); line-height: 1; cursor: pointer; }
+.vu-gauge { padding-top: 7px; padding-bottom: 7px; position: relative; display: block; overflow: hidden; text-align: center; background: rgba(26, 26, 26, .4); color: #fff; cursor: default; }
+.vu-gauge-fill { position: absolute; left: 0; top: 0; bottom: 0; background: #ff5108; transition: width .25s ease-out; }
+.vu-gauge-t { position: relative; }
 .vu-btn:hover:not(:disabled) { background: var(--orange-deep); }
 .vu-btn:disabled { opacity: .35; cursor: default; }
 .vu-faint { opacity: .45; }
