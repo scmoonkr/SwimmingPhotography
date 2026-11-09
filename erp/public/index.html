@@ -201,10 +201,11 @@ const MENU = [
   ['smartstore', [
     ['ssorders', '주문', '<path d="M4 3h16v18l-3-2-3 2-3-2-3 2-3-2-1 1V3Z"/><path d="M8 8h8M8 12h8M8 16h4"/>'],
     ['sscustom', '커스텀 주문', '<path d="M4 3h16v18l-3-2-3 2-3-2-3 2-3-2-1 1V3Z"/><path d="M12 7v6M9 10h6"/>'],
+    ['ssship', '배송관리', '<path d="M3 7h11v9H3zM14 10h4l3 3v3h-7z"/><circle cx="7" cy="17.5" r="1.6"/><circle cx="17" cy="17.5" r="1.6"/>'],
   ]],
 ]
 const VIEWS = {
-  materials: () => viewItems('materials'), goods: () => viewItems('goods'), ssorders: () => viewSsOrders('normal'), sscustom: () => viewSsOrders('custom'),
+  materials: () => viewItems('materials'), goods: () => viewItems('goods'), ssorders: () => viewSsOrders('normal'), sscustom: () => viewSsOrders('custom'), ssship: () => viewSsOrders('ship'),
   settings: () => viewSettings(), worksheets: () => viewWorksheets(), designs: () => viewDesigns(), dmap: () => viewDesignMap(), machines: () => viewMachines(), assign: () => viewAssign(), schedule: () => viewSchedule(), stock: () => viewStock(), po: () => viewPO(), ship: () => viewShip(), stocktake: () => viewStocktake(),
 }
 
@@ -344,20 +345,22 @@ async function viewList(E) {
 // 스마트스토어 > 주문 — import 로 가져온 주문 목록. 기존 주문과는 따로 운영한다(나중에 통합).
 // kind: 'normal' = 상품명에 "커스텀"이 없는 주문(스마트스토어 > 주문) / 'custom' = "커스텀"이 들어 있는 주문(스마트스토어 > 커스텀 주문). 사람이 옮긴 것은 그대로 따른다.
 async function viewSsOrders(kind = 'normal') {
-  const isCu = kind === 'custom'
+  const isCu = kind === 'custom', isShip = kind === 'ship'   // ship: 배송관리 — 일반·커스텀 주문을 모두 보여 준다
   pageShell({
-    en: isCu ? 'Smartstore Custom Orders' : 'Smartstore Orders', title: isCu ? '스마트스토어 커스텀 주문' : '스마트스토어 주문', addLabel: '',
-    tools: '<input id="q" class="table-search" placeholder="주문번호 · 주문자 · 수취인 · 상품 · 주소 · 톡톡 검색…" type="search"><select id="inv_f" class="table-search" style="flex:none;width:auto" aria-label="송장 필터"><option value="">송장 전체</option><option value="none">송장 없음</option><option value="wait">수거 전</option><option value="picked">수거됨</option><option value="done">배송완료</option></select><span style="flex:1"></span><button type="button" class="btn btn-ghost" id="ss_open" title="스마트스토어의 최근 주문을 불러와 보고, import 로 가져옵니다">스마트스토어에서 불러오기</button>',
+    en: isShip ? 'Shipping' : isCu ? 'Smartstore Custom Orders' : 'Smartstore Orders', title: isShip ? '배송관리' : isCu ? '스마트스토어 커스텀 주문' : '스마트스토어 주문', addLabel: '',
+    tools: '<input id="q" class="table-search" placeholder="주문번호 · 주문자 · 수취인 · 상품 · 주소 · 톡톡 검색…" type="search"><select id="inv_f" class="table-search" style="flex:none;width:auto" aria-label="송장 필터"><option value="">전체</option><option value="none">송장 없음</option><option value="wait">수거 전</option><option value="picked">수거 완료</option><option value="shipping">배송중</option><option value="done">배송완료</option></select>' + (isShip ? '<span id="sel_n" class="field-hint"></span><select id="bulk_st" class="table-search" style="flex:none;width:auto" aria-label="선택한 건 단계 변경" disabled><option value="">선택 건 단계 변경…</option><option value="wait">수거 전</option><option value="picked">수거 완료</option><option value="shipping">배송중</option><option value="done">배송완료</option></select>' : '') + '<span style="flex:1"></span><button type="button" class="btn btn-ghost" id="ss_open" title="스마트스토어의 최근 주문을 불러와 보고, import 로 가져옵니다">스마트스토어에서 불러오기</button>' + (isShip ? '<button type="button" class="btn btn-primary" id="ship_print" title="체크한 주문의 송장(CJ 라벨)을 인쇄합니다" disabled>송장 인쇄</button><button type="button" class="btn btn-ghost" id="ship_issue" title="보내는 사람 · 받는 사람을 직접 입력해 송장을 발행합니다">송장발행</button>' : ''),
   })
   const load = async () => {
     try {
-      const p = new URLSearchParams({ limit: '500', custom: isCu ? '1' : '0' })
+      const p = new URLSearchParams({ limit: '500' })
+      if (!isShip) p.set('custom', isCu ? '1' : '0')
       if ($('#q')?.value) p.set('q', $('#q').value)
       if ($('#inv_f')?.value) p.set('stage', $('#inv_f').value)
       const { items, total } = await api(`/smartstore-orders?${p}`)
       paintTable(items, [
+        ...(isShip ? [['chk', '<input type="checkbox" id="chk_all" aria-label="전체 선택">', (o) => `<input type="checkbox" class="row-chk" data-id="${esc(o.productOrderId)}" aria-label="선택">`]] : []),
         ['paid', '결제일시 · 주문번호', (o) => `${esc(String(o.paidAt).replace('T', ' ').slice(0, 16))}<div class="field-hint mono">${esc(o.orderId)}</div>`],
-        ['invoice', '송장', (o) => `<button type="button" class="btn btn-ghost inv-btn${o.invoice ? ' on' : ''}" title="${o.invoice ? '송장 보기 · 인쇄' : '송장번호 등록 · 인쇄'}">${o.invoice ? esc(o.invoice.carrierName) : '송장'}</button>${o.invoice ? `<div class="field-hint mono">${esc(o.invoice.trackingNo)}</div><div class="field-hint"><b>${({ wait: '수거 전', picked: '수거됨', done: '배송완료' })[o.stage] || ''}</b></div>` : ''}`],
+        ['invoice', '송장', (o) => `<button type="button" class="btn btn-ghost inv-btn${o.invoice ? ' on' : ''}" title="${o.invoice ? '송장 보기 · 인쇄' : '송장번호 등록 · 인쇄'}">${o.invoice ? esc(o.invoice.carrierName) : '송장'}</button>${o.invoice ? `<div class="field-hint mono">${esc(o.invoice.trackingNo)}</div><div class="field-hint"><b>${({ wait: '수거 전', picked: '수거 완료', shipping: '배송중', done: '배송완료' })[o.stage] || ''}</b></div>` : ''}`],
         // 주문자와 수취인(같으면 한 번만) · 각자의 연락처를 한 칸에
         ['who', '주문자/수취인 · 연락처', (o) => {
           const same = o.orderer === o.receiver
@@ -369,17 +372,68 @@ async function viewSsOrders(kind = 'normal') {
         ['qty', '수량', (o) => o.qty, 'r'],
         ['amount', '결제금액', (o) => `${Number(o.amount || 0).toLocaleString()}원`, 'r'],
         ['status', '상태', (o) => esc(o.status)],
+        ...(isShip ? [['size', '크기', (o) => `<select class="size-sel" data-id="${esc(o.productOrderId)}" aria-label="택배 크기"><option value="">-</option>${['극소', '소', '중', '대'].map((z) => `<option ${o.size === z ? 'selected' : ''}>${z}</option>`).join('')}</select>`]] : []),
         ['memo', '배송 메모', (o) => `<div class="ss-wrap memo">${esc(o.memo)}</div>`],
         ['talk', '톡톡', (o) => `<button type="button" class="btn btn-ghost talk-btn${o.talk ? ' on' : ''}" title="${o.talk ? '저장된 톡톡 메시지 보기 · 고치기' : '톡톡 메시지 붙여 넣기'}">톡톡</button>`],
-      ].filter((c) => c[0] !== 'memo'), (o) => openCustomDetail(o, load, kind), isCu ? '커스텀 주문이 없습니다. 상품명에 "커스텀"이 들어 있는 주문이 여기에 모입니다.' : '가져온 주문이 없습니다. "스마트스토어에서 불러오기"로 주문을 불러와 import 하세요.')
+        ...(isShip ? [['reissue', '송장', () => '<button type="button" class="btn btn-ghost reissue-btn" title="이 주문으로 송장발행 창을 엽니다">재발행</button>']] : []),
+      ].filter((c) => c[0] !== 'memo'), (o) => openCustomDetail(o, load, isShip ? (o.isCustom ? 'custom' : 'normal') : kind), isCu ? '커스텀 주문이 없습니다. 상품명에 "커스텀"이 들어 있는 주문이 여기에 모입니다.' : '가져온 주문이 없습니다. "스마트스토어에서 불러오기"로 주문을 불러와 import 하세요.')
       $('#tbl').querySelectorAll('tr[data-i] .talk-btn').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); openTalk(items[b.closest('tr').dataset.i], load) } })
       $('#tbl').querySelectorAll('tr[data-i] .inv-btn').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); openInvoice(items[b.closest('tr').dataset.i], load) } })
+      if (isShip) wireShip(items)
       $('#ft').textContent = `${items.length} / ${total}`
     } catch (e) { $('#tbl').innerHTML = emptyTable(e.message) }
   }
+  // 배송관리 — 체크박스(선택 건 단계 일괄 변경) · 크기 select
+  const wireShip = (items) => {
+    const rows = () => [...$('#tbl').querySelectorAll('.row-chk')]
+    const sync = () => {
+      const n = rows().filter((c) => c.checked).length
+      $('#sel_n').textContent = n ? `${n}건 선택` : ''
+      $('#bulk_st').disabled = !n
+      $('#ship_print').disabled = !n
+      const all = $('#chk_all'); if (all) { all.checked = !!n && n === rows().length; all.indeterminate = n > 0 && n < rows().length }
+    }
+    rows().forEach((c) => { c.onclick = (e) => { e.stopPropagation(); sync() }; c.closest('td').onclick = (e) => e.stopPropagation() })
+    const all = $('#chk_all'); if (all) { all.onclick = (e) => { e.stopPropagation(); rows().forEach((c) => { c.checked = all.checked }); sync() } ; all.closest('th').onclick = (e) => e.stopPropagation() }
+    $('#tbl').querySelectorAll('.reissue-btn').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); openShipIssue(items[b.closest('tr').dataset.i]) } })
+    $('#tbl').querySelectorAll('.size-sel').forEach((sel) => {
+      sel.onclick = (e) => e.stopPropagation()
+      sel.closest('td').onclick = (e) => e.stopPropagation()
+      sel.onchange = async () => { try { await api(`/smartstore-orders/${encodeURIComponent(sel.dataset.id)}/size`, { method: 'PUT', body: { size: sel.value } }) } catch (e) { alert(e.message); load() } }
+    })
+    $('#bulk_st').onchange = async () => {
+      const st = $('#bulk_st').value; if (!st) return
+      const ids = rows().filter((c) => c.checked).map((c) => c.dataset.id)
+      const withInv = ids.filter((id) => items.find((o) => o.productOrderId === id)?.invoice?.trackingNo)
+      if (!withInv.length) { alert('송장번호가 있는 주문만 단계를 바꿀 수 있습니다.'); $('#bulk_st').value = ''; return }
+      const skipped = ids.length - withInv.length
+      if (!confirm(`${withInv.length}건을 "${$('#bulk_st').selectedOptions[0].textContent}" 로 바꿀까요?${skipped ? ` (송장 없는 ${skipped}건은 제외)` : ''}`)) { $('#bulk_st').value = ''; return }
+      try { await Promise.all(withInv.map((id) => api(`/smartstore-orders/${encodeURIComponent(id)}/invoice-stage`, { method: 'PUT', body: { stage: st } }))) } catch (e) { alert(e.message) }
+      load()
+    }
+    // 송장 인쇄 — 체크한 주문을 CJ 라벨로 한 장씩. 크기(극소·소·중·대)는 수량 칸에 "극소 D 1" 로 들어간다.
+    //   송장번호가 없으면 CJ API 로 번호를 받아야 한다 — API 키가 나오기 전까지는 임시로 주문번호를 번호 자리에 인쇄한다(송장으로 저장하지는 않는다).
+    $('#ship_print').onclick = async () => {
+      const ids = rows().filter((c) => c.checked).map((c) => c.dataset.id)
+      const list = ids.map((id) => items.find((o) => o.productOrderId === id)).filter(Boolean)
+      if (!list.length) { alert('인쇄할 주문을 체크하세요.'); return }
+      const temp = list.filter((o) => !o.invoice?.trackingNo).length
+      if (temp && !confirm(`송장번호가 없는 ${temp}건은 CJ API 연동 전이라 임시로 주문번호를 인쇄합니다. 계속할까요?`)) return
+      const btn = $('#ship_print'); btn.disabled = true
+      try {
+        const sender = (await api('/smartstore-orders/carriers')).sender || {}
+        await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js')
+        const st = cjlLoad()
+        await cjlPrint(list.map((o) => ({ v: cjlValues(o, sender, { trackingNo: o.invoice?.trackingNo || o.orderId, delivery: o.size ? `${o.size} D 1` : '', shortAddr: cjlShortAddr(o.address) }, st), guides: false })), st)
+      } catch (e) { alert(e.message) } finally { btn.disabled = false; sync() }
+    }
+    sync()
+  }
   $('#q')?.addEventListener('input', debounce(load))
   $('#inv_f')?.addEventListener('change', load)
+  if (isShip) { $('#inv_f').querySelector('option[value="none"]').textContent = '송장발행전'; $('#inv_f').value = 'none' }   // 배송관리는 처음에 송장발행전만 보인다
   $('#ss_open')?.addEventListener('click', () => openSmartstore(load))
+  $('#ship_issue')?.addEventListener('click', () => openShipIssue())
   load()
 }
 
@@ -488,7 +542,7 @@ function openInvoice(order, done) {
       <div id="inv_ship" class="field-hint"></div>
       <label class="field"><span class="field-label">택배사</span><select id="inv_c" class="field-input"></select></label>
       <label class="field"><span class="field-label">송장번호 (택배사에서 받은 숫자)</span><input id="inv_n" class="field-input" inputmode="numeric" placeholder="예: 123456789012" value="${esc(order.invoice?.trackingNo || '')}"></label>
-      <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:center"><label class="field" style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" id="inv_pk" ${order.invoice?.pickedAt ? 'checked' : ''} ${order.invoice?.trackingNo ? '' : 'disabled'}> <span>수거 완료</span></label><label class="field" style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" id="inv_dl" ${order.invoice?.deliveredAt || order.status === 'DELIVERED' ? 'checked' : ''} ${order.invoice?.trackingNo ? '' : 'disabled'}> <span>배송 완료</span></label><span class="field-hint">송장번호를 저장한 뒤 표시할 수 있습니다 (택배사 연동 전까지 직접 표시)</span></div>
+      <label class="field"><span class="field-label">배송 단계 <span class="field-hint">(송장번호 저장 후 · 택배사 연동 전까지 직접 표시)</span></span><select id="inv_stage" class="field-input" ${order.invoice?.trackingNo ? '' : 'disabled'}>${[['wait', '수거 전'], ['picked', '수거 완료'], ['shipping', '배송중'], ['done', '배송완료']].map(([v, t]) => `<option value="${v}" ${(order.stage || 'wait') === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
       <div id="inv_t" class="field-hint"></div><div id="inv_trace"></div><div class="drawer-err" id="inv_err"></div>
       <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
         <button type="button" class="btn btn-primary" id="inv_ship_go" hidden>택배 접수 (송장 발급)</button>
@@ -566,18 +620,14 @@ function openInvoice(order, done) {
     const names = Object.fromEntries([...dlg.querySelectorAll('#inv_c option')].map((o) => [o.value, o.textContent]))
     try { await printInvoice({ ...order, invoice: { ...v, carrierName: names[v.carrierId] || v.carrierId } }, sender) } catch (e) { err(e.message) }
   }
-  const stageSave = async (body) => {
+  dlg.querySelector('#inv_stage').onchange = async (ev) => {
     err('')
     try {
-      const r = await api(`/smartstore-orders/${encodeURIComponent(order.productOrderId)}/invoice-stage`, { method: 'PUT', body })
-      order.invoice = r.invoice
-      dlg.querySelector('#inv_pk').checked = !!r.invoice?.pickedAt
-      dlg.querySelector('#inv_dl').checked = !!r.invoice?.deliveredAt || order.status === 'DELIVERED'
+      const r = await api(`/smartstore-orders/${encodeURIComponent(order.productOrderId)}/invoice-stage`, { method: 'PUT', body: { stage: ev.target.value } })
+      order.invoice = r.invoice; order.stage = r.stage
       await done?.()
     } catch (e) { err(e.message) }
   }
-  dlg.querySelector('#inv_pk').onchange = (ev) => stageSave({ picked: ev.target.checked })
-  dlg.querySelector('#inv_dl').onchange = (ev) => stageSave({ delivered: ev.target.checked })
   dlg.querySelector('#inv_cj').onclick = () => { const t = cur().trackingNo; close(); openCjLabel(order, sender, t).catch((e) => alert(e.message)) }
   dlg.querySelector('#inv_x').onclick = close
   dlg.addEventListener('click', (ev) => { if (ev.target === dlg) close() })
@@ -698,6 +748,72 @@ async function cjlPrint(labels, st) {
   document.head.appendChild(sty)
   window.addEventListener('afterprint', () => { sty.remove(); host.className = ''; host.innerHTML = '' }, { once: true })
   window.print()
+}
+
+// 송장발행 — 보내는 사람 · 받는 사람 · 물품을 직접 입력해 송장(CJ 라벨)을 발행한다. 스마트스토어 주문이 아닌 발송도 여기서 한다.
+//   송장번호는 CJ API 로 받아야 한다 — API 키가 나오기 전까지는 임시 번호(발행 시각 12자리)를 인쇄한다.
+async function openShipIssue(pre) {
+  let sender = {}
+  try { sender = (await api('/smartstore-orders/carriers')).sender || {} } catch { /* 보내는 사람은 직접 입력해도 된다 */ }
+  const inp = (id, ph, val, extra) => `<input class="field-input" id="${id}" value="${esc(val || '')}" placeholder="${esc(ph || '')}" ${extra || ''}>`
+  const body = `<div class="field full"><b>보내는 사람</b></div>
+      ${fieldHtml('이름', inp('si_sn', '이름', sender.name || '주식회사 메달뱅크'), true)}
+      ${fieldHtml('전화번호', inp('si_st', '010-0000-0000', sender.tel), true)}
+      ${fieldHtml('주소', inp('si_sa', '주소', sender.address), true)}
+      <div class="field full" style="margin-top:6px"><b>받는 사람</b></div>
+      <div class="field full"><span class="field-label">이름</span><span style="display:flex;gap:6px">${inp('si_rn', '이름')}<button type="button" class="btn btn-ghost" id="si_qn" title="주문자 이름으로 주문 검색" aria-label="주문자 이름으로 검색" style="flex:none"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></button></span></div>
+      <div class="field full"><span class="field-label">전화번호</span><span style="display:flex;gap:6px">${inp('si_rt', '010-0000-0000')}<button type="button" class="btn btn-ghost" id="si_qt" title="주문자 전화번호로 주문 검색" aria-label="주문자 전화번호로 검색" style="flex:none"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></button></span></div>
+      <div class="field full" id="si_res"></div>
+      ${fieldHtml('주소', inp('si_ra', '받는 주소'), true)}
+      ${fieldHtml('물품명', inp('si_pd', '물품명'), true)}
+      ${fieldHtml('수량', inp('si_q', '1', '1', 'type="number" min="1"'), true)}
+      ${fieldHtml('크기', `<select class="field-input" id="si_sz"><option value="">-</option>${['극소', '소', '중', '대'].map((z) => `<option>${z}</option>`).join('')}</select>`, true)}
+      ${fieldHtml('배송 메모', '<textarea class="field-input" id="si_m" rows="5" placeholder="예: 문 앞에 놓아 주세요"></textarea>', true)}
+    <div class="drawer-note">송장번호는 CJ API 연동 전이라 임시 번호(발행 시각)가 인쇄됩니다. 분류코드 · 터미널 · 구역 칸은 비어 있습니다.</div>`
+  const dlg = shell('송장발행', body, closeFoot('<button type="button" class="btn btn-ghost" id="si_clr" title="보내는 사람 · 받는 사람 · 물품 입력을 모두 지웁니다">지우기</button>', '<button type="button" class="btn btn-primary" id="si_go">발행</button>'))
+  dlg.style.width = 'max(460px, 35vw)'; dlg.classList.add('si'); dlg.addEventListener('close', () => { dlg.style.width = ''; dlg.classList.remove('si') }, { once: true })   // 드로어 폭 35% (좁은 화면은 460px)
+  // 주문 검색 — 이름 · 전화번호로 스마트스토어 주문을 찾아 받는 사람 · 물품을 채운다
+  const fill = (o) => {
+    $('#si_rn').value = o.receiver || o.orderer || ''; $('#si_rt').value = o.receiverTel || o.ordererTel || ''; $('#si_ra').value = o.address || ''
+    $('#si_pd').value = o.product || ''; $('#si_q').value = o.qty || 1; $('#si_m').value = o.memo || ''; $('#si_sz').value = o.size || ''
+    $('#si_res').innerHTML = ''
+  }
+  const search = async (q) => {
+    const box = $('#si_res'); setErr('')
+    if (!String(q).trim()) { box.innerHTML = ''; return setErr('검색할 이름 또는 전화번호를 입력하세요.') }
+    box.innerHTML = '<span class="field-hint">검색하는 중…</span>'
+    try {
+      const { items } = await api(`/smartstore-orders?limit=20&q=${encodeURIComponent(String(q).trim())}`)
+      if (!items.length) { box.innerHTML = '<span class="field-hint">검색된 주문이 없습니다.</span>'; return }
+      box.innerHTML = `<div class="si-list">${items.map((o, i) => `<button type="button" class="si-it" data-i="${i}"><b>${esc(o.orderer || '')}${o.receiver && o.receiver !== o.orderer ? ` → ${esc(o.receiver)}` : ''}</b> <span class="mono">${esc(o.receiverTel || o.ordererTel || '')}</span><div class="field-hint">${esc(o.address || '')}</div><div class="field-hint">${esc(o.product || '')} × ${o.qty || 1} · ${esc(String(o.paidAt || '').slice(0, 10))}</div></button>`).join('')}</div>`
+      box.querySelectorAll('.si-it').forEach((b) => { b.onclick = () => fill(items[b.dataset.i]) })
+    } catch (e) { box.innerHTML = ''; setErr(e.message) }
+  }
+  if (pre) fill(pre)   // 재발행 — 그 주문의 받는 사람 · 물품으로 채워 연다
+  $('#si_qn').onclick = () => search($('#si_rn').value)
+  $('#si_qt').onclick = () => search($('#si_rt').value)
+  $('#si_rn').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); search($('#si_rn').value) } })
+  $('#si_rt').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); search($('#si_rt').value) } })
+  $('#si_clr').onclick = () => {
+    for (const id of ['#si_sn', '#si_st', '#si_sa', '#si_rn', '#si_rt', '#si_ra', '#si_pd', '#si_m']) $(id).value = ''
+    $('#si_q').value = '1'; $('#si_sz').value = ''; $('#si_res').innerHTML = ''; setErr('')
+  }
+  $('#si_go').onclick = async () => {
+    const v = (id) => $(id).value.trim()
+    setErr('')
+    if (!v('#si_rn') || !v('#si_rt') || !v('#si_ra') || !v('#si_pd')) return setErr('받는 사람 이름 · 전화번호 · 주소와 물품명을 입력하세요.')
+    const btn = $('#si_go'); btn.disabled = true
+    try {
+      const now = new Date()
+      const temp = `${String(now.getFullYear()).slice(2)}${p2(now.getMonth() + 1)}${p2(now.getDate())}${p2(now.getHours())}${p2(now.getMinutes())}${p2(now.getSeconds())}`
+      const o = { receiver: v('#si_rn'), receiverTel: v('#si_rt'), address: v('#si_ra'), product: v('#si_pd'), qty: Math.max(1, Number(v('#si_q')) || 1), memo: v('#si_m'), option: '' }
+      const snd = { name: v('#si_sn'), tel: v('#si_st'), address: v('#si_sa') }
+      const sz = $('#si_sz').value
+      await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js')
+      const st = cjlLoad()
+      await cjlPrint([{ v: cjlValues(o, snd, { trackingNo: temp, delivery: sz ? `${sz} D 1` : '', shortAddr: cjlShortAddr(o.address) }, st), guides: false }], st)
+    } catch (e) { setErr(e.message) } finally { btn.disabled = false }
+  }
 }
 
 // CJ 라벨 창 — 송장 창의 "CJ 라벨" 버튼. 미리보기를 보며 값 · 크기 · 위치를 조정하고 인쇄한다.

@@ -17,30 +17,41 @@ const customFilter = (on) => (on
   : { $or: [{ custom: false }, { custom: { $exists: false }, product: { $not: { $regex: '커스텀' } } }] })
 
 // 목록: ?q=(주문번호·주문자·수취인·상품·주소·톡톡 내용) &custom=1(커스텀만)|0(커스텀 제외) &limit (기본 300)
-// 송장 단계 — none 송장 없음 / wait 수거 전 / picked 수거됨 / done 배송완료.
-// 배송완료는 스마트스토어 상태(DELIVERED)이거나 표시해 둔 값. 수거는 택배사 연동 전까지 사람이 표시한다(invoice.pickedAt).
+// 송장 단계 — none 송장 없음 / wait 수거 전 / picked 수거 완료 / shipping 배송중 / done 배송완료.
+// invoice.stage 에 사람이 정한 단계가 들어 있다(택배사 조회 연동 전까지). 스마트스토어 상태가 DELIVERED 이면 배송완료.
+// (예전 pickedAt · deliveredAt 표시도 그대로 읽는다.)
+const STAGES = ['wait', 'picked', 'shipping', 'done']
 const stageOf = (o) => {
   if (!o.invoice?.trackingNo) return 'none'
-  if (o.status === 'DELIVERED' || o.invoice.deliveredAt) return 'done'
+  if (o.status === 'DELIVERED') return 'done'
+  if (STAGES.includes(o.invoice.stage)) return o.invoice.stage
+  if (o.invoice.deliveredAt) return 'done'
   return o.invoice.pickedAt ? 'picked' : 'wait'
 }
+const SIZES = ['극소', '소', '중', '대']
 
 router.get('/', async (req, res) => {
   try {
     const and = []
     if (req.query.q) {
       const re = { $regex: escRe(req.query.q), $options: 'i' }
-      and.push({ $or: [{ orderId: re }, { productOrderId: re }, { orderer: re }, { receiver: re }, { product: re }, { option: re }, { address: re }, { talk: re }] })
+      const or = [{ orderId: re }, { productOrderId: re }, { orderer: re }, { receiver: re }, { product: re }, { option: re }, { address: re }, { talk: re }]
+      // 전화번호 — 숫자 4자리 이상이면 하이픈 유무와 상관없이 주문자·수취인 연락처에서 찾는다
+      const dg = String(req.query.q).replace(/\D/g, '')
+      if (dg.length >= 4) { const tre = { $regex: dg.split('').join('-?') }; or.push({ ordererTel: tre }, { receiverTel: tre }) }
+      and.push({ $or: or })
     }
     if (req.query.custom === '1' || req.query.custom === '0') and.push(customFilter(req.query.custom === '1'))
-    // 송장 단계: ?stage=none(송장 없음) | wait(수거 전) | picked(수거됨) | done(배송완료)
+    // 송장 단계: ?stage=none | wait | picked | shipping | done
     const has = { 'invoice.trackingNo': { $nin: [null, ''] } }
-    const isDone = { $or: [{ status: 'DELIVERED' }, { 'invoice.deliveredAt': { $exists: true, $ne: null } }] }
+    const legacy = (k) => ({ 'invoice.stage': { $exists: false }, ...k })
+    const isDone = { $or: [{ status: 'DELIVERED' }, { 'invoice.stage': 'done' }, legacy({ 'invoice.deliveredAt': { $exists: true, $ne: null } })] }
     const stageQ = {
       none: { 'invoice.trackingNo': { $in: [null, ''] } },
       done: { $and: [has, isDone] },
-      picked: { $and: [has, { 'invoice.pickedAt': { $exists: true, $ne: null } }, { $nor: [isDone] }] },
-      wait: { $and: [has, { 'invoice.pickedAt': { $in: [null] } }, { $nor: [isDone] }] },
+      shipping: { $and: [has, { 'invoice.stage': 'shipping' }, { $nor: [isDone] }] },
+      picked: { $and: [has, { $nor: [isDone] }, { $or: [{ 'invoice.stage': 'picked' }, legacy({ 'invoice.pickedAt': { $exists: true, $ne: null } })] }] },
+      wait: { $and: [has, { $nor: [isDone] }, { $or: [{ 'invoice.stage': 'wait' }, legacy({ 'invoice.pickedAt': { $in: [null] } })] }] },
     }[req.query.stage]
     if (stageQ) and.push(stageQ)
     const q = and.length ? { $and: and } : {}
@@ -127,24 +138,32 @@ router.delete('/:productOrderId/ship', requireCap('orders'), async (req, res) =>
 })
 
 // 송장 저장 — { carrierId, trackingNo } 같은 주문번호(orderId)의 상품주문 모두에 저장한다. trackingNo 가 비면 송장을 지운다.
-// 수거 · 배송완료 표시 — body { picked: bool, delivered: bool }. 같은 주문번호의 상품주문 모두에 적용한다.
+// 배송 단계 변경 — body { stage: 'wait' | 'picked' | 'shipping' | 'done' }. 같은 주문번호의 상품주문 모두에 적용한다.
 router.put('/:productOrderId/invoice-stage', requireCap('orders'), async (req, res) => {
   try {
     const c = await col('smartstoreOrders')
     const o = await c.findOne({ productOrderId: str(req.params.productOrderId, 40) }, { projection: { orderId: 1, productOrderId: 1, invoice: 1 } })
     if (!o) return res.status(404).json({ error: '주문을 찾지 못했습니다.' })
     if (!o.invoice?.trackingNo) return res.status(400).json({ error: '송장번호를 먼저 저장하세요.' })
-    const set = {}, unset = {}, now = new Date()
-    if (req.body?.picked === true) set['invoice.pickedAt'] = o.invoice.pickedAt || now
-    else if (req.body?.picked === false) unset['invoice.pickedAt'] = ''
-    if (req.body?.delivered === true) { set['invoice.deliveredAt'] = o.invoice.deliveredAt || now; if (!o.invoice.pickedAt) set['invoice.pickedAt'] = now }
-    else if (req.body?.delivered === false) unset['invoice.deliveredAt'] = ''
-    const u = {}
-    if (Object.keys(set).length) u.$set = set
-    if (Object.keys(unset).length) u.$unset = unset
-    if (u.$set || u.$unset) await c.updateMany(o.orderId ? { orderId: o.orderId } : { productOrderId: o.productOrderId }, u)
+    const stage = str(req.body?.stage, 20)
+    if (!STAGES.includes(stage)) return res.status(400).json({ error: '단계를 고르세요.' })
+    await c.updateMany(o.orderId ? { orderId: o.orderId } : { productOrderId: o.productOrderId },
+      { $set: { 'invoice.stage': stage, 'invoice.stageAt': new Date(), 'invoice.stageBy': req.user.username }, $unset: { 'invoice.pickedAt': '', 'invoice.deliveredAt': '' } })
     const nw = await c.findOne({ productOrderId: o.productOrderId }, { projection: { invoice: 1, status: 1 } })
     res.json({ ok: true, invoice: nw.invoice, stage: stageOf(nw) })
+  } catch (e) { res.status(e.status || 500).json({ error: e.message }) }
+})
+
+// 택배 크기 — body { size: '극소' | '소' | '중' | '대' | '' }. 같은 주문번호의 상품주문 모두에 적용한다.
+router.put('/:productOrderId/size', requireCap('orders'), async (req, res) => {
+  try {
+    const c = await col('smartstoreOrders')
+    const o = await c.findOne({ productOrderId: str(req.params.productOrderId, 40) }, { projection: { orderId: 1, productOrderId: 1 } })
+    if (!o) return res.status(404).json({ error: '주문을 찾지 못했습니다.' })
+    const size = str(req.body?.size, 10)
+    if (size && !SIZES.includes(size)) return res.status(400).json({ error: '크기를 고르세요.' })
+    await c.updateMany(o.orderId ? { orderId: o.orderId } : { productOrderId: o.productOrderId }, size ? { $set: { size } } : { $unset: { size: '' } })
+    res.json({ ok: true, size })
   } catch (e) { res.status(e.status || 500).json({ error: e.message }) }
 })
 
@@ -161,7 +180,7 @@ router.put('/:productOrderId/invoice', requireCap('orders'), async (req, res) =>
     // API 로 접수한 송장이면 접수 정보(historyId 등)는 그대로 두고 번호만 채운다
     const keep = o.invoice?.historyId && o.invoice.carrierId === carrierId ? { courierDeliveryId: o.invoice.courierDeliveryId, historyId: o.invoice.historyId, registered: true } : {}
     // 번호가 그대로면 수거·배송완료 표시도 유지한다
-    const same = o.invoice?.trackingNo === trackingNo ? { ...(o.invoice.pickedAt ? { pickedAt: o.invoice.pickedAt } : {}), ...(o.invoice.deliveredAt ? { deliveredAt: o.invoice.deliveredAt } : {}) } : {}
+    const same = o.invoice?.trackingNo === trackingNo ? { ...(o.invoice.stage ? { stage: o.invoice.stage, stageAt: o.invoice.stageAt, stageBy: o.invoice.stageBy } : {}), ...(o.invoice.pickedAt ? { pickedAt: o.invoice.pickedAt } : {}), ...(o.invoice.deliveredAt ? { deliveredAt: o.invoice.deliveredAt } : {}) } : {}
     const invoice = { carrierId, carrierName: carrierName(carrierId), trackingNo, ...keep, ...same, at: new Date(), by: req.user.username }
     await c.updateMany(filter, { $set: { invoice } })
     res.json({ ok: true, invoice })
