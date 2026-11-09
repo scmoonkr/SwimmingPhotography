@@ -17,6 +17,14 @@ const customFilter = (on) => (on
   : { $or: [{ custom: false }, { custom: { $exists: false }, product: { $not: { $regex: '커스텀' } } }] })
 
 // 목록: ?q=(주문번호·주문자·수취인·상품·주소·톡톡 내용) &custom=1(커스텀만)|0(커스텀 제외) &limit (기본 300)
+// 송장 단계 — none 송장 없음 / wait 수거 전 / picked 수거됨 / done 배송완료.
+// 배송완료는 스마트스토어 상태(DELIVERED)이거나 표시해 둔 값. 수거는 택배사 연동 전까지 사람이 표시한다(invoice.pickedAt).
+const stageOf = (o) => {
+  if (!o.invoice?.trackingNo) return 'none'
+  if (o.status === 'DELIVERED' || o.invoice.deliveredAt) return 'done'
+  return o.invoice.pickedAt ? 'picked' : 'wait'
+}
+
 router.get('/', async (req, res) => {
   try {
     const and = []
@@ -25,11 +33,21 @@ router.get('/', async (req, res) => {
       and.push({ $or: [{ orderId: re }, { productOrderId: re }, { orderer: re }, { receiver: re }, { product: re }, { option: re }, { address: re }, { talk: re }] })
     }
     if (req.query.custom === '1' || req.query.custom === '0') and.push(customFilter(req.query.custom === '1'))
+    // 송장 단계: ?stage=none(송장 없음) | wait(수거 전) | picked(수거됨) | done(배송완료)
+    const has = { 'invoice.trackingNo': { $nin: [null, ''] } }
+    const isDone = { $or: [{ status: 'DELIVERED' }, { 'invoice.deliveredAt': { $exists: true, $ne: null } }] }
+    const stageQ = {
+      none: { 'invoice.trackingNo': { $in: [null, ''] } },
+      done: { $and: [has, isDone] },
+      picked: { $and: [has, { 'invoice.pickedAt': { $exists: true, $ne: null } }, { $nor: [isDone] }] },
+      wait: { $and: [has, { 'invoice.pickedAt': { $in: [null] } }, { $nor: [isDone] }] },
+    }[req.query.stage]
+    if (stageQ) and.push(stageQ)
     const q = and.length ? { $and: and } : {}
     const limit = Math.max(1, Math.min(1000, Math.round(num(req.query.limit)) || 300))
     const c = await col('smartstoreOrders')
     const [items, total] = await Promise.all([c.find(q).sort({ paidAt: -1, _id: -1 }).limit(limit).toArray(), c.countDocuments(q)])
-    res.json({ items: items.map((o) => ({ ...o, isCustom: isCustom(o) })), total })
+    res.json({ items: items.map((o) => ({ ...o, isCustom: isCustom(o), stage: stageOf(o) })), total })
   } catch (e) { res.status(e.status || 500).json({ error: e.message }) }
 })
 
@@ -109,6 +127,27 @@ router.delete('/:productOrderId/ship', requireCap('orders'), async (req, res) =>
 })
 
 // 송장 저장 — { carrierId, trackingNo } 같은 주문번호(orderId)의 상품주문 모두에 저장한다. trackingNo 가 비면 송장을 지운다.
+// 수거 · 배송완료 표시 — body { picked: bool, delivered: bool }. 같은 주문번호의 상품주문 모두에 적용한다.
+router.put('/:productOrderId/invoice-stage', requireCap('orders'), async (req, res) => {
+  try {
+    const c = await col('smartstoreOrders')
+    const o = await c.findOne({ productOrderId: str(req.params.productOrderId, 40) }, { projection: { orderId: 1, productOrderId: 1, invoice: 1 } })
+    if (!o) return res.status(404).json({ error: '주문을 찾지 못했습니다.' })
+    if (!o.invoice?.trackingNo) return res.status(400).json({ error: '송장번호를 먼저 저장하세요.' })
+    const set = {}, unset = {}, now = new Date()
+    if (req.body?.picked === true) set['invoice.pickedAt'] = o.invoice.pickedAt || now
+    else if (req.body?.picked === false) unset['invoice.pickedAt'] = ''
+    if (req.body?.delivered === true) { set['invoice.deliveredAt'] = o.invoice.deliveredAt || now; if (!o.invoice.pickedAt) set['invoice.pickedAt'] = now }
+    else if (req.body?.delivered === false) unset['invoice.deliveredAt'] = ''
+    const u = {}
+    if (Object.keys(set).length) u.$set = set
+    if (Object.keys(unset).length) u.$unset = unset
+    if (u.$set || u.$unset) await c.updateMany(o.orderId ? { orderId: o.orderId } : { productOrderId: o.productOrderId }, u)
+    const nw = await c.findOne({ productOrderId: o.productOrderId }, { projection: { invoice: 1, status: 1 } })
+    res.json({ ok: true, invoice: nw.invoice, stage: stageOf(nw) })
+  } catch (e) { res.status(e.status || 500).json({ error: e.message }) }
+})
+
 router.put('/:productOrderId/invoice', requireCap('orders'), async (req, res) => {
   try {
     const c = await col('smartstoreOrders')
@@ -121,7 +160,9 @@ router.put('/:productOrderId/invoice', requireCap('orders'), async (req, res) =>
     if (!/^\d{8,20}$/.test(trackingNo)) return res.status(400).json({ error: '송장번호는 숫자 8~20자리입니다.' })
     // API 로 접수한 송장이면 접수 정보(historyId 등)는 그대로 두고 번호만 채운다
     const keep = o.invoice?.historyId && o.invoice.carrierId === carrierId ? { courierDeliveryId: o.invoice.courierDeliveryId, historyId: o.invoice.historyId, registered: true } : {}
-    const invoice = { carrierId, carrierName: carrierName(carrierId), trackingNo, ...keep, at: new Date(), by: req.user.username }
+    // 번호가 그대로면 수거·배송완료 표시도 유지한다
+    const same = o.invoice?.trackingNo === trackingNo ? { ...(o.invoice.pickedAt ? { pickedAt: o.invoice.pickedAt } : {}), ...(o.invoice.deliveredAt ? { deliveredAt: o.invoice.deliveredAt } : {}) } : {}
+    const invoice = { carrierId, carrierName: carrierName(carrierId), trackingNo, ...keep, ...same, at: new Date(), by: req.user.username }
     await c.updateMany(filter, { $set: { invoice } })
     res.json({ ok: true, invoice })
   } catch (e) { res.status(e.status || 500).json({ error: e.message }) }

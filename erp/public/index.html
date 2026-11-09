@@ -347,16 +347,17 @@ async function viewSsOrders(kind = 'normal') {
   const isCu = kind === 'custom'
   pageShell({
     en: isCu ? 'Smartstore Custom Orders' : 'Smartstore Orders', title: isCu ? '스마트스토어 커스텀 주문' : '스마트스토어 주문', addLabel: '',
-    tools: '<input id="q" class="table-search" placeholder="주문번호 · 주문자 · 수취인 · 상품 · 주소 · 톡톡 검색…" type="search"><span style="flex:1"></span><button type="button" class="btn btn-ghost" id="ss_open" title="스마트스토어의 최근 주문을 불러와 보고, import 로 가져옵니다">스마트스토어에서 불러오기</button>',
+    tools: '<input id="q" class="table-search" placeholder="주문번호 · 주문자 · 수취인 · 상품 · 주소 · 톡톡 검색…" type="search"><select id="inv_f" class="table-search" style="flex:none;width:auto" aria-label="송장 필터"><option value="">송장 전체</option><option value="none">송장 없음</option><option value="wait">수거 전</option><option value="picked">수거됨</option><option value="done">배송완료</option></select><span style="flex:1"></span><button type="button" class="btn btn-ghost" id="ss_open" title="스마트스토어의 최근 주문을 불러와 보고, import 로 가져옵니다">스마트스토어에서 불러오기</button>',
   })
   const load = async () => {
     try {
       const p = new URLSearchParams({ limit: '500', custom: isCu ? '1' : '0' })
       if ($('#q')?.value) p.set('q', $('#q').value)
+      if ($('#inv_f')?.value) p.set('stage', $('#inv_f').value)
       const { items, total } = await api(`/smartstore-orders?${p}`)
       paintTable(items, [
         ['paid', '결제일시 · 주문번호', (o) => `${esc(String(o.paidAt).replace('T', ' ').slice(0, 16))}<div class="field-hint mono">${esc(o.orderId)}</div>`],
-        ['invoice', '송장', (o) => `<button type="button" class="btn btn-ghost inv-btn${o.invoice ? ' on' : ''}" title="${o.invoice ? '송장 보기 · 인쇄' : '송장번호 등록 · 인쇄'}">${o.invoice ? esc(o.invoice.carrierName) : '송장'}</button>${o.invoice ? `<div class="field-hint mono">${esc(o.invoice.trackingNo)}</div>` : ''}`],
+        ['invoice', '송장', (o) => `<button type="button" class="btn btn-ghost inv-btn${o.invoice ? ' on' : ''}" title="${o.invoice ? '송장 보기 · 인쇄' : '송장번호 등록 · 인쇄'}">${o.invoice ? esc(o.invoice.carrierName) : '송장'}</button>${o.invoice ? `<div class="field-hint mono">${esc(o.invoice.trackingNo)}</div><div class="field-hint"><b>${({ wait: '수거 전', picked: '수거됨', done: '배송완료' })[o.stage] || ''}</b></div>` : ''}`],
         // 주문자와 수취인(같으면 한 번만) · 각자의 연락처를 한 칸에
         ['who', '주문자/수취인 · 연락처', (o) => {
           const same = o.orderer === o.receiver
@@ -377,6 +378,7 @@ async function viewSsOrders(kind = 'normal') {
     } catch (e) { $('#tbl').innerHTML = emptyTable(e.message) }
   }
   $('#q')?.addEventListener('input', debounce(load))
+  $('#inv_f')?.addEventListener('change', load)
   $('#ss_open')?.addEventListener('click', () => openSmartstore(load))
   load()
 }
@@ -486,12 +488,14 @@ function openInvoice(order, done) {
       <div id="inv_ship" class="field-hint"></div>
       <label class="field"><span class="field-label">택배사</span><select id="inv_c" class="field-input"></select></label>
       <label class="field"><span class="field-label">송장번호 (택배사에서 받은 숫자)</span><input id="inv_n" class="field-input" inputmode="numeric" placeholder="예: 123456789012" value="${esc(order.invoice?.trackingNo || '')}"></label>
+      <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:center"><label class="field" style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" id="inv_pk" ${order.invoice?.pickedAt ? 'checked' : ''} ${order.invoice?.trackingNo ? '' : 'disabled'}> <span>수거 완료</span></label><label class="field" style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" id="inv_dl" ${order.invoice?.deliveredAt || order.status === 'DELIVERED' ? 'checked' : ''} ${order.invoice?.trackingNo ? '' : 'disabled'}> <span>배송 완료</span></label><span class="field-hint">송장번호를 저장한 뒤 표시할 수 있습니다 (택배사 연동 전까지 직접 표시)</span></div>
       <div id="inv_t" class="field-hint"></div><div id="inv_trace"></div><div class="drawer-err" id="inv_err"></div>
       <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
         <button type="button" class="btn btn-primary" id="inv_ship_go" hidden>택배 접수 (송장 발급)</button>
         <button type="button" class="btn btn-ghost" id="inv_ship_x" hidden>접수 취소</button>
         <button type="button" class="btn btn-ghost" id="inv_chk">배송 조회</button>
         <button type="button" class="btn btn-ghost" id="inv_clr">송장 지우기</button>
+        <button type="button" class="btn btn-ghost" id="inv_cj" title="CJ 선인쇄 용지에 검은 글자만 인쇄">CJ 라벨</button>
         <button type="button" class="btn btn-ghost" id="inv_pr">송장 인쇄</button>
         <button type="button" class="btn btn-primary" id="inv_sv">저장</button></div>
     </div>`
@@ -562,6 +566,19 @@ function openInvoice(order, done) {
     const names = Object.fromEntries([...dlg.querySelectorAll('#inv_c option')].map((o) => [o.value, o.textContent]))
     try { await printInvoice({ ...order, invoice: { ...v, carrierName: names[v.carrierId] || v.carrierId } }, sender) } catch (e) { err(e.message) }
   }
+  const stageSave = async (body) => {
+    err('')
+    try {
+      const r = await api(`/smartstore-orders/${encodeURIComponent(order.productOrderId)}/invoice-stage`, { method: 'PUT', body })
+      order.invoice = r.invoice
+      dlg.querySelector('#inv_pk').checked = !!r.invoice?.pickedAt
+      dlg.querySelector('#inv_dl').checked = !!r.invoice?.deliveredAt || order.status === 'DELIVERED'
+      await done?.()
+    } catch (e) { err(e.message) }
+  }
+  dlg.querySelector('#inv_pk').onchange = (ev) => stageSave({ picked: ev.target.checked })
+  dlg.querySelector('#inv_dl').onchange = (ev) => stageSave({ delivered: ev.target.checked })
+  dlg.querySelector('#inv_cj').onclick = () => { const t = cur().trackingNo; close(); openCjLabel(order, sender, t).catch((e) => alert(e.message)) }
   dlg.querySelector('#inv_x').onclick = close
   dlg.addEventListener('click', (ev) => { if (ev.target === dlg) close() })
   dlg.addEventListener('cancel', () => setTimeout(() => dlg.remove(), 0))
@@ -585,6 +602,169 @@ async function printInvoice(o, sender) {
     <div class="inv-from"><div class="inv-k">보내는 분</div>${esc(sender.name || '메달뱅크')}${sender.tel ? ` · ${esc(sender.tel)}` : ''}${sender.address ? `<div>${esc(sender.address)}</div>` : ''}</div>
   </div></div>`
   window.print()
+}
+
+// ── CJ대한통운 송장 라벨 — 선인쇄 용지에 검은 글자만 인쇄 (XP-DT108B 등 열전사 프린터) ──
+// 좌표는 라벨 사진(2000×1634)을 기준으로 한 값이다. 인쇄가 어긋나면 아래 표의 [x, y, w, h, 글자크기] 만 고치면 된다.
+// 용지 크기 · 가로세로 오프셋(mm)은 화면에서 바꿔 저장한다(이 브라우저에 기억).
+const CJL = { W: 2000, H: 1634 }
+// [키, x, y, w, h, 글자크기, 정렬(l|c|r), 굵게(0|1), 줄바꿈(0|1)]
+const CJL_FIELDS = [
+  ['trackNo', 215, 42, 640, 70, 64, 'l', 1, 0],         // 운송장번호 (맨 위 줄)
+  ['date', 925, 50, 300, 60, 42, 'l', 0, 0],            // 출력일
+  ['seq', 1335, 52, 150, 60, 40, 'c', 0, 0],            // 순번 (26/28)
+  ['bc1', 50, 140, 475, 245, 0, 'l', 0, 0],             // 운송장 바코드 (위)
+  ['termNo', 540, 105, 160, 300, 270, 'c', 1, 0],       // 터미널 번호 (4)
+  ['sortCode', 705, 95, 900, 300, 270, 'l', 1, 0],      // 분류코드 (C17-2b) — "-" 뒤는 작게
+  ['toName', 115, 418, 240, 62, 52, 'l', 1, 0],         // 받는 분 이름
+  ['toTel', 365, 418, 420, 62, 52, 'l', 1, 0],          // 받는 분 연락처
+  ['bc3', 1295, 408, 620, 85, 0, 'l', 0, 0],            // 연락처 오른쪽 바코드
+  ['toAddr', 110, 490, 1800, 125, 46, 'l', 0, 1],       // 받는 주소 (크게)
+  ['shortAddr', 120, 612, 1000, 135, 125, 'l', 1, 0],   // 큰 글씨 주소 (▶ 감정 486-1)
+  ['fromName', 115, 745, 600, 50, 38, 'l', 0, 0],       // 보내는 분
+  ['fromTel', 730, 745, 290, 50, 38, 'l', 0, 0],        // 보내는 분 연락처
+  ['delivery', 1108, 745, 230, 60, 48, 'l', 0, 0],      // 수량 칸 (극소 D 1)
+  ['fee', 1650, 740, 90, 60, 44, 'c', 0, 0],            // 운임 (0)
+  ['settle', 1875, 740, 110, 60, 44, 'l', 0, 0],        // 정산 (신용)
+  ['fromAddr', 115, 800, 1780, 50, 38, 'l', 0, 0],      // 보내는 주소
+  ['design', 35, 855, 1850, 60, 44, 'l', 1, 0],         // 디자인명(없으면 상품명)
+  ['qty', 1935, 860, 60, 50, 38, 'c', 0, 0],            // 수량
+  ['memo', 30, 1385, 1040, 75, 46, 'l', 0, 0],          // 배송 메모 (zone 위)
+  ['total', 1085, 1405, 200, 55, 40, 'l', 1, 0],        // 총수량:1 (메모 오른쪽)
+  ['zone', 75, 1478, 1000, 130, 105, 'l', 1, 0],        // 배달 구역 (춘천중앙-B36-1구역)
+  ['bc2', 1310, 1385, 620, 175, 0, 'l', 0, 0],          // 운송장 바코드 (아래)
+  ['tnPlain', 1500, 1572, 300, 45, 34, 'c', 0, 0],      // 바코드 아래 숫자
+]
+const CJL_DEF = { w: 100, h: 82, dx: 0, dy: 0, mask: true }
+const cjlLoad = () => { try { return { ...CJL_DEF, ...JSON.parse(localStorage.getItem('cjl') || '{}') } } catch { return { ...CJL_DEF } } }
+const cjlSave = (s) => { try { localStorage.setItem('cjl', JSON.stringify(s)) } catch { /* 저장 못 해도 인쇄는 된다 */ } }
+
+// 큰 글씨 주소 — 주소 끝의 "도로명(동·리·로·길) 번지" 를 뽑는다. 못 찾으면 비워 둔다(화면에서 고칠 수 있다).
+const cjlShortAddr = (addr) => {
+  const m = String(addr || '').replace(/\([^)]*\)/g, ' ').match(/([가-힣0-9]+(?:동|리|로|길))\s*(\d+(?:-\d+)?)(?!.*\d)/)
+  return m ? `${m[1]} ${m[2]}` : ''
+}
+const cjlMaskName = (n) => { const s = Array.from(String(n || '')); return s.length < 2 ? s.join('') : s.length === 2 ? `${s[0]}*` : `${s[0]}${'*'.repeat(s.length - 2)}${s[s.length - 1]}` }
+const cjlMaskTel = (t) => String(t || '').replace(/(\d{4})(\D*)$/, '****$2')
+
+// 라벨 값 — o: 스마트스토어 주문, ex: 화면에서 넣는 값(송장번호 · 분류코드 · 터미널 · 구역 · 큰 주소 · 수량칸), st: 설정
+function cjlValues(o, sender, ex, st) {
+  const tn = String(ex.trackingNo || '').split('').filter((ch) => ch >= '0' && ch <= '9').join('')
+  const pretty = tn.length === 12 ? `${tn.slice(0, 4)}-${tn.slice(4, 8)}-${tn.slice(8)}` : tn
+  const design = ssDesignOf(o)
+  return {
+    trackNo: pretty, seq: ex.seq || '', date: ymd(new Date()).split('-').join('.'), tn, tnPlain: tn,
+    termNo: ex.termNo || '', sortCode: ex.sortCode || '',
+    toName: st.mask ? cjlMaskName(o.receiver) : o.receiver, toTel: st.mask ? cjlMaskTel(o.receiverTel) : o.receiverTel,
+    toAddr: o.address || '', shortAddr: ex.shortAddr ? `▶${ex.shortAddr}` : '',
+    fromName: sender.name || '주식회사 메달뱅크', fromTel: sender.tel || '', fromAddr: sender.address || '',
+    delivery: ex.delivery || '', fee: '0', settle: '신용',
+    qty: String(o.qty || ''), design: design ? `디자인명: ${design}` : (o.product || ''),
+    memo: o.memo || '', total: '총수량:1',
+    zone: ex.zone || '',
+  }
+}
+
+// 라벨 한 장의 HTML — guides 면 칸마다 점선 틀과 이름을 그려 위치 맞추기에 쓴다
+function cjlHtml(v, st, guides) {
+  const bc = (val) => {
+    if (!val || !window.JsBarcode) return ''
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    window.JsBarcode(svg, val, { format: 'CODE128', width: 3, height: 100, displayValue: false, margin: 0 })
+    svg.setAttribute('viewBox', `0 0 ${svg.getAttribute('width')} ${svg.getAttribute('height')}`)
+    svg.setAttribute('preserveAspectRatio', 'none'); svg.removeAttribute('width'); svg.removeAttribute('height')
+    return svg.outerHTML
+  }
+  const al = { l: 'left', c: 'center', r: 'right' }
+  const cells = CJL_FIELDS.map(([k, x, y, w, h, size, a, b, wrap]) => {
+    const dash = k === 'sortCode' ? String(v.sortCode || '').indexOf('-') : -1
+    const inner = k === 'bc1' || k === 'bc2' || k === 'bc3' ? bc(v.tn)
+      : dash > 0 ? `${esc(v.sortCode.slice(0, dash))}<span style="font-size:.74em">${esc(v.sortCode.slice(dash))}</span>` : esc(v[k] || '')
+    const g = guides ? `<i class="cjl-g">${k}</i>` : ''
+    return `<div class="cjl-f${wrap ? ' wrap' : ''}" style="left:${x / CJL.W * 100}%;top:${y / CJL.H * 100}%;width:${w / CJL.W * 100}%;height:${h / CJL.H * 100}%;font-size:${size / CJL.W * 100}cqw;text-align:${al[a]};font-weight:${b ? 800 : 500}">${inner}${g}</div>`
+  }).join('')
+  return `<div class="cjl${guides ? ' guides' : ''}" style="width:${st.w}mm;height:${st.h}mm"><div class="cjl-in" style="transform:translate(${st.dx}mm,${st.dy}mm)">${cells}</div></div>`
+}
+
+// 인쇄 — 라벨 크기로 @page 를 잡고 한 장에 한 라벨. 인쇄가 끝나면 원래대로 돌려 놓는다.
+async function cjlPrint(labels, st) {
+  await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js')
+  let host = document.getElementById('ws_render')
+  if (!host) { host = document.createElement('div'); host.id = 'ws_render'; document.body.appendChild(host) }
+  host.className = 'cjl-host'
+  host.innerHTML = labels.map((l) => cjlHtml(l.v, st, l.guides)).join('')
+  const sty = document.createElement('style')
+  sty.textContent = `@media print { @page { size: ${st.w}mm ${st.h}mm; margin: 0 } }`
+  document.head.appendChild(sty)
+  window.addEventListener('afterprint', () => { sty.remove(); host.className = ''; host.innerHTML = '' }, { once: true })
+  window.print()
+}
+
+// CJ 라벨 창 — 송장 창의 "CJ 라벨" 버튼. 미리보기를 보며 값 · 크기 · 위치를 조정하고 인쇄한다.
+//   분류코드 · 터미널 · 구역은 CJ API 로 받는 값이다(API 연동 전에는 직접 입력, 비워 두면 그 칸은 인쇄하지 않는다).
+async function openCjLabel(order, sender, trackingNo) {
+  document.getElementById('cjl_modal')?.remove()
+  await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js')
+  const st = cjlLoad()
+  const ex = { trackingNo, sortCode: '', termNo: '', zone: '', delivery: '', seq: '', shortAddr: cjlShortAddr(order.address) }
+  const dlg = document.createElement('dialog')
+  dlg.id = 'cjl_modal'; dlg.className = 'mdl'; dlg.style.width = 'min(920px, 96vw)'
+  const num = (id, label, val, step) => `<label class="field"><span class="field-label">${label}</span><input id="${id}" class="field-input" type="number" step="${step || 1}" value="${val}"></label>`
+  const txt = (id, label, val, ph) => `<label class="field"><span class="field-label">${label}</span><input id="${id}" class="field-input" value="${esc(val)}" placeholder="${esc(ph || '')}"></label>`
+  dlg.innerHTML = `<div class="mdl-head"><h2>CJ 라벨 · ${esc(order.receiver)}</h2><button type="button" class="drawer-x" id="cjl_x" aria-label="닫기">×</button></div>
+    <div class="mdl-body cjl-dlg">
+      <div class="cjl-prev" id="cjl_prev"></div>
+      <div class="cjl-form">
+        <div class="field-grid">
+          ${txt('cjl_tn', '송장번호', ex.trackingNo, '숫자 12자리')}
+          ${txt('cjl_sc', '분류코드', ex.sortCode, '예: C17-2b')}
+          ${txt('cjl_tm', '터미널', ex.termNo, '예: 4')}
+          ${txt('cjl_zn', '배달 구역', ex.zone, '예: 춘천중앙-B36-1구역')}
+          ${txt('cjl_sa', '큰 글씨 주소', ex.shortAddr, '예: 가락재로 164-2')}
+          ${txt('cjl_sq', '순번 (합포장 n/총)', ex.seq, '예: 26/28')}
+          ${txt('cjl_dv', '수량 칸 (배달 코드)', ex.delivery, '예: 극소 D 1')}
+        </div>
+        <div class="field-grid">
+          ${num('cjl_w', '용지 가로(mm)', st.w)}${num('cjl_h', '용지 세로(mm)', st.h)}
+          ${num('cjl_dx', '가로 이동(mm)', st.dx, 0.5)}${num('cjl_dy', '세로 이동(mm)', st.dy, 0.5)}
+        </div>
+        <label class="field" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" id="cjl_mask" ${st.mask ? 'checked' : ''}> <span>받는 분 이름 · 연락처 가리기 (조*재 · 010-5153-****)</span></label>
+        <div class="field-hint">설정(용지 크기 · 이동)은 이 브라우저에 기억됩니다. 인쇄가 밀리면 "가로 이동 · 세로 이동" 으로 맞추세요. 빈 칸은 미리보기·테스트 인쇄에서만 테스트 값(터미널 4 · C17-2b · 춘천중앙-B36-1구역 · 순번 26/28 · 메모 · 수량 5)으로 채워 보이고, 점선 틀도 거기에만 나옵니다.</div>
+        <div class="drawer-err" id="cjl_err"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
+          <button type="button" class="btn btn-ghost" id="cjl_test">테스트 인쇄 (틀)</button>
+          <button type="button" class="btn btn-primary" id="cjl_go">인쇄</button></div>
+      </div>
+    </div>`
+  document.body.appendChild(dlg)
+  dlg.showModal()
+  const q = (s) => dlg.querySelector(s)
+  const read = () => {
+    ex.trackingNo = q('#cjl_tn').value; ex.sortCode = q('#cjl_sc').value; ex.termNo = q('#cjl_tm').value; ex.zone = q('#cjl_zn').value; ex.shortAddr = q('#cjl_sa').value; ex.delivery = q('#cjl_dv').value; ex.seq = q('#cjl_sq').value
+    const n = (id, d) => { const x = Number(q(id).value); return Number.isFinite(x) && q(id).value !== '' ? x : d }
+    return { w: Math.max(30, n('#cjl_w', CJL_DEF.w)), h: Math.max(30, n('#cjl_h', CJL_DEF.h)), dx: n('#cjl_dx', 0), dy: n('#cjl_dy', 0), mask: q('#cjl_mask').checked }
+  }
+  // 비어 있는 칸은 테스트 값으로 채워 보여 준다(미리보기 · 테스트 인쇄만 — 실제 인쇄는 입력한 값만)
+  const TEST = { trackingNo: '601364783055', sortCode: 'C17-2b', termNo: '4', zone: '춘천중앙-B36-1구역', shortAddr: '감정 486-1', delivery: '극소 D 1', seq: '26/28' }
+  const testOrder = () => ({ ...order, memo: order.memo || '문앞에 놓아 주세요', qty: 5 })
+  const filled = () => Object.fromEntries(Object.keys(ex).map((k) => [k, ex[k] || TEST[k] || '']))
+  const paint = () => { const s = read(); q('#cjl_prev').innerHTML = cjlHtml(cjlValues(testOrder(), sender, filled(), s), s, true); q('#cjl_prev .cjl').style.cssText = `width:100%;height:auto;aspect-ratio:${s.w} / ${s.h}` }
+  dlg.querySelectorAll('input').forEach((i) => i.addEventListener('input', paint))
+  paint()
+  const close = () => { dlg.close(); dlg.remove() }
+  q('#cjl_go').onclick = async () => {
+    const s = read(); cjlSave(s)
+    if (!String(ex.trackingNo).trim()) return (q('#cjl_err').textContent = '송장번호를 입력하세요.')
+    q('#cjl_err').textContent = ''; close()
+    await cjlPrint([{ v: cjlValues(order, sender, ex, s), guides: false }], s)
+  }
+  q('#cjl_test').onclick = async () => {
+    const s = read(); cjlSave(s); close()
+    await cjlPrint([{ v: cjlValues(testOrder(), sender, filled(), s), guides: true }], s)
+  }
+  q('#cjl_x').onclick = close
+  dlg.addEventListener('click', (ev) => { if (ev.target === dlg) close() })
+  dlg.addEventListener('cancel', () => setTimeout(() => dlg.remove(), 0))
 }
 
 // 톡톡 — 스마트스토어 톡톡에서 복사한 대화를 붙여 넣어 주문에 저장한다 (같은 주문번호의 상품주문 모두에 저장된다).

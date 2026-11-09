@@ -759,3 +759,22 @@ table.data td .ss-wrap.memo { min-width: 140px; max-width: 260px; }
 .cu-add:hover:not(:disabled) { border-color: var(--orange); color: var(--orange-deep); }
 .cu-add:disabled { opacity: .5; cursor: progress; }
 table.data td .ss-wrap.wide { min-width: 320px; max-width: 780px; }
+
+/* ── CJ 라벨 (선인쇄 용지에 글자만) ── */
+.cjl { position: relative; overflow: hidden; container-type: size; background: #fff; color: #000; font-family: 'Malgun Gothic', 'Noto Sans KR', sans-serif; }
+.cjl-in { position: absolute; inset: 0; }
+.cjl-f { position: absolute; overflow: hidden; line-height: 1.12; white-space: nowrap; }
+.cjl-f.wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
+.cjl-f svg { display: block; width: 100%; height: 100%; }
+.cjl.guides .cjl-f { outline: 1px dashed #e0561b; background: rgba(224, 86, 27, .06); }
+.cjl-g { position: absolute; right: 0; top: 0; font: 400 9px/1 sans-serif; font-style: normal; color: #e0561b; background: #fff; }
+.cjl-dlg { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; align-items: start; }
+.cjl-prev { border: 1px solid var(--line); background: #f4f2ee; padding: 10px; }
+.cjl-form { display: flex; flex-direction: column; gap: 10px; }
+@media (max-width: 760px) { .cjl-dlg { grid-template-columns: 1fr; } }
+@media print {
+  #ws_render.cjl-host { width: auto !important; }
+  #ws_render.cjl-host .cjl { break-after: page; page-break-after: always; }
+  #ws_render.cjl-host .cjl:last-child { break-after: auto; page-break-after: auto; }
+  #ws_render.cjl-host .cjl-g { display: none; }
+}

@@ -17,7 +17,7 @@ const keys = () => ({ key: process.env.DeliveryApiKey || '', secret: process.env
 export const configured = () => { const k = keys(); return !!(k.key && k.secret) }
 export const accountKey = () => process.env.DeliveryCourierAccountKey || ''
 export const shipCourier = () => (process.env.DeliveryCourier === 'lotte' ? 'lotte' : 'cj')
-export const sender = () => ({ name: process.env.SENDER_NAME || '', tel: process.env.SENDER_TEL || '', address: process.env.SENDER_ADDRESS || '' })
+export const sender = () => ({ name: process.env.SENDER_NAME || '', tel: process.env.SENDER_TEL || process.env.DELIVERY_MEDALBANK_PHONE || '', address: process.env.SENDER_ADDRESS || process.env.DELIVERY_MEDALBANK_ADDR || '' })
 
 async function call(path, body, method = 'POST') {
   if (!configured()) throw Object.assign(new Error('.env 에 DeliveryApiKey · DeliverySecretKey 가 없습니다.'), { status: 400 })
