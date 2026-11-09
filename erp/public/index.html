@@ -770,7 +770,7 @@ async function openShipIssue(pre) {
       ${fieldHtml('크기', `<select class="field-input" id="si_sz"><option value="">-</option>${['극소', '소', '중', '대'].map((z) => `<option>${z}</option>`).join('')}</select>`, true)}
       ${fieldHtml('배송 메모', '<textarea class="field-input" id="si_m" rows="5" placeholder="예: 문 앞에 놓아 주세요"></textarea>', true)}
     <div class="drawer-note">송장번호는 CJ API 연동 전이라 임시 번호(발행 시각)가 인쇄됩니다. 분류코드 · 터미널 · 구역 칸은 비어 있습니다.</div>`
-  const dlg = shell('송장발행', body, closeFoot('<button type="button" class="btn btn-ghost" id="si_clr" title="보내는 사람 · 받는 사람 · 물품 입력을 모두 지웁니다">지우기</button>', '<button type="button" class="btn btn-primary" id="si_go">발행</button>'))
+  const dlg = shell('송장발행', body, '<button type="button" class="btn btn-ghost" id="dc">닫기</button><button type="button" class="btn btn-ghost" id="si_clr" title="보내는 사람 · 받는 사람 · 물품 입력을 모두 지웁니다">지우기</button><span class="sp"></span><button type="button" class="btn btn-primary" id="si_go">발행</button>')   // 닫기 · 지우기는 왼쪽, 발행은 오른쪽
   dlg.style.width = 'max(460px, 35vw)'; dlg.classList.add('si'); dlg.addEventListener('close', () => { dlg.style.width = ''; dlg.classList.remove('si') }, { once: true })   // 드로어 폭 35% (좁은 화면은 460px)
   // 주문 검색 — 이름 · 전화번호로 스마트스토어 주문을 찾아 받는 사람 · 물품을 채운다
   const fill = (o) => {
