@@ -668,7 +668,7 @@ const CJL_FIELDS = [
   ['trackNo', 215, 24, 690, 82, 72, 'l', 1, 0],         // 운송장번호 (맨 위 줄)
   ['date', 925, 32, 320, 66, 48, 'l', 0, 0],            // 출력일
   ['seq', 1335, 36, 150, 60, 40, 'c', 0, 0],            // 순번 (26/28)
-  ['bc1', 50, 140, 475, 245, 0, 'l', 0, 0],             // 운송장 바코드 (위)
+  ['bc1', 50, 140, 490, 245, 0, 'l', 0, 0],             // 운송장 바코드 (위)
   ['termNo', 540, 105, 160, 300, 270, 'c', 1, 0],       // 터미널 번호 (4)
   ['sortCode', 705, 85, 1000, 320, 305, 'l', 1, 0],      // 분류코드 (C17-2b) — "-" 뒤는 작게
   ['toName', 115, 412, 240, 70, 60, 'l', 1, 0],         // 받는 분 이름
@@ -724,25 +724,21 @@ function cjlValues(o, sender, ex, st) {
 
 // 라벨 한 장의 HTML — guides 면 칸마다 점선 틀과 이름을 그려 위치 맞추기에 쓴다
 function cjlHtml(v, st, guides, flat) {
-  // 바코드 — 막대 한 칸(모듈)을 프린터 점(203dpi = 0.125mm)의 정수배로 그린다. 칸에 맞춰 늘이면 점이 고르지 않게
-  //   번져 막대가 굵어지고 틈이 메워진다. 칸 폭에 들어가는 가장 큰 정수배(최대 4점)를 쓰고 왼쪽에 붙인다.
-  const bc = (val, cellW) => {
+  // 바코드 — 칸 폭에 꽉 맞춰 그린다(CJ 프로그램 라벨과 같은 폭: 위 30mm · 연락처 옆/아래 38mm). 가장자리는 흐리지 않게(crispEdges)
+  const bc = (val) => {
     if (!val || !window.JsBarcode) return ''
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
     window.JsBarcode(svg, val, { format: 'CODE128', width: 1, height: 100, displayValue: false, margin: 0 })
     const n = parseFloat(svg.getAttribute('width')), hh = parseFloat(svg.getAttribute('height'))   // JsBarcode 는 "101px" 처럼 단위를 붙인다
-    const cellMm = cellW / CJL.W * st.w
-    const dots = Math.max(1, Math.min(4, Math.floor(cellMm * 8 / n)))
     svg.setAttribute('viewBox', `0 0 ${n} ${hh}`)
     svg.setAttribute('preserveAspectRatio', 'none'); svg.setAttribute('shape-rendering', 'crispEdges')
     svg.removeAttribute('width'); svg.removeAttribute('height')
-    svg.style.width = `${n * dots * 0.125 / cellMm * 100}%`
     return svg.outerHTML
   }
   const al = { l: 'left', c: 'center', r: 'right' }
   const cells = CJL_FIELDS.map(([k, x, y, w, h, size, a, b, wrap]) => {
     const dash = k === 'sortCode' ? String(v.sortCode || '').indexOf('-') : -1
-    const inner = k === 'bc1' || k === 'bc2' || k === 'bc3' ? bc(v.tn, w)
+    const inner = k === 'bc1' || k === 'bc2' || k === 'bc3' ? bc(v.tn)
       : dash > 0 ? `${esc(v.sortCode.slice(0, dash))}<span style="font-size:.74em">${esc(v.sortCode.slice(dash))}</span>` : esc(v[k] || '')
     const g = guides ? `<i class="cjl-g">${k}</i>` : ''
     return `<div class="cjl-f${wrap ? ' wrap' : ''}" style="left:${x / CJL.W * 100}%;top:${y / CJL.H * 100}%;width:${w / CJL.W * 100}%;height:${h / CJL.H * 100}%;font-size:${size / CJL.W * 100}cqw;text-align:${al[a]};font-weight:${b ? 800 : 500}">${inner}${g}</div>`
