@@ -617,6 +617,11 @@ function openInvoice(order, done) {
   dlg.querySelector('#inv_pr').onclick = async () => {
     err(''); const v = cur()
     if (!v.trackingNo) return err('송장번호를 입력하세요.')
+    // CJ 는 테스트 인쇄와 같은 CJ 라벨(선인쇄 용지 · 저장된 용지/돌려 찍기/이동 설정)로 찍는다
+    if (v.carrierId === 'cj') {
+      const st = cjlLoad()
+      try { return await cjlPrint([{ v: cjlValues(order, sender, { trackingNo: v.trackingNo, delivery: order.size ? `${order.size} D 1` : '', shortAddr: cjlShortAddr(order.address) }, st), guides: false }], st) } catch (e) { return err(e.message) }
+    }
     const names = Object.fromEntries([...dlg.querySelectorAll('#inv_c option')].map((o) => [o.value, o.textContent]))
     try { await printInvoice({ ...order, invoice: { ...v, carrierName: names[v.carrierId] || v.carrierId } }, sender) } catch (e) { err(e.message) }
   }
@@ -660,24 +665,24 @@ async function printInvoice(o, sender) {
 const CJL = { W: 2000, H: 1634 }
 // [키, x, y, w, h, 글자크기, 정렬(l|c|r), 굵게(0|1), 줄바꿈(0|1)]
 const CJL_FIELDS = [
-  ['trackNo', 215, 42, 640, 70, 64, 'l', 1, 0],         // 운송장번호 (맨 위 줄)
-  ['date', 925, 50, 300, 60, 42, 'l', 0, 0],            // 출력일
-  ['seq', 1335, 52, 150, 60, 40, 'c', 0, 0],            // 순번 (26/28)
+  ['trackNo', 215, 24, 690, 82, 72, 'l', 1, 0],         // 운송장번호 (맨 위 줄)
+  ['date', 925, 32, 320, 66, 48, 'l', 0, 0],            // 출력일
+  ['seq', 1335, 36, 150, 60, 40, 'c', 0, 0],            // 순번 (26/28)
   ['bc1', 50, 140, 475, 245, 0, 'l', 0, 0],             // 운송장 바코드 (위)
   ['termNo', 540, 105, 160, 300, 270, 'c', 1, 0],       // 터미널 번호 (4)
-  ['sortCode', 705, 95, 900, 300, 270, 'l', 1, 0],      // 분류코드 (C17-2b) — "-" 뒤는 작게
-  ['toName', 115, 418, 240, 62, 52, 'l', 1, 0],         // 받는 분 이름
-  ['toTel', 365, 418, 420, 62, 52, 'l', 1, 0],          // 받는 분 연락처
-  ['bc3', 1295, 408, 620, 85, 0, 'l', 0, 0],            // 연락처 오른쪽 바코드
-  ['toAddr', 110, 490, 1800, 125, 46, 'l', 0, 1],       // 받는 주소 (크게)
+  ['sortCode', 705, 85, 1000, 320, 305, 'l', 1, 0],      // 분류코드 (C17-2b) — "-" 뒤는 작게
+  ['toName', 115, 412, 240, 70, 60, 'l', 1, 0],         // 받는 분 이름
+  ['toTel', 365, 412, 460, 70, 60, 'l', 1, 0],          // 받는 분 연락처
+  ['bc3', 1295, 392, 620, 85, 0, 'l', 0, 0],            // 연락처 오른쪽 바코드
+  ['toAddr', 110, 485, 1800, 130, 54, 'l', 1, 1],       // 받는 주소 (크게)
   ['shortAddr', 120, 612, 1000, 135, 125, 'l', 1, 0],   // 큰 글씨 주소 (▶ 감정 486-1)
-  ['fromName', 115, 745, 600, 50, 38, 'l', 0, 0],       // 보내는 분
-  ['fromTel', 730, 745, 290, 50, 38, 'l', 0, 0],        // 보내는 분 연락처
-  ['delivery', 1108, 745, 230, 60, 48, 'l', 0, 0],      // 수량 칸 (극소 D 1)
+  ['fromName', 115, 742, 567, 56, 44, 'l', 0, 0],       // 보내는 분
+  ['fromTel', 697, 742, 330, 56, 44, 'l', 0, 0],        // 보내는 분 연락처
+  ['delivery', 1141, 745, 230, 60, 48, 'l', 0, 0],      // 수량 칸 (극소 D 1)
   ['fee', 1650, 740, 90, 60, 44, 'c', 0, 0],            // 운임 (0)
   ['settle', 1875, 740, 110, 60, 44, 'l', 0, 0],        // 정산 (신용)
-  ['fromAddr', 115, 800, 1780, 50, 38, 'l', 0, 0],      // 보내는 주소
-  ['design', 35, 855, 1850, 60, 44, 'l', 1, 0],         // 디자인명(없으면 상품명)
+  ['fromAddr', 115, 798, 1780, 56, 44, 'l', 0, 0],      // 보내는 주소
+  ['design', 35, 855, 1850, 66, 54, 'l', 1, 0],         // 디자인명(없으면 상품명)
   ['qty', 1935, 860, 60, 50, 38, 'c', 0, 0],            // 수량
   ['memo', 30, 1385, 1040, 75, 46, 'l', 0, 0],          // 배송 메모 (zone 위)
   ['total', 1085, 1405, 200, 55, 40, 'l', 1, 0],        // 총수량:1 (메모 오른쪽)
@@ -685,7 +690,9 @@ const CJL_FIELDS = [
   ['bc2', 1310, 1385, 620, 175, 0, 'l', 0, 0],          // 운송장 바코드 (아래)
   ['tnPlain', 1500, 1572, 300, 45, 34, 'c', 0, 0],      // 바코드 아래 숫자
 ]
-const CJL_DEF = { w: 100, h: 82, dx: 0, dy: 0, mask: true }
+// w·h: 라벨(스티커) 크기 — 좌표의 기준. pw·ph: 프린터 드라이버의 용지 크기 — 라벨은 그 왼쪽 위에 놓고 dx·dy 로 옮긴다
+//   rot: 프린터가 라벨을 옆으로 눕혀 내보낼 때(롤 폭 100 · 길이 122.5) 라벨을 돌리는 각도(0 · 90 · 270). 드라이버 용지는 너비 100 × 높이 122.5
+const CJL_DEF = { w: 122.5, h: 100, pw: 122.5, ph: 100, rot: 90, dx: 0, dy: 0, sc: 100, mask: true }
 const cjlLoad = () => { try { return { ...CJL_DEF, ...JSON.parse(localStorage.getItem('cjl') || '{}') } } catch { return { ...CJL_DEF } } }
 const cjlSave = (s) => { try { localStorage.setItem('cjl', JSON.stringify(s)) } catch { /* 저장 못 해도 인쇄는 된다 */ } }
 
@@ -716,24 +723,37 @@ function cjlValues(o, sender, ex, st) {
 }
 
 // 라벨 한 장의 HTML — guides 면 칸마다 점선 틀과 이름을 그려 위치 맞추기에 쓴다
-function cjlHtml(v, st, guides) {
-  const bc = (val) => {
+function cjlHtml(v, st, guides, flat) {
+  // 바코드 — 막대 한 칸(모듈)을 프린터 점(203dpi = 0.125mm)의 정수배로 그린다. 칸에 맞춰 늘이면 점이 고르지 않게
+  //   번져 막대가 굵어지고 틈이 메워진다. 칸 폭에 들어가는 가장 큰 정수배(최대 4점)를 쓰고 왼쪽에 붙인다.
+  const bc = (val, cellW) => {
     if (!val || !window.JsBarcode) return ''
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-    window.JsBarcode(svg, val, { format: 'CODE128', width: 3, height: 100, displayValue: false, margin: 0 })
-    svg.setAttribute('viewBox', `0 0 ${svg.getAttribute('width')} ${svg.getAttribute('height')}`)
-    svg.setAttribute('preserveAspectRatio', 'none'); svg.removeAttribute('width'); svg.removeAttribute('height')
+    window.JsBarcode(svg, val, { format: 'CODE128', width: 1, height: 100, displayValue: false, margin: 0 })
+    const n = parseFloat(svg.getAttribute('width')), hh = parseFloat(svg.getAttribute('height'))   // JsBarcode 는 "101px" 처럼 단위를 붙인다
+    const cellMm = cellW / CJL.W * st.w
+    const dots = Math.max(1, Math.min(4, Math.floor(cellMm * 8 / n)))
+    svg.setAttribute('viewBox', `0 0 ${n} ${hh}`)
+    svg.setAttribute('preserveAspectRatio', 'none'); svg.setAttribute('shape-rendering', 'crispEdges')
+    svg.removeAttribute('width'); svg.removeAttribute('height')
+    svg.style.width = `${n * dots * 0.125 / cellMm * 100}%`
     return svg.outerHTML
   }
   const al = { l: 'left', c: 'center', r: 'right' }
   const cells = CJL_FIELDS.map(([k, x, y, w, h, size, a, b, wrap]) => {
     const dash = k === 'sortCode' ? String(v.sortCode || '').indexOf('-') : -1
-    const inner = k === 'bc1' || k === 'bc2' || k === 'bc3' ? bc(v.tn)
+    const inner = k === 'bc1' || k === 'bc2' || k === 'bc3' ? bc(v.tn, w)
       : dash > 0 ? `${esc(v.sortCode.slice(0, dash))}<span style="font-size:.74em">${esc(v.sortCode.slice(dash))}</span>` : esc(v[k] || '')
     const g = guides ? `<i class="cjl-g">${k}</i>` : ''
     return `<div class="cjl-f${wrap ? ' wrap' : ''}" style="left:${x / CJL.W * 100}%;top:${y / CJL.H * 100}%;width:${w / CJL.W * 100}%;height:${h / CJL.H * 100}%;font-size:${size / CJL.W * 100}cqw;text-align:${al[a]};font-weight:${b ? 800 : 500}">${inner}${g}</div>`
   }).join('')
-  return `<div class="cjl${guides ? ' guides' : ''}" style="width:${st.w}mm;height:${st.h}mm"><div class="cjl-in" style="transform:translate(${st.dx}mm,${st.dy}mm)">${cells}</div></div>`
+  const pw = st.pw || st.w, ph = st.ph || st.h
+  const pg = `<div class="cjl-pg" style="width:${pw}mm;height:${ph}mm"><div class="cjl${guides ? ' guides' : ''}" style="width:${st.w / pw * 100}%;height:${st.h / ph * 100}%;transform:translate(${st.dx / st.w * 100}%,${st.dy / st.h * 100}%) scale(${(st.sc || 100) / 100})"><div class="cjl-in">${cells}</div></div></div>`
+  // 돌려 찍기 — 용지(ph × pw) 안에 가로 라벨 페이지를 90° · 270° 돌려 넣는다. 미리보기(flat)는 돌리지 않는다
+  const rot = flat ? 0 : Number(st.rot) || 0
+  if (!rot) return pg
+  const tf = rot === 90 ? `translate(${ph}mm,0) rotate(90deg)` : `translate(0,${pw}mm) rotate(-90deg)`
+  return `<div class="cjl-rot" style="width:${ph}mm;height:${pw}mm"><div style="position:absolute;left:0;top:0;transform-origin:0 0;transform:${tf}">${pg}</div></div>`
 }
 
 // 인쇄 — 라벨 크기로 @page 를 잡고 한 장에 한 라벨. 인쇄가 끝나면 원래대로 돌려 놓는다.
@@ -744,7 +764,8 @@ async function cjlPrint(labels, st) {
   host.className = 'cjl-host'
   host.innerHTML = labels.map((l) => cjlHtml(l.v, st, l.guides)).join('')
   const sty = document.createElement('style')
-  sty.textContent = `@media print { @page { size: ${st.w}mm ${st.h}mm; margin: 0 } }`
+  const pw = st.pw || st.w, ph = st.ph || st.h
+  sty.textContent = `@media print { @page { size: ${Number(st.rot) ? `${ph}mm ${pw}mm` : `${pw}mm ${ph}mm`}; margin: 0 } }`
   document.head.appendChild(sty)
   window.addEventListener('afterprint', () => { sty.remove(); host.className = ''; host.innerHTML = '' }, { once: true })
   window.print()
@@ -841,11 +862,14 @@ async function openCjLabel(order, sender, trackingNo) {
           ${txt('cjl_dv', '수량 칸 (배달 코드)', ex.delivery, '예: 극소 D 1')}
         </div>
         <div class="field-grid">
-          ${num('cjl_w', '용지 가로(mm)', st.w)}${num('cjl_h', '용지 세로(mm)', st.h)}
+          ${num('cjl_pw', '용지 가로(mm) — 라벨 방향', st.pw, 0.5)}${num('cjl_ph', '용지 세로(mm) — 라벨 방향', st.ph, 0.5)}
+          <label class="field"><span class="field-label">돌려 찍기</span><select id="cjl_rot" class="field-input">${[[0, '안 돌림'], [90, '90° (시계 방향)'], [270, '270° (반시계 방향)']].map(([x, t]) => `<option value="${x}" ${Number(st.rot) === x ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+          ${num('cjl_w', '라벨 가로(mm)', st.w, 0.5)}${num('cjl_h', '라벨 세로(mm)', st.h, 0.5)}
           ${num('cjl_dx', '가로 이동(mm)', st.dx, 0.5)}${num('cjl_dy', '세로 이동(mm)', st.dy, 0.5)}
+          ${num('cjl_scl', '배율(%) — 글자·칸 전체 크기', st.sc, 1)}
         </div>
         <label class="field" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" id="cjl_mask" ${st.mask ? 'checked' : ''}> <span>받는 분 이름 · 연락처 가리기 (조*재 · 010-5153-****)</span></label>
-        <div class="field-hint">설정(용지 크기 · 이동)은 이 브라우저에 기억됩니다. 인쇄가 밀리면 "가로 이동 · 세로 이동" 으로 맞추세요. 빈 칸은 미리보기·테스트 인쇄에서만 테스트 값(터미널 4 · C17-2b · 춘천중앙-B36-1구역 · 순번 26/28 · 메모 · 수량 5)으로 채워 보이고, 점선 틀도 거기에만 나옵니다.</div>
+        <div class="field-hint">설정(용지 크기 · 이동)은 이 브라우저에 기억됩니다. 프린터 용지 크기는 프린터 기본 설정(드라이버)의 용지와 같게 넣으세요. 인쇄가 밀리면 "가로 이동 · 세로 이동" 으로, 글자가 작게(축소되어) 나오면 먼저 인쇄 창의 배율을 "기본값(100)" · 여백 "없음" 으로 하고, 그래도 작으면 "배율" 로 맞추세요. 빈 칸은 미리보기·테스트 인쇄에서만 테스트 값(터미널 4 · C17-2b · 춘천중앙-B36-1구역 · 순번 26/28 · 메모 · 수량 5)으로 채워 보이고, 점선 틀도 거기에만 나옵니다.</div>
         <div class="drawer-err" id="cjl_err"></div>
         <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
           <button type="button" class="btn btn-ghost" id="cjl_test">테스트 인쇄 (틀)</button>
@@ -858,13 +882,13 @@ async function openCjLabel(order, sender, trackingNo) {
   const read = () => {
     ex.trackingNo = q('#cjl_tn').value; ex.sortCode = q('#cjl_sc').value; ex.termNo = q('#cjl_tm').value; ex.zone = q('#cjl_zn').value; ex.shortAddr = q('#cjl_sa').value; ex.delivery = q('#cjl_dv').value; ex.seq = q('#cjl_sq').value
     const n = (id, d) => { const x = Number(q(id).value); return Number.isFinite(x) && q(id).value !== '' ? x : d }
-    return { w: Math.max(30, n('#cjl_w', CJL_DEF.w)), h: Math.max(30, n('#cjl_h', CJL_DEF.h)), dx: n('#cjl_dx', 0), dy: n('#cjl_dy', 0), mask: q('#cjl_mask').checked }
+    return { w: Math.max(30, n('#cjl_w', CJL_DEF.w)), h: Math.max(30, n('#cjl_h', CJL_DEF.h)), pw: Math.max(30, n('#cjl_pw', CJL_DEF.pw)), ph: Math.max(30, n('#cjl_ph', CJL_DEF.ph)), rot: Number(q('#cjl_rot').value) || 0, dx: n('#cjl_dx', 0), dy: n('#cjl_dy', 0), sc: Math.min(200, Math.max(50, n('#cjl_scl', 100))), mask: q('#cjl_mask').checked }
   }
   // 비어 있는 칸은 테스트 값으로 채워 보여 준다(미리보기 · 테스트 인쇄만 — 실제 인쇄는 입력한 값만)
   const TEST = { trackingNo: '601364783055', sortCode: 'C17-2b', termNo: '4', zone: '춘천중앙-B36-1구역', shortAddr: '감정 486-1', delivery: '극소 D 1', seq: '26/28' }
   const testOrder = () => ({ ...order, memo: order.memo || '문앞에 놓아 주세요', qty: 5 })
   const filled = () => Object.fromEntries(Object.keys(ex).map((k) => [k, ex[k] || TEST[k] || '']))
-  const paint = () => { const s = read(); q('#cjl_prev').innerHTML = cjlHtml(cjlValues(testOrder(), sender, filled(), s), s, true); q('#cjl_prev .cjl').style.cssText = `width:100%;height:auto;aspect-ratio:${s.w} / ${s.h}` }
+  const paint = () => { const s = read(); q('#cjl_prev').innerHTML = cjlHtml(cjlValues(testOrder(), sender, filled(), s), s, true, true); q('#cjl_prev .cjl-pg').style.cssText = `width:100%;height:auto;aspect-ratio:${s.pw} / ${s.ph}` }
   dlg.querySelectorAll('input').forEach((i) => i.addEventListener('input', paint))
   paint()
   const close = () => { dlg.close(); dlg.remove() }
